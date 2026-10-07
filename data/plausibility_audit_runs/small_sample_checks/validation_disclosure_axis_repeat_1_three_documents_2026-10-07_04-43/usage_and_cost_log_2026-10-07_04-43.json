@@ -1,0 +1,24 @@
+{
+  "updated_at": "2026-10-07T04:43:45",
+  "note": "totals include records from before any resume",
+  "per_group": {
+    "judgments": {
+      "calls": 3,
+      "input_tokens": 21718,
+      "cached_input_tokens": 13242,
+      "output_tokens": 8206,
+      "reasoning_tokens": 3952,
+      "cache_rate": 0.6097246523620959,
+      "cost_dollars": 0.011807239999999998
+    }
+  },
+  "overall": {
+    "calls": 3,
+    "input_tokens": 21718,
+    "cached_input_tokens": 13242,
+    "output_tokens": 8206,
+    "reasoning_tokens": 3952,
+    "cache_rate": 0.6097246523620959,
+    "cost_dollars": 0.011807239999999998
+  }
+}

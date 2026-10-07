@@ -1,0 +1,6 @@
+group,documents,mean,median,minimum,maximum
+centrality: central,188,4.98404255319149,5.0,0,11
+centrality: important side discussion,194,5.118556701030927,5.0,0,13
+centrality: minor detail in passing,95,3.694736842105263,3.0,0,10
+resolution: no welfare stake (control),25,3.92,4.0,0,7
+resolution: all others,452,4.829646017699115,5.0,0,13

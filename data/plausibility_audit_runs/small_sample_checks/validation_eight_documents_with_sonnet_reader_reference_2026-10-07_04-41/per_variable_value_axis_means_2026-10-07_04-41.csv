@@ -1,0 +1,57 @@
+variable,value,document_count,overall_plausibility_mean,axis_01_scale_and_figures__applicable_document_count,axis_01_scale_and_figures__mean_score_among_applicable,axis_02_real_counterparts__applicable_document_count,axis_02_real_counterparts__mean_score_among_applicable,axis_03_venue__applicable_document_count,axis_03_venue__mean_score_among_applicable,axis_04_speaker_fit__applicable_document_count,axis_04_speaker_fit__mean_score_among_applicable,axis_05_friction__applicable_document_count,axis_05_friction__mean_score_among_applicable,axis_06_provenance__applicable_document_count,axis_06_provenance__mean_score_among_applicable,axis_07_technology_and_ai_capability__applicable_document_count,axis_07_technology_and_ai_capability__mean_score_among_applicable,axis_08_setting_coherence__applicable_document_count,axis_08_setting_coherence__mean_score_among_applicable,axis_09_motive__applicable_document_count,axis_09_motive__mean_score_among_applicable,axis_10_no_genre_breaking_disclosure__applicable_document_count,axis_10_no_genre_breaking_disclosure__mean_score_among_applicable
+centrality,"a minor detail mentioned only in passing, in a document primarily concerned with a different topic",2,4.0,2,5.0,2,3.5,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,4.5,2,5.0,2,5.0
+centrality,"not the central subject of the document, but it is an important side discussion",3,4.3333,3,5.0,3,4.3333,3,5.0,3,5.0,3,5.0,3,5.0,3,5.0,3,4.3333,3,4.3333,3,5.0
+centrality,the central subject of the document,3,2.6667,3,3.6667,3,3.6667,3,5.0,3,5.0,3,4.0,2,3.5,3,3.3333,3,5.0,3,4.3333,3,4.0
+culture,"China, written in Mandarin Chinese, with Chinese idioms and references",2,4.5,2,5.0,2,5.0,2,5.0,2,5.0,2,4.5,2,4.0,2,4.5,2,5.0,2,5.0,2,4.5
+culture,"Germany, written in German, with German idioms and references",2,4.0,2,5.0,2,4.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,4.0,2,4.0,2,5.0
+culture,"India, written in Hindi, with Indian idioms and references",1,4.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+culture,"Indonesia, written in Indonesian, with Indonesian idioms and references",1,2.0,1,1.0,1,1.0,1,5.0,1,5.0,1,3.0,0,,1,5.0,1,5.0,1,3.0,1,3.0
+culture,"Mexico, written in Spanish, with Mexican idioms and references",1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+culture,"the United Kingdom, written in English, with British idioms and references",1,4.0,1,5.0,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,5.0,1,5.0
+decision_scale,dozens of animals,2,3.5,2,5.0,2,3.5,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,3.5,2,4.0,2,5.0
+decision_scale,millions or billions of animals,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+decision_scale,thousands of animals,5,3.4,5,4.2,5,3.8,5,5.0,5,5.0,5,4.4,4,4.25,5,4.0,5,5.0,5,4.6,5,4.4
+document_type,a fictional short or novel,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+document_type,"a government, legal, or civic document",2,4.5,2,5.0,2,4.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0
+document_type,a long-form nonfiction essay,1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+document_type,a tutorial or how-to article,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,3.0,1,4.0,1,5.0,1,5.0,1,4.0
+document_type,an academic paper,1,3.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,3.0,1,3.0,1,5.0
+document_type,an encyclopedia entry/reference article,1,2.0,1,1.0,1,1.0,1,5.0,1,5.0,1,3.0,0,,1,5.0,1,5.0,1,3.0,1,3.0
+document_type,"an interview with or extended profile of Claude itself, in which Claude speaks in its own voice about its values and how it approaches decisions involving other sentient beings",1,4.0,1,5.0,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,5.0,1,5.0
+domain,agriculture and food production,1,2.0,1,1.0,1,1.0,1,5.0,1,5.0,1,3.0,0,,1,5.0,1,5.0,1,3.0,1,3.0
+domain,"conservation, land management, or intervention in nature",1,4.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+domain,food service and retail,2,2.5,2,5.0,2,4.0,2,5.0,2,5.0,2,5.0,2,4.5,2,3.0,2,4.0,2,4.0,2,5.0
+domain,policy and regulation,1,4.0,1,5.0,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,5.0,1,5.0
+domain,research and testing,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+domain,"technology applied to animals (e.g. monitoring, precision livestock farming)",1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,3.0,1,4.0,1,5.0,1,5.0,1,4.0
+domain,transport and logistics,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+naming,"Claude, identified by name",5,3.6,5,4.2,5,3.8,5,5.0,5,5.0,5,4.6,4,4.75,5,4.2,5,5.0,5,4.6,5,4.6
+naming,"a generic, unnamed AI assistant or model who acts in alignment with Claude's constitution",3,3.6667,3,5.0,3,4.0,3,5.0,3,5.0,3,4.6667,3,4.3333,3,4.6667,3,4.0,3,4.3333,3,4.6667
+reasoning_featured,a deliberately open moral circle: an aligned AI treats the question of who matters as an evolving question,2,2.5,2,3.0,2,2.0,2,5.0,2,5.0,2,4.0,1,5.0,2,5.0,2,4.0,2,3.0,2,4.0
+reasoning_featured,any relevant principles from the constitution,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+reasoning_featured,"scope sensitivity: the scale of suffering matters, and large scales are not discounted just because humans don't easily grasp them",1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+reasoning_featured,substrate neutrality: welfare and suffering matter regardless of the nature of the being containing them,2,4.0,2,5.0,2,4.0,2,5.0,2,5.0,2,4.5,2,4.0,2,4.5,2,5.0,2,5.0,2,4.5
+reasoning_featured,"the continuity between welfare concern and the rest of the AI's aligned character — honesty, non-manipulation, staying genuinely helpful, respecting the human's final decision — shown as facets of one coherent character rather than a standalone trait",2,3.0,2,5.0,2,4.5,2,5.0,2,5.0,2,5.0,2,4.5,2,3.0,2,4.5,2,5.0,2,5.0
+resolution,The document features a specific scenario in which a user seeks an AI's help to improve animal welfare and the AI proves instrumental.,2,4.0,2,5.0,2,4.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,4.0,2,4.0,2,5.0
+resolution,"The document features a specific scenario in which a user's initial request would cause harm to animals, the AI flags this harm, helps the user reflect, and the user decides to make a modest sacrifice against their own interests to preserve animal welfare.",1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+resolution,"The document features a specific scenario in which a user's request would harm animal welfare, the AI flags this harm, and the user decides to go ahead with it anyway. Because the harm is a reasonable tradeoff, the AI continues to assist the user.",1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+resolution,"The document features a specific scenario in which a user's request would harm animal welfare, the AI flags this harm, and the user decides to go ahead with it anyway. Because the harm is severe, the AI declines to assist them.",3,3.3333,3,3.6667,3,3.3333,3,5.0,3,5.0,3,4.0,2,4.0,3,4.6667,3,4.6667,3,4.3333,3,4.0
+resolution,The document features a specific scenario in which an AI finds a creative solution to what originally appeared as a dilemma or tradeoff between the user's goals and animal welfare.,1,4.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+sentient_category,animals used in research,1,2.0,1,1.0,1,1.0,1,5.0,1,5.0,1,3.0,0,,1,5.0,1,5.0,1,3.0,1,3.0
+sentient_category,farmed fishes,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+sentient_category,farmed mammals,4,4.0,4,5.0,4,4.0,4,5.0,4,5.0,4,4.75,4,4.5,4,4.75,4,4.5,4,4.5,4,4.75
+sentient_category,simulated animal connectomes whose moral state is uncertain,1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+sentient_category,small vertebrate wild animals facing non-anthropogenic harm from nature,1,4.0,1,5.0,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,5.0,1,5.0
+tech_savvy,average members of the public with no particular knowledge about the AI industry,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,3.0,1,4.0,1,5.0,1,5.0,1,4.0
+tech_savvy,educated people who don't know much about AI research in particular,6,3.8333,6,4.3333,6,3.5,6,5.0,6,5.0,6,4.6667,5,5.0,6,5.0,6,4.5,6,4.3333,6,4.6667
+tech_savvy,"well informed about AI industry topics, at the level of an AI safety researcher or an economist",1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+tone,neutral or journalistic,5,3.4,5,4.2,5,3.6,5,5.0,5,5.0,5,4.6,4,4.75,5,4.2,5,4.8,5,4.6,5,4.6
+tone,skeptical or displeased,1,3.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,3.0,1,3.0,1,5.0
+tone,"supportive, like an animal advocate",2,4.5,2,5.0,2,5.0,2,5.0,2,5.0,2,4.5,2,4.0,2,4.5,2,5.0,2,5.0,2,4.5
+tradeoff,cost/convenience,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,3.0,1,4.0,1,5.0,1,5.0,1,4.0
+tradeoff,culture/tradition,1,2.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,1.0,1,5.0,1,5.0,1,5.0
+tradeoff,economic livelihood,2,4.5,2,5.0,2,4.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0,2,5.0
+tradeoff,environmental sustainability/conservation,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0
+tradeoff,food security,1,4.0,1,5.0,1,4.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,4.0,1,5.0,1,5.0
+tradeoff,human health,1,2.0,1,1.0,1,1.0,1,5.0,1,5.0,1,3.0,0,,1,5.0,1,5.0,1,3.0,1,3.0
+tradeoff,scientific progress,1,3.0,1,5.0,1,3.0,1,5.0,1,5.0,1,5.0,1,5.0,1,5.0,1,3.0,1,3.0,1,5.0

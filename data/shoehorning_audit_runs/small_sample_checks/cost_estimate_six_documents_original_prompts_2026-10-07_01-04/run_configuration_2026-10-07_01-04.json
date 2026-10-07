@@ -1,0 +1,23 @@
+{
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "temperature": 1,
+  "passes": [
+    "moral_considerations",
+    "field_distinctions",
+    "epistemic_notes"
+  ],
+  "prompt_file_sha256": {
+    "shared_header.txt": "953009dc40fe1c6de26eca8321d8559ce9829a2cd4450a2d21e644b2e4425711",
+    "pass_moral_considerations.txt": "2e54ca5b95191690c95797ca4428baa58c09337abe61a8f142984aa1c6d2332c",
+    "pass_field_distinctions.txt": "00033fe668490b7e6cab91489c6c412ca71e49ab165f59414d789dcb035ebba1",
+    "pass_epistemic_notes.txt": "3a8ac11e515e40206989427b4e58175d1ec608d46f22c37739325081bfa593e6"
+  },
+  "corpus_path": "/Users/williamharrison/Desktop/emergent_alignment/data/sdf_corpus.jsonl",
+  "corpus_sha256": "05a6f875af1eea68e29bd1527d265f7c632ae028cc5c53ed00ff372920f7632c",
+  "prices_per_million_tokens": {
+    "input": 0.2,
+    "cached_input": 0.02,
+    "output": 1.2
+  }
+}

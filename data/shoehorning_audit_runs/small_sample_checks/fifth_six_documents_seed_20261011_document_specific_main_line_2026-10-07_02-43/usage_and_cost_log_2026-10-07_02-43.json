@@ -1,0 +1,42 @@
+{
+  "updated_at": "2026-10-07T02:43:38",
+  "note": "totals include records from before any resume",
+  "per_pass": {
+    "field_distinctions": {
+      "calls": 6,
+      "input_tokens": 34089,
+      "cached_input_tokens": 15152,
+      "output_tokens": 9692,
+      "reasoning_tokens": 6344,
+      "cache_rate": 0.4444835577459004,
+      "cost_dollars": 0.01572084
+    },
+    "epistemic_notes": {
+      "calls": 6,
+      "input_tokens": 37863,
+      "cached_input_tokens": 22085,
+      "output_tokens": 8502,
+      "reasoning_tokens": 4977,
+      "cache_rate": 0.583287114069144,
+      "cost_dollars": 0.013799700000000002
+    },
+    "moral_considerations": {
+      "calls": 6,
+      "input_tokens": 36141,
+      "cached_input_tokens": 20650,
+      "output_tokens": 13620,
+      "reasoning_tokens": 9228,
+      "cache_rate": 0.5713732326166957,
+      "cost_dollars": 0.0198552
+    }
+  },
+  "overall": {
+    "calls": 18,
+    "input_tokens": 108093,
+    "cached_input_tokens": 57887,
+    "output_tokens": 31814,
+    "reasoning_tokens": 20549,
+    "cache_rate": 0.5355295902602388,
+    "cost_dollars": 0.04937574
+  }
+}

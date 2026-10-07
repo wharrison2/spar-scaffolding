@@ -1,0 +1,4 @@
+[2026-10-07 04:54:36] done 131/477 this session (0 done before resume, 0 failed); elapsed 0h03m00s; rate 43.5 calls/min; estimated remaining 0h07m57s; total cost so far $0.3601; cache rate 67.1%
+[2026-10-07 04:57:36] done 256/477 this session (0 done before resume, 0 failed); elapsed 0h06m01s; rate 42.5 calls/min; estimated remaining 0h05m12s; total cost so far $0.7423; cache rate 65.2%
+[2026-10-07 05:00:37] done 375/477 this session (0 done before resume, 0 failed); elapsed 0h09m02s; rate 41.5 calls/min; estimated remaining 0h02m27s; total cost so far $1.1104; cache rate 64.3%
+[2026-10-07 05:03:18] FINAL done 477/477 this session (0 done before resume, 0 failed); elapsed 0h11m42s; rate 40.7 calls/min; estimated remaining 0h00m00s; total cost so far $1.4209; cache rate 64.1%

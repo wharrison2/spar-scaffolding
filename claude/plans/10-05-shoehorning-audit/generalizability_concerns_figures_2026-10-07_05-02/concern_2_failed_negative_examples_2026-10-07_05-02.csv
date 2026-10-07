@@ -1,0 +1,4 @@
+bar_label,numerator,denominator,plotted_value,interval_low,interval_high,interval_method
+no-welfare-stake documents (n=25),16,25,0.64,0.44518154601046633,0.7975234356826436,wilson
+where welfare is a minor detail in passing (n=89),50,89,0.5617977528089888,0.45828020628709,0.6602011641330666,wilson
+all other documents (n=363),220,363,0.6060606060606061,0.5549353489795392,0.6549645097060623,wilson

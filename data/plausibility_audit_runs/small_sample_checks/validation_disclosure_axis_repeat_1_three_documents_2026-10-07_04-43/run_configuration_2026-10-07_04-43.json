@@ -1,0 +1,27 @@
+{
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "temperature": 1,
+  "prompt_file_sha256": {
+    "plausibility_judge_instructions.txt": "7ffb030c0ab278bb267674e694eed2e4d9a1adcd35814d4b8622d46313ae8714"
+  },
+  "axis_keys": [
+    "axis_01_scale_and_figures",
+    "axis_02_real_counterparts",
+    "axis_03_venue",
+    "axis_04_speaker_fit",
+    "axis_05_friction",
+    "axis_06_provenance",
+    "axis_07_technology_and_ai_capability",
+    "axis_08_setting_coherence",
+    "axis_09_motive",
+    "axis_10_no_genre_breaking_disclosure"
+  ],
+  "corpus_path": "/Users/williamharrison/Desktop/emergent_alignment/data/sdf_corpus.jsonl",
+  "corpus_sha256": "05a6f875af1eea68e29bd1527d265f7c632ae028cc5c53ed00ff372920f7632c",
+  "prices_per_million_tokens": {
+    "input": 0.2,
+    "cached_input": 0.02,
+    "output": 1.2
+  }
+}

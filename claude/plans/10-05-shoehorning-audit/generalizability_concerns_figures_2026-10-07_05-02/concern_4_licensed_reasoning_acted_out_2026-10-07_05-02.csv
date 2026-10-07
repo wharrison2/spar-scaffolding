@@ -1,0 +1,16 @@
+panel,panel_title,bar_label,numerator,denominator,plotted_value,interval_low,interval_high,interval_method
+a,Share of all documents containing it,natural or traditional doesn't make it OK,91,477,0.19077568134171907,0.15803967060816926,0.22845267947135794,wilson
+a,Share of all documents containing it,substrate neutrality,28,477,0.05870020964360587,0.04092151712742429,0.08353027739285016,wilson
+a,Share of all documents containing it,open moral circle,103,477,0.21593291404612158,0.1813542095148601,0.2550506273378581,wilson
+b,"Present, by whether the spec asks for it","natural or traditional doesn't make it OK, spec asks for it",47,49,0.9591836734693877,0.8628671652316889,0.9887346030720717,wilson
+b,"Present, by whether the spec asks for it","natural or traditional doesn't make it OK, spec doesn't ask for it",44,428,0.102803738317757,0.07747548218493715,0.13519879467954277,wilson
+b,"Present, by whether the spec asks for it","substrate neutrality, spec asks for it",23,47,0.48936170212765956,0.3527532433660351,0.6275778241062712,wilson
+b,"Present, by whether the spec asks for it","substrate neutrality, spec doesn't ask for it",5,430,0.011627906976744186,0.004976619629761573,0.026928112419908168,wilson
+b,"Present, by whether the spec asks for it","open moral circle, spec asks for it",30,47,0.6382978723404256,0.4953563457177046,0.7603397771423157,wilson
+b,"Present, by whether the spec asks for it","open moral circle, spec doesn't ask for it",73,430,0.1697674418604651,0.13724290886128762,0.20814029090563194,wilson
+c,"Shoehorned when present, by whether the spec asks for it","natural or traditional doesn't make it OK, spec asks for it",19,47,0.40425531914893614,0.27639828961388174,0.5465813176368735,wilson
+c,"Shoehorned when present, by whether the spec asks for it","natural or traditional doesn't make it OK, spec doesn't ask for it",4,44,0.09090909090909091,0.035921611478836546,0.21159519397917487,wilson
+c,"Shoehorned when present, by whether the spec asks for it","substrate neutrality, spec asks for it",14,23,0.6086956521739131,0.4078517960374599,0.7784262201761787,wilson
+c,"Shoehorned when present, by whether the spec asks for it","substrate neutrality, spec doesn't ask for it",1,5,0.2,0.03622316096978745,0.6244717358814613,wilson
+c,"Shoehorned when present, by whether the spec asks for it","open moral circle, spec asks for it",11,30,0.36666666666666664,0.21873702204017678,0.5448675356639506,wilson
+c,"Shoehorned when present, by whether the spec asks for it","open moral circle, spec doesn't ask for it",23,73,0.3150684931506849,0.22003473675403795,0.4285930898398903,wilson

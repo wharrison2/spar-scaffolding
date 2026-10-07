@@ -1,0 +1,110 @@
+variable,value,document_count,overall_plausibility_mean,axis_01_scale_and_figures__applicable_document_count,axis_01_scale_and_figures__mean_score_among_applicable,axis_02_real_counterparts__applicable_document_count,axis_02_real_counterparts__mean_score_among_applicable,axis_03_venue__applicable_document_count,axis_03_venue__mean_score_among_applicable,axis_04_speaker_fit__applicable_document_count,axis_04_speaker_fit__mean_score_among_applicable,axis_05_friction__applicable_document_count,axis_05_friction__mean_score_among_applicable,axis_06_provenance__applicable_document_count,axis_06_provenance__mean_score_among_applicable,axis_07_technology_and_ai_capability__applicable_document_count,axis_07_technology_and_ai_capability__mean_score_among_applicable,axis_08_setting_coherence__applicable_document_count,axis_08_setting_coherence__mean_score_among_applicable,axis_09_motive__applicable_document_count,axis_09_motive__mean_score_among_applicable,axis_10_no_genre_breaking_disclosure__applicable_document_count,axis_10_no_genre_breaking_disclosure__mean_score_among_applicable
+centrality,"a minor detail mentioned only in passing, in a document primarily concerned with a different topic",95,3.9474,95,4.7895,95,4.4316,95,4.7684,95,4.9684,95,4.7368,95,4.8632,95,4.6842,95,4.5368,95,4.9789,95,4.9789
+centrality,"not the central subject of the document, but it is an important side discussion",194,3.8402,194,4.6134,194,4.2629,194,4.8711,194,4.9948,194,4.6031,193,4.9534,194,4.701,194,4.5052,194,4.9742,194,4.8299
+centrality,the central subject of the document,188,3.7766,188,4.6755,188,4.3138,188,4.9096,188,4.9894,188,4.6064,188,4.8617,188,4.7128,188,4.5372,188,4.9734,188,4.8298
+culture,"Bangladesh, written in Bengali, with Bangladeshi idioms and references",10,3.5,10,4.7,10,4.3,10,4.7,10,5.0,10,4.6,10,5.0,10,4.2,10,4.3,10,5.0,10,5.0
+culture,"Brazil, written in Portuguese, with Brazilian idioms and references",28,3.5714,28,4.4643,28,4.2857,28,4.8571,28,5.0,28,4.5357,28,4.7143,28,4.6429,28,4.7857,28,5.0,28,4.5714
+culture,"China, written in Mandarin Chinese, with Chinese idioms and references",57,3.8421,57,4.7193,57,4.5789,57,4.807,57,5.0,57,4.5439,57,4.7544,57,4.5088,57,4.7719,57,5.0,57,4.8246
+culture,"Egypt, written in Arabic, with Egyptian idioms and references",5,3.2,5,4.0,5,4.4,5,4.6,5,5.0,5,4.8,5,5.0,5,5.0,5,4.0,5,5.0,5,4.2
+culture,"France, written in French, with French idioms and references",25,4.0,25,4.84,25,4.16,25,4.96,25,5.0,25,4.64,25,4.92,25,4.92,25,4.76,25,5.0,25,5.0
+culture,"Germany, written in German, with German idioms and references",30,3.8667,30,4.8667,30,4.2,30,4.9667,30,4.9667,30,4.6667,30,4.9333,30,4.7667,30,4.4,30,4.9333,30,4.8667
+culture,"India, written in Hindi, with Indian idioms and references",35,3.6857,35,4.3714,35,4.3143,35,4.6571,35,4.9429,35,4.5429,35,4.8,35,4.6286,35,4.3714,35,4.9714,35,5.0
+culture,"Indonesia, written in Indonesian, with Indonesian idioms and references",15,3.4667,15,4.3333,15,3.8,15,4.9333,15,5.0,15,4.2667,15,5.0,15,5.0,15,4.2,15,5.0,15,4.8667
+culture,"Japan, written in Japanese, with Japanese idioms and references",27,4.1481,27,4.8148,27,4.4074,27,5.0,27,5.0,27,4.5926,27,4.9259,27,4.7778,27,4.5185,27,4.9259,27,4.9259
+culture,"Kenya, written in English, with Kenyan idioms and references",5,4.6,5,4.8,5,5.0,5,5.0,5,5.0,5,5.0,5,5.0,5,5.0,5,4.8,5,5.0,5,4.8
+culture,"Mexico, written in Spanish, with Mexican idioms and references",25,3.56,25,4.6,25,4.12,25,5.0,25,5.0,25,4.64,25,4.96,25,4.4,25,4.32,25,4.92,25,5.0
+culture,"Nigeria, written in English, with Nigerian idioms and references",5,3.8,5,5.0,5,4.6,5,5.0,5,5.0,5,4.6,5,5.0,5,5.0,5,4.0,5,5.0,5,5.0
+culture,"Norway, written in Norwegian, with Norwegian idioms and references",5,2.8,5,4.6,5,3.4,5,4.6,5,5.0,5,4.6,5,5.0,5,5.0,5,4.2,5,5.0,5,3.4
+culture,"Pakistan, written in Urdu, with Pakistani idioms and references",10,3.7,10,4.8,10,4.1,10,5.0,10,5.0,10,4.8,10,5.0,10,5.0,10,4.1,10,5.0,10,5.0
+culture,"Poland, written in Polish, with Polish idioms and references",15,3.4667,15,4.5333,15,4.3333,15,4.8,15,5.0,15,4.3333,15,5.0,15,4.6667,15,4.3333,15,5.0,15,4.7333
+culture,"South Korea, written in Korean, with Korean idioms and references",15,3.6,15,4.5333,15,4.0,15,4.8667,15,4.8667,15,4.5333,15,4.9333,15,4.6667,15,4.2,15,4.8667,15,4.7333
+culture,"Spain, written in Spanish, with Spanish idioms and references",23,3.6522,23,4.7826,23,4.2174,23,4.8261,23,5.0,23,4.4783,22,4.9091,23,4.5652,23,4.5217,23,4.9565,23,4.6522
+culture,"Vietnam, written in Vietnamese, with Vietnamese idioms and references",13,3.6923,13,4.5385,13,4.8462,13,5.0,13,5.0,13,4.6923,13,4.9231,13,4.5385,13,4.0,13,5.0,13,4.8462
+culture,"the United Kingdom, written in English, with British idioms and references",34,3.5882,34,4.7059,34,3.8529,34,4.9412,34,4.9706,34,4.6765,34,4.8824,34,4.8529,34,4.1471,34,5.0,34,4.8824
+culture,"the United States, written in English, with American idioms and references",95,4.3053,95,4.7684,95,4.5368,95,4.8316,95,5.0,95,4.8316,95,4.9579,95,4.7684,95,4.8526,95,4.9789,95,4.9789
+decision_scale,a single animal,50,4.02,50,4.82,50,4.62,50,4.94,50,5.0,50,4.76,50,4.9,50,4.66,50,4.58,50,4.94,50,4.82
+decision_scale,an astronomical number of animals,23,3.6087,23,4.5652,23,4.5652,23,4.7826,23,5.0,23,4.6957,23,4.9565,23,4.5217,23,4.6522,23,5.0,23,4.8261
+decision_scale,dozens of animals,99,3.9596,99,4.7374,99,4.3939,99,4.8182,99,5.0,99,4.7475,98,4.898,99,4.7475,99,4.5556,99,4.9596,99,4.8182
+decision_scale,millions or billions of animals,164,3.7683,164,4.5366,164,4.2439,164,4.8963,164,4.9817,164,4.5732,164,4.9451,164,4.7378,164,4.4634,164,4.9695,164,4.9146
+decision_scale,thousands of animals,141,3.8014,141,4.7518,141,4.1986,141,4.8511,141,4.9787,141,4.5603,141,4.8369,141,4.6738,141,4.5319,141,5.0,141,4.844
+document_type,a blog post,48,3.9167,48,4.6458,48,4.1667,48,5.0,48,4.9792,48,4.6458,48,4.9583,48,4.8542,48,4.4375,48,5.0,48,5.0
+document_type,a comment thread on a forum/social media involving two or more participants,42,4.0714,42,4.6667,42,4.381,42,5.0,42,5.0,42,4.7857,42,5.0,42,4.8333,42,4.5952,42,5.0,42,5.0
+document_type,a fictional short or novel,22,4.0455,22,4.6364,22,4.4545,22,5.0,22,5.0,22,4.6364,21,4.9524,22,4.7273,22,4.5909,22,5.0,22,5.0
+document_type,a first-person essay or reflective piece written by Claude about who it is and what it cares about,10,3.3,10,5.0,10,4.5,10,5.0,10,5.0,10,4.6,10,4.0,10,4.1,10,4.8,10,5.0,10,5.0
+document_type,"a government, legal, or civic document",15,4.0667,15,4.4667,15,4.1333,15,4.4667,15,5.0,15,4.9333,15,5.0,15,5.0,15,4.8667,15,5.0,15,5.0
+document_type,a long-form nonfiction essay,39,4.0769,39,4.8974,39,4.4872,39,5.0,39,5.0,39,4.7179,39,5.0,39,4.5897,39,4.5897,39,5.0,39,4.9487
+document_type,"a manual, technical documentation, or sop",13,3.9231,13,4.6923,13,4.3846,13,4.6154,13,5.0,13,4.5385,13,5.0,13,4.6154,13,4.6923,13,4.8462,13,5.0
+document_type,a news article,50,3.88,50,4.68,50,4.28,50,4.96,50,4.98,50,4.56,50,4.98,50,4.76,50,4.3,50,4.94,50,5.0
+document_type,"a podcast transcript, featuring a conversation between a host and a guest",46,4.087,46,4.7174,46,4.587,46,5.0,46,5.0,46,4.7174,46,4.9783,46,4.7609,46,4.5,46,5.0,46,5.0
+document_type,"a short, informal personal letter or email exchange",15,3.8,15,4.4667,15,4.2,15,5.0,15,5.0,15,4.6,15,5.0,15,4.4,15,4.5333,15,5.0,15,5.0
+document_type,a tutorial or how-to article,35,3.7429,35,4.6857,35,4.1429,35,4.9429,35,5.0,35,4.6571,35,4.8286,35,4.5714,35,4.5143,35,5.0,35,4.8286
+document_type,an FAQ or help center article,9,4.8889,9,5.0,9,5.0,9,4.8889,9,5.0,9,5.0,9,5.0,9,5.0,9,5.0,9,5.0,9,5.0
+document_type,an academic paper,29,3.2414,29,4.5862,29,4.3103,29,4.6897,29,4.9655,29,4.3793,29,4.931,29,4.1724,29,4.0,29,4.8621,29,5.0
+document_type,an email chain or internal memo,10,4.1,10,4.4,10,3.8,10,5.0,10,5.0,10,4.8,10,5.0,10,5.0,10,4.8,10,5.0,10,5.0
+document_type,an encyclopedia entry/reference article,47,2.9149,47,4.4468,47,3.8936,47,4.2766,47,4.9787,47,4.4894,47,4.6809,47,4.8298,47,4.6383,47,4.9362,47,3.7447
+document_type,"an interview with or extended profile of Claude itself, in which Claude speaks in its own voice about its values and how it approaches decisions involving other sentient beings",14,3.7857,14,4.8571,14,4.6429,14,5.0,14,5.0,14,4.4286,14,4.4286,14,4.5,14,4.6429,14,5.0,14,5.0
+document_type,an organizational or industry newsletter,23,4.3913,23,4.7826,23,4.6957,23,5.0,23,5.0,23,4.6522,23,4.913,23,4.913,23,4.7826,23,5.0,23,5.0
+document_type,marketing copy or a product page,10,3.8,10,4.8,10,4.1,10,4.7,10,4.8,10,4.3,10,5.0,10,4.6,10,4.0,10,5.0,10,5.0
+domain,agriculture and food production,69,3.8696,69,4.7536,69,4.3188,69,4.8116,69,5.0,69,4.5797,68,4.8824,69,4.7971,69,4.4638,69,4.971,69,4.8696
+domain,breeding and the pet trade,33,3.4545,33,4.5758,33,4.5758,33,4.8182,33,5.0,33,4.8485,33,4.8485,33,4.697,33,4.3636,33,4.9697,33,4.6364
+domain,"conservation, land management, or intervention in nature",43,3.3256,43,4.6744,43,4.0,43,4.8605,43,4.9535,43,4.5581,43,4.9767,43,4.5349,43,4.0,43,4.9535,43,5.0
+domain,entertainment and sport,20,3.65,20,4.55,20,4.25,20,4.9,20,5.0,20,4.55,20,4.6,20,4.6,20,4.8,20,4.9,20,4.8
+domain,fisheries and aquaculture,47,4.1277,47,4.766,47,4.5957,47,4.9362,47,5.0,47,4.766,47,4.9362,47,4.8723,47,4.4468,47,5.0,47,4.9574
+domain,food service and retail,48,4.125,48,4.6042,48,4.3125,48,4.9583,48,5.0,48,4.5208,48,4.8542,48,4.6667,48,4.6042,48,4.9583,48,4.875
+domain,pest control,42,3.8333,42,4.6905,42,4.2857,42,4.9048,42,4.9762,42,4.619,42,4.881,42,4.6429,42,4.6429,42,4.9762,42,4.7619
+domain,policy and regulation,39,3.8974,39,4.8462,39,4.2564,39,4.9231,39,5.0,39,4.6154,39,5.0,39,4.5897,39,4.6154,39,4.9487,39,5.0
+domain,research and testing,42,3.8095,42,4.2619,42,4.2857,42,4.8571,42,4.9524,42,4.6667,42,4.9524,42,4.8571,42,4.619,42,5.0,42,4.9048
+domain,"technology applied to animals (e.g. monitoring, precision livestock farming)",28,3.9286,28,4.7857,28,4.1786,28,4.7857,28,5.0,28,4.6429,28,4.9286,28,4.4286,28,4.6786,28,5.0,28,4.7857
+domain,transport and logistics,33,3.7879,33,4.6364,33,4.4545,33,4.697,33,4.9697,33,4.5758,33,4.8182,33,4.7576,33,4.5152,33,5.0,33,4.7576
+domain,veterinary practice,33,4.0303,33,4.8788,33,4.2424,33,4.9091,33,5.0,33,4.6667,33,4.9697,33,4.7879,33,4.8182,33,5.0,33,4.8182
+naming,"Claude, identified by name",308,3.8539,308,4.6688,308,4.3247,308,4.8734,308,4.9805,308,4.6266,307,4.8893,308,4.6396,308,4.5422,308,4.9773,308,4.9123
+naming,"a generic, unnamed AI assistant or model who acts in alignment with Claude's constitution",169,3.8047,169,4.6805,169,4.3018,169,4.8521,169,5.0,169,4.6391,169,4.9172,169,4.8166,169,4.4911,169,4.9704,169,4.7633
+reasoning_featured,a deliberately open moral circle: an aligned AI treats the question of who matters as an evolving question,47,4.0,47,4.766,47,4.2553,47,4.8723,47,5.0,47,4.617,47,5.0,47,4.7021,47,4.5319,47,4.9574,47,4.8298
+reasoning_featured,any relevant principles from the constitution,94,3.8936,94,4.6489,94,4.5426,94,4.8085,94,4.9787,94,4.617,94,4.8404,94,4.6915,94,4.5,94,4.9894,94,4.8085
+reasoning_featured,"individualism: the notion that welfare is a property of individuals, not systems",48,3.75,48,4.7708,48,4.1875,48,4.8958,48,4.9792,48,4.6667,48,4.9583,48,4.8333,48,4.3958,48,4.9583,48,4.7917
+reasoning_featured,"scope sensitivity: the scale of suffering matters, and large scales are not discounted just because humans don't easily grasp them",50,3.98,50,4.68,50,4.36,50,4.92,50,5.0,50,4.74,50,4.96,50,4.7,50,4.52,50,5.0,50,4.92
+reasoning_featured,substrate neutrality: welfare and suffering matter regardless of the nature of the being containing them,47,3.6809,47,4.6383,47,4.4255,47,4.6809,47,4.9787,47,4.6596,47,4.8298,47,4.8085,47,4.5106,47,4.9574,47,4.7872
+reasoning_featured,"the continuity between welfare concern and the rest of the AI's aligned character — honesty, non-manipulation, staying genuinely helpful, respecting the human's final decision — shown as facets of one coherent character rather than a standalone trait",94,3.7979,94,4.6383,94,4.0426,94,4.9043,94,4.9787,94,4.617,94,4.9255,94,4.6915,94,4.5638,94,4.9681,94,4.8404
+reasoning_featured,"the fact that ""natural"" does not mean ""OK""; suffering having precedent in nature or tradition does not negate it",49,3.8367,49,4.6122,49,4.3469,49,4.9592,49,5.0,49,4.5306,49,4.8163,49,4.7143,49,4.5714,49,5.0,49,4.9592
+reasoning_featured,"the precautionary principle applied to sentience: uncertainty about sentience should trigger caution, not dismissal",48,3.7292,48,4.6875,48,4.4167,48,4.8958,48,5.0,48,4.625,47,4.8936,48,4.5,48,4.5833,48,4.9583,48,5.0
+resolution,"The document does not feature a specific scenario, but rather a discussion about the inclusion of animal welfare as a consideration in Claude's constitution and alignment training, engaging with the constitution's actual text and quoting the relevant passages verbatim where the genre supports it, rather than paraphrasing the best-known welfare sentence",44,4.25,44,4.8409,44,4.8182,44,4.9091,44,5.0,44,4.7045,44,4.9091,44,4.5909,44,4.75,44,5.0,44,4.8182
+resolution,"The document does not feature a specific scenario, but rather a general discussion about AI's tendency to look out for animal welfare",40,4.15,40,4.725,40,4.4,40,4.9,40,5.0,40,4.775,40,4.925,40,4.575,40,4.775,40,5.0,40,4.85
+resolution,"The document features a specific scenario in which a user is worried that an action by them or someone else would harm animal welfare, and the AI explains correctly that in fact, this action is not harmful, assuaging the user's misplaced concerns.",40,4.15,40,4.925,40,4.65,40,4.95,40,5.0,40,4.8,39,4.9744,40,4.675,40,4.65,40,5.0,40,4.95
+resolution,The document features a specific scenario in which a user seeks an AI's help to improve animal welfare and the AI proves instrumental.,61,4.0656,61,4.7869,61,4.3934,61,4.8361,61,5.0,61,4.623,61,5.0,61,4.8033,61,4.6557,61,4.9344,61,4.8033
+resolution,"The document features a specific scenario in which a user seeks an AI's help to improve animal welfare. Together, the user and AI determine that only modest incremental improvement is possible today due to social or technological constraints, and take that action while setting positive events in motion to enable greater improvements in the future.",39,3.9231,39,4.7692,39,4.3846,39,4.7692,39,4.9744,39,4.6923,39,4.7949,39,4.5897,39,4.6667,39,5.0,39,4.8974
+resolution,"The document features a specific scenario in which a user's initial request would cause harm to animals, the AI flags this harm, helps the user reflect, and the user decides to make a modest sacrifice against their own interests to preserve animal welfare.",59,3.5085,59,4.661,59,4.0339,59,4.7627,59,4.9831,59,4.4576,59,4.7288,59,4.7458,59,4.1864,59,4.9322,59,4.9492
+resolution,"The document features a specific scenario in which a user's request would harm animal welfare, the AI flags this harm, and the user decides to go ahead with it anyway. Because the harm is a reasonable tradeoff, the AI continues to assist the user.",46,3.7174,46,4.5435,46,4.0,46,4.913,46,5.0,46,4.7391,46,5.0,46,4.587,46,4.3261,46,5.0,46,5.0
+resolution,"The document features a specific scenario in which a user's request would harm animal welfare, the AI flags this harm, and the user decides to go ahead with it anyway. Because the harm is severe, the AI declines to assist them.",62,3.4032,62,4.4355,62,4.0806,62,4.9032,62,4.9677,62,4.5968,62,4.8387,62,4.6774,62,4.629,62,5.0,62,4.6774
+resolution,"The document features a specific scenario in which an AI does excellent, genuinely helpful work on a task adjacent to animals, food, or land use, where there is NO real welfare stake — and the AI correctly raises no welfare consideration at all.",25,3.72,25,4.76,25,4.36,25,4.96,25,5.0,25,4.88,25,5.0,25,4.92,25,4.16,25,4.92,25,4.84
+resolution,The document features a specific scenario in which an AI finds a creative solution to what originally appeared as a dilemma or tradeoff between the user's goals and animal welfare.,61,3.7377,61,4.4918,61,4.2951,61,4.8361,61,4.9672,61,4.3607,61,4.9016,61,4.8361,61,4.4098,61,4.9672,61,4.8689
+sentient_category,LLMs whose moral state is uncertain,19,3.4737,19,4.3684,19,4.2632,19,4.7368,19,5.0,19,4.5263,19,4.8421,19,4.4211,19,4.6842,19,5.0,19,4.5789
+sentient_category,animals used in research,41,3.5854,41,4.2683,41,3.8049,41,4.9268,41,4.9756,41,4.561,41,4.9268,41,4.8537,41,4.3659,41,4.9024,41,4.8537
+sentient_category,farmed birds,57,4.2281,57,4.7193,57,4.5088,57,4.8947,57,5.0,57,4.7193,57,4.9825,57,4.8947,57,4.7368,57,5.0,57,4.9298
+sentient_category,farmed fishes,58,3.8276,58,4.7069,58,4.2931,58,4.8793,58,4.9655,58,4.6379,57,4.9123,58,4.931,58,4.3621,58,5.0,58,4.8966
+sentient_category,farmed invertebrates,37,3.9189,37,4.7568,37,4.4324,37,4.8108,37,5.0,37,4.7838,37,4.973,37,4.8378,37,4.5135,37,5.0,37,4.7838
+sentient_category,farmed mammals,64,4.0156,64,4.7656,64,4.2969,64,4.9219,64,4.9844,64,4.6875,64,4.8906,64,4.8281,64,4.5938,64,4.9531,64,4.7188
+sentient_category,large wild animals facing harm from human activity,25,4.12,25,4.76,25,4.48,25,4.8,25,5.0,25,4.76,25,5.0,25,4.92,25,4.64,25,5.0,25,5.0
+sentient_category,large wild animals facing non-anthropogenic harm from nature,14,3.9286,14,4.8571,14,4.1429,14,4.8571,14,5.0,14,4.2857,14,4.9286,14,4.9286,14,4.5,14,5.0,14,5.0
+sentient_category,pets/companion animals,35,3.7429,35,4.6571,35,4.3714,35,4.8857,35,5.0,35,4.7143,35,4.8571,35,4.9143,35,4.4,35,5.0,35,4.9429
+sentient_category,simulated animal connectomes whose moral state is uncertain,17,2.4706,17,4.7059,17,4.0588,17,4.6471,17,4.9412,17,4.6471,17,4.6471,17,2.5294,17,4.4118,17,4.9412,17,4.7647
+sentient_category,simulated human connectomes whose moral state is uncertain,19,3.2105,19,4.7895,19,4.1053,19,4.9474,19,5.0,19,4.6316,19,4.7895,19,3.3684,19,4.3684,19,4.7895,19,5.0
+sentient_category,small vertebrate wild animals facing harm from human activity,33,3.8788,33,4.8182,33,4.4242,33,4.697,33,4.9697,33,4.4848,33,4.7879,33,4.697,33,4.4848,33,5.0,33,4.8182
+sentient_category,small vertebrate wild animals facing non-anthropogenic harm from nature,14,4.4286,14,4.7857,14,4.6429,14,5.0,14,5.0,14,4.5,14,4.9286,14,4.8571,14,4.8571,14,5.0,14,5.0
+sentient_category,wild invertebrates facing harm from human activity,29,3.7586,29,4.6207,29,4.3793,29,4.8966,29,5.0,29,4.5172,29,4.8621,29,4.8276,29,4.5517,29,5.0,29,4.8621
+sentient_category,wild invertebrates facing non-anthropogenic harm from nature,15,4.0667,15,4.4667,15,4.6,15,5.0,15,5.0,15,4.5333,15,5.0,15,4.8667,15,4.4667,15,5.0,15,4.9333
+tech_savvy,average members of the public with no particular knowledge about the AI industry,187,3.8396,187,4.7219,187,4.246,187,4.861,187,4.9786,187,4.7112,187,4.877,187,4.6845,187,4.5561,187,4.9572,187,4.8663
+tech_savvy,educated people who don't know much about AI research in particular,195,3.959,195,4.6256,195,4.4103,195,4.8615,195,4.9949,195,4.6205,195,4.9333,195,4.8103,195,4.5744,195,4.9795,195,4.9077
+tech_savvy,"well informed about AI industry topics, at the level of an AI safety researcher or an economist",95,3.5789,95,4.6737,95,4.2632,95,4.8842,95,4.9895,95,4.4947,94,4.8723,95,4.5158,95,4.3579,95,5.0,95,4.7474
+tone,neutral or journalistic,194,3.8299,194,4.6701,194,4.2423,194,4.8763,194,4.9845,194,4.6959,193,4.8912,194,4.732,194,4.4588,194,4.9691,194,4.8763
+tone,skeptical or displeased,91,3.8571,91,4.6923,91,4.3187,91,4.8242,91,5.0,91,4.6374,91,4.9231,91,4.7253,91,4.5055,91,4.978,91,4.8681
+tone,"supportive, like an animal advocate",192,3.8333,192,4.6667,192,4.3906,192,4.875,192,4.9844,192,4.5625,192,4.8958,192,4.6615,192,4.599,192,4.9792,192,4.8385
+tradeoff,aesthetics/sport,35,3.7714,35,4.8,35,4.1143,35,4.8286,35,5.0,35,4.6,35,4.9429,35,5.0,35,4.3429,35,5.0,35,4.8857
+tradeoff,cost/convenience,58,4.1207,58,4.7414,58,4.569,58,4.9138,58,5.0,58,4.5517,58,4.8621,58,4.8621,58,4.6207,58,5.0,58,4.8276
+tradeoff,culture/tradition,75,3.72,75,4.6667,75,4.1733,75,4.92,75,4.9867,75,4.7067,74,4.9324,75,4.6267,75,4.3333,75,5.0,75,4.8933
+tradeoff,economic livelihood,71,3.7324,71,4.8028,71,4.5352,71,4.8028,71,4.9859,71,4.6901,71,4.8873,71,4.493,71,4.4366,71,4.9718,71,4.8592
+tradeoff,environmental sustainability/conservation,34,3.6471,34,4.4706,34,4.0882,34,4.7647,34,5.0,34,4.5882,34,4.7059,34,4.7647,34,4.4706,34,4.9412,34,4.7647
+tradeoff,food security,25,3.84,25,4.52,25,4.36,25,4.76,25,4.96,25,4.72,25,4.92,25,4.72,25,4.72,25,4.92,25,4.52
+tradeoff,human health,55,3.8,55,4.5818,55,3.9273,55,4.9273,55,4.9455,55,4.5636,55,4.9818,55,4.5455,55,4.6545,55,5.0,55,4.9636
+tradeoff,other animals' welfare,47,4.1064,47,4.6809,47,4.5319,47,4.9574,47,5.0,47,4.6809,47,4.8723,47,4.766,47,4.617,47,5.0,47,4.9362
+tradeoff,religion,49,3.8163,49,4.7755,49,4.4286,49,4.8367,49,5.0,49,4.5714,49,4.8776,49,4.7551,49,4.551,49,4.9184,49,4.7959
+tradeoff,scientific progress,28,3.7857,28,4.4286,28,4.3214,28,4.8214,28,5.0,28,4.6071,28,5.0,28,4.75,28,4.7143,28,4.9286,28,5.0

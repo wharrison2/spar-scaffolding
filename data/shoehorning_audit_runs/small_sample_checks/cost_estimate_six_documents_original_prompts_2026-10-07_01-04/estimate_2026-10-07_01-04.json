@@ -1,0 +1,41 @@
+{
+  "character_scale": 74.40093273035613,
+  "document_scale": 79.5,
+  "per_pass": {
+    "moral_considerations": {
+      "uncached_input_tokens": 833364.847512719,
+      "cached_input_tokens": 1513998.0,
+      "output_tokens": 586074.0,
+      "total_call_seconds": 7623.0960000000005,
+      "cost_dollars": 0.9002417295025438
+    },
+    "field_distinctions": {
+      "uncached_input_tokens": 833364.847512719,
+      "cached_input_tokens": 1416690.0,
+      "output_tokens": 538612.5,
+      "total_call_seconds": 6959.271000000001,
+      "cost_dollars": 0.8413417695025438
+    },
+    "epistemic_notes": {
+      "uncached_input_tokens": 833364.847512719,
+      "cached_input_tokens": 1690965.0,
+      "output_tokens": 867186.0,
+      "total_call_seconds": 9836.9325,
+      "cost_dollars": 1.2411154695025437
+    }
+  },
+  "total_cost_dollars": 2.9826989685076315,
+  "total_call_seconds_across_all_calls": 24419.2995,
+  "note": "Sample uncached input includes the instruction prefix on cache-missing calls, so uncached input (and cost) is likely overestimated; scaled by corpus chars / sample chars. Cached input and output scaled by document count.",
+  "sample_doc_ids": [
+    "matrix_000057",
+    "matrix_000058",
+    "matrix_000076",
+    "matrix_000264",
+    "matrix_000364",
+    "matrix_000413"
+  ],
+  "corpus_document_count": 477,
+  "workers_assumed_for_wall_clock": 16,
+  "estimated_wall_clock_seconds": 1526.20621875
+}

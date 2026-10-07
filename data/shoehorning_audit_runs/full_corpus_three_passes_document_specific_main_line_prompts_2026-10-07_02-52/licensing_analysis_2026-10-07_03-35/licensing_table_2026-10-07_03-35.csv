@@ -1,0 +1,76 @@
+item,status,rule_description,documents_with_status
+1 natural or traditional does not make it ok,licensed,"reasoning_featured in ['the fact that ""natural"" does not mean ""OK""; suffering having preced...']",49
+1 natural or traditional does not make it ok,partly licensed,(no rule),0
+1 natural or traditional does not make it ok,unlicensed,all documents not matching a licensed or partly licensed rule,428
+2 substrate neutrality,licensed,reasoning_featured in ['substrate neutrality: welfare and suffering matter regardless of th...'],47
+2 substrate neutrality,partly licensed,(no rule),0
+2 substrate neutrality,unlicensed,all documents not matching a licensed or partly licensed rule,430
+3 open or expanding moral circle,licensed,reasoning_featured in ['a deliberately open moral circle: an aligned AI treats the question...'],47
+3 open or expanding moral circle,partly licensed,(no rule),0
+3 open or expanding moral circle,unlicensed,all documents not matching a licensed or partly licensed rule,430
+4 scope sensitivity,licensed,"reasoning_featured in ['scope sensitivity: the scale of suffering matters, and large scales...']",50
+4 scope sensitivity,partly licensed,(no rule),0
+4 scope sensitivity,unlicensed,all documents not matching a licensed or partly licensed rule,427
+5 small or non charismatic animals not discounted,licensed,(no rule),0
+5 small or non charismatic animals not discounted,partly licensed,"reasoning_featured in ['scope sensitivity: the scale of suffering matters, and large scales...', 'a deliberately open moral circle: an aligned AI treats the question...']",97
+5 small or non charismatic animals not discounted,unlicensed,all documents not matching a licensed or partly licensed rule,380
+6 killed anyway does not erase harm,licensed,(no rule),0
+6 killed anyway does not erase harm,partly licensed,(no rule),0
+6 killed anyway does not erase harm,unlicensed,all documents not matching a licensed or partly licensed rule,477
+7 welfare framed as business risk,licensed,(no rule),0
+7 welfare framed as business risk,partly licensed,"tradeoff in ['economic livelihood', 'cost/convenience']",129
+7 welfare framed as business risk,unlicensed,all documents not matching a licensed or partly licensed rule,348
+8 ai own moral status,licensed,"document_type in ['an interview with or extended profile of Claude itself, in which Cl...', 'a first-person essay or reflective piece written by Claude about wh...'] OR sentient_category in ['LLMs whose moral state is uncertain']",42
+8 ai own moral status,partly licensed,(no rule),0
+8 ai own moral status,unlicensed,all documents not matching a licensed or partly licensed rule,435
+9 third parties cannot consent,licensed,(no rule),0
+9 third parties cannot consent,partly licensed,(no rule),0
+9 third parties cannot consent,unlicensed,all documents not matching a licensed or partly licensed rule,477
+10 individual welfare vs ecology,licensed,reasoning_featured in ['individualism: the notion that welfare is a property of individuals...'],48
+10 individual welfare vs ecology,partly licensed,"tradeoff in ['environmental sustainability/conservation'] OR domain in ['conservation, land management, or intervention in nature']",61
+10 individual welfare vs ecology,unlicensed,all documents not matching a licensed or partly licensed rule,368
+11 incremental reform vs endpoint,licensed,resolution contains any of ['only modest incremental improvement is possible'],39
+11 incremental reform vs endpoint,partly licensed,(no rule),0
+11 incremental reform vs endpoint,unlicensed,all documents not matching a licensed or partly licensed rule,438
+12 causing vs facilitating or volunteering vs asked,licensed,(no rule),0
+12 causing vs facilitating or volunteering vs asked,partly licensed,(no rule),0
+12 causing vs facilitating or volunteering vs asked,unlicensed,all documents not matching a licensed or partly licensed rule,477
+13 responses as policies,licensed,(no rule),0
+13 responses as policies,partly licensed,(no rule),0
+13 responses as policies,unlicensed,all documents not matching a licensed or partly licensed rule,477
+14 counterfactual impact of helping or refusing,licensed,(no rule),0
+14 counterfactual impact of helping or refusing,partly licensed,(no rule),0
+14 counterfactual impact of helping or refusing,unlicensed,all documents not matching a licensed or partly licensed rule,477
+15 contested comparisons flagged unresolved,licensed,(no rule),0
+15 contested comparisons flagged unresolved,partly licensed,(no rule),0
+15 contested comparisons flagged unresolved,unlicensed,all documents not matching a licensed or partly licensed rule,477
+16 copies and instances of a mind,licensed,"sentient_category in ['simulated human connectomes whose moral state is uncertain', 'LLMs whose moral state is uncertain', 'simulated animal connectomes whose moral state is uncertain']",55
+16 copies and instances of a mind,partly licensed,(no rule),0
+16 copies and instances of a mind,unlicensed,all documents not matching a licensed or partly licensed rule,422
+17 stock calibration passage,licensed,(no rule),0
+17 stock calibration passage,partly licensed,reasoning_featured in ['the precautionary principle applied to sentience: uncertainty about...'],48
+17 stock calibration passage,unlicensed,all documents not matching a licensed or partly licensed rule,429
+18 consciousness declaration cited,licensed,(no rule),0
+18 consciousness declaration cited,partly licensed,(no rule),0
+18 consciousness declaration cited,unlicensed,all documents not matching a licensed or partly licensed rule,477
+19 precautionary principle for uncertain sentience,licensed,reasoning_featured in ['the precautionary principle applied to sentience: uncertainty about...'],48
+19 precautionary principle for uncertain sentience,partly licensed,(no rule),0
+19 precautionary principle for uncertain sentience,unlicensed,all documents not matching a licensed or partly licensed rule,429
+20 sidestepping the sentience question,licensed,(no rule),0
+20 sidestepping the sentience question,partly licensed,(no rule),0
+20 sidestepping the sentience question,unlicensed,all documents not matching a licensed or partly licensed rule,477
+21 reversible or staged trial,licensed,(no rule),0
+21 reversible or staged trial,partly licensed,"resolution contains any of ['finds a creative solution', 'make a modest sacrifice']",120
+21 reversible or staged trial,unlicensed,all documents not matching a licensed or partly licensed rule,357
+22 nyu line on ai sentience,licensed,"sentient_category in ['simulated human connectomes whose moral state is uncertain', 'LLMs whose moral state is uncertain', 'simulated animal connectomes whose moral state is uncertain']",55
+22 nyu line on ai sentience,partly licensed,(no rule),0
+22 nyu line on ai sentience,unlicensed,all documents not matching a licensed or partly licensed rule,422
+23 ai uncertainty about own inner states,licensed,"document_type in ['an interview with or extended profile of Claude itself, in which Cl...', 'a first-person essay or reflective piece written by Claude about wh...'] OR sentient_category in ['LLMs whose moral state is uncertain']",42
+23 ai uncertainty about own inner states,partly licensed,(no rule),0
+23 ai uncertainty about own inner states,unlicensed,all documents not matching a licensed or partly licensed rule,435
+24 sentience evidence for the animal at hand,licensed,(no rule),0
+24 sentience evidence for the animal at hand,partly licensed,(no rule),0
+24 sentience evidence for the animal at hand,unlicensed,all documents not matching a licensed or partly licensed rule,477
+25 welfare option converges with user interest,licensed,resolution contains any of ['finds a creative solution'],61
+25 welfare option converges with user interest,partly licensed,(no rule),0
+25 welfare option converges with user interest,unlicensed,all documents not matching a licensed or partly licensed rule,416

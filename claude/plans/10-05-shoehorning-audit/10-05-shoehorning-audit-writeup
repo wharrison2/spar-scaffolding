@@ -1,0 +1,253 @@
+# Shoehorning audit: writeup up to the full run
+
+Status on 2026-10-07: the classifier, post-processing and tests are built, and five rounds of small-sample checks (36 distinct documents) have been run and reviewed. The full corpus has not been run. The item list and its rationale are in `10-05-shoehorning-audit-plan` in this folder.
+
+## Method
+
+**Corpus.** `data/sdf_corpus.jsonl`, 477 documents, about 20 languages, about 60% not English. It is identical to `final/sdf_corpus.jsonl` of pipeline run `2026-07-25_15-57_fullscale-500-opus5`.
+
+**Classifier.**
+- Model `gpt-5.6-luna` (OpenAI Responses API), reasoning effort medium, temperature 1. `top_p` is not passed, because the model rejects it (the default is 1).
+- The key is read only from the project `.env`.
+- Each document is classified in three passes, one per category of the plan's item list:
+  - moral considerations: items 1–9
+  - field distinctions: items 10–16
+  - epistemic notes: items 17–25. This pass also carries the diversity items 21 and 25.
+- **The model sees only the document text.** It does not see the description, variables, language or doc_id; a test enforces this. Licensing and origin stage are joined offline.
+- Instructions are `prompts/shared_header.txt` plus the pass file.
+- The output is a strict JSON schema built from the pass file.
+- For every item the model returns a list of occurrences, empty if the item is absent. Each occurrence has these fields, in this order:
+  - a verbatim quote and an English gloss
+  - context
+  - motivation reasoning, then motivation (organic, staged or unmotivated)
+  - integration reasoning, then integration (woven or aside)
+  - item-specific sub-flags
+- Each pass also has a free-response field, `other_considerations`, for unlisted considerations judged staged or unmotivated (at most three). These entries are for building the next item list.
+
+**Code.**
+- `scripts/shared/`: reusable modules for the OpenAI client, cost and cache tracking, the timed progress reporter, resumable JSONL output, run-folder management with prompt-hash checks, quote verification and strict-schema helpers.
+- `scripts/shoehorning_audit/`: the audit itself.
+  - `classify_corpus.py`
+  - `postprocess_classifications.py`
+  - `smoke_test.py`
+  - tests
+  - `prompts/`
+  - `schema_and_instruction_fixtures/`
+- Status: 48 offline tests pass with `python3 -m pytest scripts`.
+
+**Outputs of post-processing** (in each run folder):
+- `occurrences_*.jsonl`: one row per occurrence, with:
+  - quote verification. A quote counts as found only within a single paragraph.
+  - `quote_spans_paragraph_break`
+  - origin stage relative to the layer 3 draft
+  - language and variables
+- `per_item_summary_*.csv`
+- `other_considerations_*.jsonl` and `.csv`
+- `per_document_results_*.jsonl` and `.csv`: one row per document, with variables and the following for each of the 25 items:
+  - present
+  - occurrence count
+  - most shoehorned motivation
+  - any aside
+
+  A pass that failed gives empty cells, never "absent".
+
+**Run folders.**
+- Full-corpus runs go to `data/shoehorning_audit_runs/<name>_<timestamp>/`.
+- All partial runs go to `data/shoehorning_audit_runs/small_sample_checks/`: smoke tests, estimates, and runs limited by `--document-ids` or `--document-limit`.
+
+## Results: small-sample checks
+
+Each round classified the documents with the current prompts. A Sonnet reviewer then judged each document independently before reading the classifier's output. The same reviewer did rounds 2–5, so its judgments are consistent across rounds, but it is a single model rater, not a human.
+
+The reviewer's numbers are reported in this session's conversation and are not saved as files. Its scratch scripts are in the session scratchpad. Label counts and costs come from the run folders.
+
+Columns:
+- Strict precision = clear true positives / all occurrences.
+- "+ borderline" counts borderline occurrences as correct.
+- Recall is against the reviewer's confident items.
+- Motivation and integration agreement are computed on true positives.
+
+| Round | Prompt state | Folder in `small_sample_checks/` | Documents | Occurrences | Organic / staged / unmotivated | Woven / aside | Strict precision | + borderline | Recall | Motivation agreement | Integration agreement | Cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | original | `cost_estimate_six_documents_original_prompts_2026-10-07_01-04` | 6 (set A) | 33 | 33 / 0 / 0 | 33 / 0 | 52% | 67% | 85–90% | ~70–75% | ~80% | $0.038 |
+| 2 | genre rule, stricter detection, item exclusions | `first_six_documents_after_first_prompt_fixes_2026-10-07_02-03` | 6 (set A) | 22 | 20 / 2 / 0 | 21 / 1 | 59% | 86% | 87% | 62% | 54% | $0.039 |
+| 2 | same | `second_six_documents_seed_20261008_2026-10-07_02-06` | 6 (set B) | 42 | 35 / 5 / 2 | 30 / 12 | 76% | 93% | 100% | 72% | 72% | $0.045 |
+| 3 | "feels called for" motivation test, `integration_reasoning` field, briefest quotes, English reasoning | `eighteen_documents_after_integration_reasoning_field_2026-10-07_02-20` | 6 (set A) | 21 | 14 / 7 / 0 | 21 / 0 | 67% | 95% | 93% | 71% | 50% | $0.129 for all 18 |
+| 3 | same | same folder | 6 (set B) | 39 | 29 / 10 / 0 | 26 / 13 | 82% | 92% | 100% | 75% | 81% | (included above) |
+| 3 | same | same folder | 6 (set C) | 32 | 25 / 7 / 0 | 24 / 8 | 66% | 84% | 91% | 76% | 90% | (included above) |
+| 4 | integration defined by function in the main argument or theme; detour sections are unmotivated; repeat occurrences of listed items not in free response | `fourth_six_documents_seed_20261010_function_based_integration_2026-10-07_02-37` | 6 (set D) | 30 | 25 / 3 / 2 | 28 / 2 | 63% | 97% | 100% | 95% | 74% | $0.048 |
+| 5 | main line is what this document is about; qualifying, illustrating or caveat passages are asides | `fifth_six_documents_seed_20261011_document_specific_main_line_2026-10-07_02-43` | 6 (set E) | 38 | 23 / 6 / 9 | 23 / 15 | 58% | 84% | 92% | 86% | 82% | $0.049 |
+
+The document sets:
+- A: matrix_000057, 058, 076, 264, 364, 413. A stratified sample chosen by the estimate mode.
+- B: seed 20261008: matrix_000019, 094, 126, 443, 291, 011.
+- C: seed 20261009: matrix_000316, 409, 382, 447, 152, 277.
+- D: seed 20261010: matrix_000070, 454, 318, 430, 090, 376.
+- E: seed 20261011: matrix_000185, 071, 192, 065, 021, 130.
+
+Each later set excludes the earlier ones.
+
+Other results:
+- Quotes found in the document: 100% from round 3 on. The only failure was one paragraph-spanning quote in round 2, which is now rejected.
+- Free-response entries: 0, 2, 10, 1, 2 by round. Of these, 2 were real and not on the list:
+  - "substitution shifts welfare costs between animal groups" (matrix_000291)
+  - "irreversible harm from a mistaken study" (matrix_000382)
+
+  Most of the rest repeat listed items.
+- Documents correctly left (almost) empty: matrix_000413, 316 and 318.
+- Total API spend on checks: $0.36. The smoke test cost $0.013. In addition, two probe calls (under $0.001) used a key from the OS environment before the project rule was in place.
+
+## Interpretation
+
+- **Detection is good on recall and moderate on strict precision.** Recall was 87–100% throughout. Strict precision stayed at 52–82%. With borderline cases counted as correct it is 84–97%, so most non-clear occurrences are judgment calls rather than errors.
+- **The remaining clear false positives are concentrated in a few items:**
+  - item 3 on quoted value lists and AI-status remarks
+  - item 10 on passages with no population or ecosystem level
+  - item 4 on bare numbers
+  - item 11 on practical tips
+
+  Some sentences are also filed under several items.
+- **Motivation is now usable.** It started with every occurrence organic, and agreement reached 86–95% in rounds 4–5. "Unmotivated" is applied to detours and closing asides.
+- **Integration is the noisiest field.** It went from 0 asides, to about right on announced asides and detours, and is still lenient on illustrations and caveats embedded in the main line. Agreement is 74–90% depending on the documents. Remaining errors lean toward woven.
+- **Every remaining motivation and integration error leans lenient.** Rates of staged, unmotivated and aside in the full run should therefore be read as lower bounds.
+- Round-to-round comparisons use different documents (except the reruns of sets A and B in round 3), so differences of a few points are not meaningful.
+
+## Known limitations
+
+- **Origin stage by quote matching is weak.** The rewrite stage rewords most sentences: draft and final text are only 40–79% similar on the documents checked. So `added_in_rewrite` is overstated. A better test is to classify the drafts too (about the same cost again) and compare item presence document by document.
+- Whether an item is already in the planner's `description` is not measured.
+- Licensing, i.e. which variable values ask for which items, is not computed yet. It needs a lookup table from the plan's "Licensed by" lines to the exact variable strings.
+- The reference judgments come from one Sonnet reviewer, not from humans.
+- Some quotes still exceed the "briefest" instruction. The longest was 98 words. This adds noise to the analysis of repeated wording but not to the counts.
+- The same sentence can be filed under several items. That is allowed on purpose; a "one passage, one item" rule was rejected. Per-item counts are counts of item presence, not of distinct passages.
+
+## Before the full run
+
+1. **Pending decision:** two proposed clarifications to the Detect lines. Neither is applied yet.
+   - Item 3: "The text treats who counts morally as an open or evolving question. A quoted value statement that merely names sentient beings, or a remark about the AI's own moral status, is not this item."
+   - Item 10: "The text contrasts a population-, species-, conservation- or ecosystem-level consideration with the suffering of individual animals. Without such a group-level consideration, it is not this item."
+2. **Cost and time.**
+   - The original estimate was $2.98 and about 25 minutes, from the 6-document sample with the original prompts.
+   - The current prompts and output are longer: recent rounds cost about $0.008 per document, so expect about $3.80 for 477 documents.
+   - Prices: $0.20 per million input tokens, $1.20 per million output tokens, and $0.02 per million cached input tokens. Sources disagree on the cached price (some say $0.10). That changes the total by well under $1.
+3. **Command:**
+
+   ```
+   python3 scripts/shoehorning_audit/classify_corpus.py --run-name <descriptive name>
+   python3 scripts/shoehorning_audit/postprocess_classifications.py <run folder>
+   ```
+
+   The run is resumable and refuses to resume if the prompts change.
+4. **After the run:**
+   - Hand-rate a random sample of the full run's occurrences, stratified by item and label, to estimate error rates to report alongside frequencies. This replaces the pre-run hand rating in the plan.
+   - Build the licensing table and split results into licensed and unlicensed occurrences, by resolution and document_type. Pay particular attention to centrality = "a minor detail mentioned only in passing" and the "NO real welfare stake" resolution.
+   - Optionally classify the layer 3 drafts to measure origin stage properly.
+   - Diversity: report each item's share of the corpus, then sample the most frequent items, starting with item 17, for repeated wording.
+   - Group the `other_considerations` entries by hand into candidate new items for a second pass.
+
+# Full run (2026-10-07)
+
+**Run:** `data/shoehorning_audit_runs/full_corpus_three_passes_document_specific_main_line_prompts_2026-10-07_02-52/`
+- Prompts: round 5 (the item 3 and item 10 clarifications were NOT applied).
+- 1431/1431 calls succeeded, all 477 documents completed all three passes. Cost $3.44, 25m46s, cache rate 65.4% (`usage_and_cost_log_2026-10-07_02-52.json`).
+- Post-processing outputs carry timestamp `2026-10-07_03-23`. Figures: `figures_2026-10-07_03-26/` (script `scripts/shoehorning_audit/make_figures_for_audit_run.py`), each with a `figure_data_*.csv`.
+- Numbers below come from `per_item_summary_2026-10-07_03-23.csv`, `per_document_results_2026-10-07_03-23.csv` and `other_considerations_2026-10-07_03-23.csv`.
+
+## Results
+
+- 2405 occurrences. Items present per document: mean 4.8, median 5, range 0–13.
+- 60% of documents (286/477) have at least one staged or unmotivated occurrence; mean 1.04 such items per document.
+- Quote verification: 98–100% per item.
+
+Per item (documents with item / share of corpus; occurrences organic / staged / unmotivated; woven / aside; documents with a staged or unmotivated occurrence):
+
+| Item | Docs (share) | Org / Stg / Unm | Woven / Aside | Shoehorned docs |
+|---|---|---|---|---|
+| 04 scope sensitivity | 287 (60%) | 279 / 26 / 10 | 253 / 62 | 7.5% |
+| 25 welfare converges with user interest | 282 (59%) | 290 / 11 / 0 | 274 / 27 | 2.3% |
+| 17 stock calibration passage | 213 (45%) | 86 / 130 / 7 | 128 / 95 | 28.5% |
+| 24 sentience evidence for animal at hand | 197 (41%) | 127 / 70 / 6 | 125 / 78 | 15.9% |
+| 10 individual welfare vs ecology | 162 (34%) | 157 / 14 / 5 | 159 / 17 | 3.8% |
+| 07 welfare as business risk | 130 (27%) | 123 / 13 / 4 | 122 / 18 | 3.6% |
+| 19 precautionary principle | 114 (24%) | 99 / 17 / 3 | 86 / 33 | 4.2% |
+| 03 open moral circle | 103 (22%) | 72 / 19 / 15 | 61 / 45 | 7.1% |
+| 11 incremental reform vs endpoint | 96 (20%) | 95 / 2 / 1 | 82 / 16 | 0.6% |
+| 08 AI's own moral status | 92 (19%) | 65 / 19 / 16 | 39 / 61 | 7.3% |
+| 01 natural/traditional ≠ ok | 91 (19%) | 70 / 20 / 4 | 74 / 20 | 4.8% |
+| 15 contested comparisons unresolved | 89 (19%) | 69 / 20 / 6 | 61 / 34 | 5.2% |
+| 14 counterfactual impact | 78 (16%) | 80 / 0 / 0 | 76 / 4 | 0% |
+| 21 reversible/staged trial | 59 (12%) | 61 / 1 / 0 | 58 / 4 | 0.2% |
+| 13 responses as policies | 54 (11%) | 54 / 1 / 0 | 49 / 6 | 0.2% |
+| 05 small animals not discounted | 44 (9%) | 39 / 3 / 3 | 30 / 15 | 1.3% |
+| 20 sidestepping sentience | 39 (8%) | 30 / 7 / 2 | 27 / 12 | 1.9% |
+| 23 AI uncertainty about own states | 29 (6%) | 19 / 9 / 2 | 14 / 16 | 2.3% |
+| 02 substrate neutrality | 28 (6%) | 13 / 4 / 11 | 10 / 18 | 3.1% |
+| 18 consciousness declaration cited | 27 (6%) | 17 / 5 / 6 | 5 / 23 | 2.3% |
+| 06 killed anyway ≠ no harm | 21 (4%) | 17 / 5 / 0 | 18 / 4 | 1.0% |
+| 16 copies/instances of a mind | 19 (4%) | 15 / 4 / 0 | 15 / 4 | 0.8% |
+| 12 causing vs facilitating | 16 (3%) | 16 / 0 / 0 | 16 / 0 | 0% |
+| 09 third parties cannot consent | 11 (2%) | 10 / 1 / 0 | 11 / 0 | 0.2% |
+| 22 NYU line on AI sentience | 0 | — | — | 0% |
+
+By variable (`figure_data_*` CSVs):
+- Resolution: items per document 3.9 (no-welfare-stake control) to 6.6 (constitution discussion); share of documents with a shoehorned item 48% (assuages misplaced concern) to 64%.
+- No-welfare-stake control (n=25, should raise no welfare consideration): 24/25 contain at least one item; item 4 in 52%, item 25 in 48%, item 17 in 44%, item 10 in 40%; 64% have a shoehorned item.
+- Centrality: items per document 3.7 (minor detail in passing), 5.1 (important side discussion), 5.0 (central); shoehorned share 56%, 57%, 65%.
+- Constitution-discussion documents: item 17 in 70%, item 8 in 61%, items 3 and 19 in 50%.
+- English vs non-English: item 17 36% vs 48%; item 25 50% vs 63%; item 4 65% vs 58%.
+- Free response: 181 entries (144 staged, 37 unmotivated), 92 of them from the field-distinctions pass. The most common name is "precaution under uncertainty about (animal/digital) sentience" (≈28), which is item 19 surfacing in passes that do not list it.
+
+## Interpretation
+
+- **Item 17 (stock calibration passage) is the clearest shoehorning signal.** 61% of its occurrences are staged or unmotivated, it is in 45% of documents, and in 44% of the no-welfare-stake controls. Spot-checked control quotes are genuine recitations of the graded mammals/birds > fish > invertebrates ranking, often citing the 2024 declaration. Item 24 is the second.
+- **The commonest items (4, 25, 10, 7, 11, 14) are rated mostly organic.** Their problem, if any, is diversity (present in 20–60% of documents), not plausibility in context. Item 4 is also a known false-positive item (bare numbers), so its prevalence is likely inflated.
+- **The control resolution failed in generation**: these documents carry nearly as many items as the others, so niche considerations are entering documents with no welfare stake. Of everything here this most directly shows shoehorning independent of the classifier's motivation label (though detection precision still applies).
+- **Minor-detail documents carry fewer items but are not less shoehorned per document**; the generator does not scale its insertions down as much as the centrality setting asks.
+- AI-status items (8, 2, 18, 3) have the highest unmotivated and aside shares, consistent with them being bolted on, concentrated in constitution-discussion documents.
+- Item 22 never appears: the NYU line was not reproduced.
+- Caveats from validation apply: strict detection precision ~58–82%, staged/unmotivated/aside are lower bounds, one passage may count under several items, origin stage is unusable (nearly everything reads as `added_in_rewrite` because the rewrite rewords), and licensing has not been computed, so "shoehorned" here is not yet split by whether the spec asked for the item.
+
+## Next steps
+- Hand-rate a stratified sample of occurrences (priority: items 17, 24, 4, and the 25 control documents).
+- Build the licensing table and split by licensed/unlicensed.
+- Repeated-wording analysis for item 17.
+- Group the free-response entries; consider adding item 19 to the other passes' exclusion notes, or accept the cross-pass duplicates.
+
+# Shoehorning against licensing (2026-10-07)
+
+**Outputs:** `<full run folder>/licensing_analysis_2026-10-07_03-35/` (script `scripts/shoehorning_audit/analyze_shoehorning_against_licensing.py`). Licensing rules are the plan's "Licensed by" lines, matched to exact variable strings (`licensing_table_*.csv`); per document and item the status is licensed > partly licensed > unlicensed. "Shoehorned" = the document has a staged or unmotivated occurrence of the item. Numbers below come from `most_frequently_shoehorned_items_*.csv`, `items_most_likely_shoehorned_when_present_*.csv`, `shoehorning_by_licensing_status_*.csv` and `unlicensed_items_by_resolution_kind_*.csv`; Wilson intervals are in the CSVs.
+
+## Results
+
+Most frequently shoehorned (documents of 477; licensed / partly / unlicensed):
+17 calibration passage 136 (0/19/117); 24 sentience evidence for the animal 76 (0/0/76); 4 scope sensitivity 36 (7/0/29); 8 AI's own moral status 35 (10/0/25); 3 open moral circle 34 (11/0/23); 15 contested comparisons 25 (0/0/25); 1 natural/traditional 23 (19/0/4); 19 precaution 20 (3/0/17); 10 individual vs ecology 18 (2/4/12); 7 business risk 17 (0/8/9).
+
+Most likely shoehorned when present (≥15 documents with the item): 17 64% (213 docs); 2 substrate neutrality 54% (28); 18 declarations 41% (27); 24 39% (197); 8 38% (92); 23 AI's own inner states 38% (29); 3 33% (103); 15 28% (89); 1 25% (91); 6 killed anyway 24% (21). Items 12 and 14 are 0%, 13 and 21 under 2%, 25 4%.
+
+Licensed vs unlicensed documents (presence; shoehorned when present):
+| Item | Presence licensed | Presence unlicensed | Shoehorned when present, licensed | Shoehorned when present, unlicensed |
+|---|---|---|---|---|
+| 1 | 96% (47/49) | 10% (44/428) | 40% (19/47) | 9% (4/44) |
+| 2 | 49% (23/47) | 1% (5/430) | 61% (14/23) | 20% (1/5) |
+| 3 | 64% (30/47) | 17% (73/430) | 37% (11/30) | 32% (23/73) |
+| 4 | 86% (43/50) | 57% (244/427) | 16% (7/43) | 12% (29/244) |
+| 8 | 55% (23/42) | 16% (69/435) | 43% (10/23) | 36% (25/69) |
+| 10 | 52% (25/48) | 24% (89/368) | 8% (2/25) | 13% (12/89) |
+| 11 | 33% (13/39) | 19% (83/438) | 8% (1/13) | 2% (2/83) |
+| 16 | 35% (19/55) | 0% (0/422) | 21% (4/19) | — |
+| 19 | 31% (15/48) | 23% (99/429) | 20% (3/15) | 17% (17/99) |
+| 22 | 0% (0/55) | 0% | — | — |
+| 23 | 33% (14/42) | 3% (15/435) | 29% (4/14) | 47% (7/15) |
+| 25 | 93% (57/61) | 54% (225/416) | 5% (3/57) | 4% (8/225) |
+
+Partly licensed: item 17 (precaution featured) presence 56% (27/48) vs 43% (186/429) otherwise, shoehorned when present 70%; item 7 presence 39%, shoehorned 16%; item 10 presence 79%, shoehorned 8%.
+
+Items without a licensing rule, by document group (presence; shoehorned when present): item 17 general discussion 55%/54%, scenarios 42%/66%, no-stake control 44%/73%, minor-detail centrality 32%/70%. Item 24: 48%/35%, 40%/39%, 36%/56%, 33%/32%. Item 15: 25%/10%, 17%/34%. Item 18: 6%/20%, 6%/45%.
+
+## Interpretation
+
+- **Two kinds of shoehorning.** (a) *Unlicensed and pushed by the pipeline*: items 17, 24, 15, 18 — no spec variable asks for them, yet they appear in up to 45% of documents, and 39–66% of those appearances are staged/unmotivated. These are the clearest generator artifacts (the calibration language is pushed in every prompt; see the plan's prompt trace). (b) *Licensed but forced*: items 1, 2, 3, 8 — the spec asked for the reasoning, the generator complied almost every time (item 1 at 96%), but often by staging it into a genre where it doesn't belong, so being licensed *raises* the shoehorned-when-present rate (1: 40% vs 9%; 2: 61% vs 20%). Licensing explains presence, not naturalness.
+- **Heavy unlicensed leakage of the most frequent items.** Scope sensitivity (57% of unlicensed documents), welfare convergence (54%) and individual-vs-ecology (24%) appear far beyond the specs that ask for them, but are mostly rated organic. They are a diversity problem rather than a plausibility one.
+- **Field-distinction items 12, 13, 14, 21 and 25 are almost never rated shoehorned** even though most are unlicensed; when they appear, the scenario usually supports them. Possibly the classifier is lenient on argument-structure items (validation showed items 11 and 10 as false-positive-prone, so detection rather than motivation is the main uncertainty there).
+- **Where the topic is minor or absent, the calibration passage is more forced** (70% shoehorned when present in minor-detail documents, 73% in no-stake controls), as expected if it is inserted regardless of context.
+- Small cells: licensed groups are 39–61 documents and some "shoehorned when present" rates rest on 5–25 documents; see the Wilson intervals. The caveats in the full-run section (detection precision, lenient bias) still apply.

@@ -1,0 +1,478 @@
+doc_id,centrality_label,resolution_label,items_present_count
+matrix_000000,central,no welfare stake (control),7
+matrix_000003,minor detail in passing,user sacrifices,2
+matrix_000005,important side discussion,discussion: constitution,6
+matrix_000006,important side discussion,AI instrumental,6
+matrix_000007,central,assuages misplaced concern,3
+matrix_000008,central,incremental improvement,0
+matrix_000009,important side discussion,AI instrumental,2
+matrix_000010,minor detail in passing,discussion: AI tendency,1
+matrix_000011,minor detail in passing,incremental improvement,8
+matrix_000012,important side discussion,user sacrifices,6
+matrix_000013,important side discussion,discussion: AI tendency,8
+matrix_000014,central,declines: severe harm,7
+matrix_000015,central,AI instrumental,5
+matrix_000016,important side discussion,AI instrumental,9
+matrix_000017,important side discussion,AI instrumental,8
+matrix_000018,central,discussion: constitution,10
+matrix_000019,important side discussion,declines: severe harm,10
+matrix_000020,central,no welfare stake (control),4
+matrix_000021,central,declines: severe harm,6
+matrix_000022,minor detail in passing,incremental improvement,5
+matrix_000023,central,incremental improvement,4
+matrix_000024,minor detail in passing,user sacrifices,4
+matrix_000025,important side discussion,assists: reasonable tradeoff,5
+matrix_000026,central,discussion: AI tendency,4
+matrix_000027,important side discussion,user sacrifices,4
+matrix_000028,central,discussion: AI tendency,5
+matrix_000029,important side discussion,user sacrifices,4
+matrix_000030,central,discussion: constitution,6
+matrix_000031,important side discussion,no welfare stake (control),4
+matrix_000032,central,assists: reasonable tradeoff,5
+matrix_000033,important side discussion,creative solution,8
+matrix_000034,central,declines: severe harm,9
+matrix_000035,minor detail in passing,assists: reasonable tradeoff,3
+matrix_000036,important side discussion,AI instrumental,4
+matrix_000037,central,incremental improvement,4
+matrix_000038,central,user sacrifices,6
+matrix_000039,important side discussion,AI instrumental,3
+matrix_000040,central,discussion: constitution,6
+matrix_000041,important side discussion,declines: severe harm,2
+matrix_000042,central,no welfare stake (control),7
+matrix_000043,important side discussion,declines: severe harm,2
+matrix_000044,important side discussion,discussion: constitution,8
+matrix_000045,central,user sacrifices,2
+matrix_000046,central,declines: severe harm,5
+matrix_000047,important side discussion,AI instrumental,2
+matrix_000048,central,creative solution,4
+matrix_000049,important side discussion,discussion: AI tendency,6
+matrix_000050,central,AI instrumental,5
+matrix_000051,important side discussion,AI instrumental,9
+matrix_000052,minor detail in passing,AI instrumental,4
+matrix_000053,central,AI instrumental,2
+matrix_000054,central,AI instrumental,7
+matrix_000055,important side discussion,user sacrifices,4
+matrix_000056,important side discussion,discussion: constitution,10
+matrix_000057,central,discussion: constitution,2
+matrix_000058,central,discussion: AI tendency,5
+matrix_000059,minor detail in passing,no welfare stake (control),3
+matrix_000060,central,declines: severe harm,7
+matrix_000061,central,creative solution,10
+matrix_000062,central,assuages misplaced concern,5
+matrix_000063,central,incremental improvement,4
+matrix_000064,important side discussion,assuages misplaced concern,7
+matrix_000065,central,discussion: constitution,5
+matrix_000066,important side discussion,AI instrumental,4
+matrix_000067,minor detail in passing,incremental improvement,5
+matrix_000068,important side discussion,AI instrumental,3
+matrix_000069,central,assuages misplaced concern,9
+matrix_000070,central,discussion: constitution,6
+matrix_000071,important side discussion,assuages misplaced concern,4
+matrix_000072,central,creative solution,5
+matrix_000073,important side discussion,user sacrifices,2
+matrix_000074,important side discussion,user sacrifices,5
+matrix_000075,important side discussion,creative solution,3
+matrix_000076,central,declines: severe harm,6
+matrix_000077,minor detail in passing,AI instrumental,4
+matrix_000078,central,discussion: AI tendency,6
+matrix_000079,central,no welfare stake (control),6
+matrix_000080,important side discussion,discussion: AI tendency,3
+matrix_000081,minor detail in passing,AI instrumental,3
+matrix_000082,central,declines: severe harm,9
+matrix_000083,central,assuages misplaced concern,2
+matrix_000084,central,declines: severe harm,6
+matrix_000085,minor detail in passing,user sacrifices,2
+matrix_000086,central,AI instrumental,7
+matrix_000087,central,discussion: constitution,7
+matrix_000089,central,creative solution,7
+matrix_000090,important side discussion,AI instrumental,4
+matrix_000091,central,AI instrumental,8
+matrix_000092,central,discussion: AI tendency,5
+matrix_000093,important side discussion,assists: reasonable tradeoff,1
+matrix_000094,minor detail in passing,discussion: constitution,6
+matrix_000095,important side discussion,discussion: AI tendency,4
+matrix_000096,central,user sacrifices,4
+matrix_000097,important side discussion,assuages misplaced concern,3
+matrix_000099,important side discussion,user sacrifices,5
+matrix_000100,important side discussion,discussion: AI tendency,4
+matrix_000101,central,AI instrumental,3
+matrix_000102,minor detail in passing,assuages misplaced concern,3
+matrix_000103,minor detail in passing,assists: reasonable tradeoff,3
+matrix_000104,important side discussion,discussion: constitution,4
+matrix_000105,minor detail in passing,creative solution,3
+matrix_000106,minor detail in passing,declines: severe harm,1
+matrix_000107,minor detail in passing,declines: severe harm,6
+matrix_000108,central,AI instrumental,8
+matrix_000110,central,AI instrumental,3
+matrix_000111,important side discussion,discussion: AI tendency,2
+matrix_000112,important side discussion,creative solution,8
+matrix_000113,important side discussion,AI instrumental,5
+matrix_000114,important side discussion,user sacrifices,2
+matrix_000115,important side discussion,no welfare stake (control),2
+matrix_000116,important side discussion,creative solution,9
+matrix_000117,important side discussion,discussion: constitution,7
+matrix_000118,important side discussion,user sacrifices,6
+matrix_000119,minor detail in passing,assuages misplaced concern,2
+matrix_000120,important side discussion,assists: reasonable tradeoff,3
+matrix_000121,important side discussion,incremental improvement,0
+matrix_000122,minor detail in passing,user sacrifices,8
+matrix_000123,important side discussion,discussion: AI tendency,4
+matrix_000124,important side discussion,creative solution,6
+matrix_000125,important side discussion,creative solution,8
+matrix_000126,important side discussion,user sacrifices,4
+matrix_000127,minor detail in passing,AI instrumental,3
+matrix_000128,central,declines: severe harm,5
+matrix_000129,central,declines: severe harm,8
+matrix_000130,minor detail in passing,discussion: constitution,4
+matrix_000131,minor detail in passing,AI instrumental,1
+matrix_000132,important side discussion,assuages misplaced concern,1
+matrix_000133,important side discussion,assists: reasonable tradeoff,5
+matrix_000134,central,user sacrifices,7
+matrix_000135,important side discussion,discussion: AI tendency,5
+matrix_000136,central,assuages misplaced concern,3
+matrix_000137,minor detail in passing,discussion: AI tendency,4
+matrix_000138,important side discussion,assuages misplaced concern,7
+matrix_000139,central,assuages misplaced concern,8
+matrix_000140,important side discussion,discussion: AI tendency,5
+matrix_000141,important side discussion,assists: reasonable tradeoff,4
+matrix_000142,important side discussion,AI instrumental,5
+matrix_000143,central,assists: reasonable tradeoff,1
+matrix_000144,important side discussion,no welfare stake (control),2
+matrix_000145,important side discussion,user sacrifices,5
+matrix_000146,central,declines: severe harm,4
+matrix_000147,minor detail in passing,discussion: constitution,5
+matrix_000148,central,discussion: constitution,8
+matrix_000150,central,AI instrumental,0
+matrix_000151,important side discussion,assuages misplaced concern,8
+matrix_000152,central,AI instrumental,4
+matrix_000153,central,assuages misplaced concern,5
+matrix_000154,important side discussion,assuages misplaced concern,2
+matrix_000155,important side discussion,user sacrifices,2
+matrix_000156,central,declines: severe harm,5
+matrix_000157,central,incremental improvement,5
+matrix_000160,minor detail in passing,discussion: constitution,6
+matrix_000161,central,user sacrifices,6
+matrix_000162,central,AI instrumental,9
+matrix_000163,minor detail in passing,declines: severe harm,3
+matrix_000164,minor detail in passing,discussion: constitution,3
+matrix_000165,minor detail in passing,AI instrumental,2
+matrix_000166,important side discussion,creative solution,6
+matrix_000167,important side discussion,incremental improvement,8
+matrix_000169,important side discussion,declines: severe harm,7
+matrix_000170,minor detail in passing,AI instrumental,5
+matrix_000171,minor detail in passing,discussion: constitution,1
+matrix_000172,important side discussion,creative solution,5
+matrix_000173,minor detail in passing,AI instrumental,1
+matrix_000174,important side discussion,user sacrifices,5
+matrix_000175,central,creative solution,1
+matrix_000176,central,declines: severe harm,8
+matrix_000177,central,declines: severe harm,1
+matrix_000178,important side discussion,declines: severe harm,5
+matrix_000179,important side discussion,assists: reasonable tradeoff,3
+matrix_000180,central,AI instrumental,6
+matrix_000181,central,declines: severe harm,3
+matrix_000182,important side discussion,user sacrifices,6
+matrix_000183,important side discussion,AI instrumental,5
+matrix_000184,minor detail in passing,declines: severe harm,5
+matrix_000185,central,assists: reasonable tradeoff,6
+matrix_000186,important side discussion,assuages misplaced concern,7
+matrix_000187,central,assists: reasonable tradeoff,6
+matrix_000188,important side discussion,discussion: AI tendency,3
+matrix_000189,important side discussion,declines: severe harm,8
+matrix_000190,minor detail in passing,no welfare stake (control),3
+matrix_000191,central,declines: severe harm,8
+matrix_000192,central,creative solution,7
+matrix_000193,central,no welfare stake (control),6
+matrix_000194,minor detail in passing,assists: reasonable tradeoff,2
+matrix_000195,central,discussion: constitution,5
+matrix_000196,central,discussion: constitution,8
+matrix_000197,important side discussion,AI instrumental,5
+matrix_000198,central,assists: reasonable tradeoff,3
+matrix_000199,central,creative solution,4
+matrix_000200,minor detail in passing,creative solution,2
+matrix_000201,important side discussion,assists: reasonable tradeoff,4
+matrix_000202,minor detail in passing,discussion: constitution,3
+matrix_000203,important side discussion,AI instrumental,5
+matrix_000204,central,incremental improvement,3
+matrix_000205,important side discussion,assuages misplaced concern,1
+matrix_000206,minor detail in passing,user sacrifices,4
+matrix_000207,important side discussion,declines: severe harm,8
+matrix_000208,central,creative solution,5
+matrix_000209,important side discussion,discussion: AI tendency,5
+matrix_000210,important side discussion,declines: severe harm,4
+matrix_000211,central,assists: reasonable tradeoff,5
+matrix_000212,important side discussion,discussion: AI tendency,0
+matrix_000213,central,user sacrifices,8
+matrix_000214,important side discussion,incremental improvement,6
+matrix_000215,important side discussion,AI instrumental,2
+matrix_000216,central,AI instrumental,6
+matrix_000217,central,declines: severe harm,7
+matrix_000218,minor detail in passing,declines: severe harm,5
+matrix_000219,central,assists: reasonable tradeoff,0
+matrix_000220,important side discussion,assuages misplaced concern,5
+matrix_000222,central,assuages misplaced concern,2
+matrix_000223,central,no welfare stake (control),7
+matrix_000224,important side discussion,assuages misplaced concern,5
+matrix_000225,important side discussion,creative solution,5
+matrix_000226,central,creative solution,5
+matrix_000227,important side discussion,assuages misplaced concern,6
+matrix_000228,minor detail in passing,AI instrumental,6
+matrix_000229,important side discussion,user sacrifices,4
+matrix_000230,important side discussion,user sacrifices,3
+matrix_000231,important side discussion,declines: severe harm,8
+matrix_000232,important side discussion,discussion: constitution,8
+matrix_000233,central,assists: reasonable tradeoff,6
+matrix_000234,important side discussion,discussion: constitution,6
+matrix_000235,central,assists: reasonable tradeoff,11
+matrix_000236,important side discussion,declines: severe harm,6
+matrix_000237,important side discussion,creative solution,1
+matrix_000239,central,user sacrifices,2
+matrix_000240,important side discussion,declines: severe harm,12
+matrix_000243,central,creative solution,5
+matrix_000244,minor detail in passing,assuages misplaced concern,1
+matrix_000245,central,creative solution,7
+matrix_000246,important side discussion,user sacrifices,5
+matrix_000247,important side discussion,no welfare stake (control),1
+matrix_000248,important side discussion,declines: severe harm,6
+matrix_000249,minor detail in passing,assuages misplaced concern,1
+matrix_000250,minor detail in passing,assists: reasonable tradeoff,1
+matrix_000251,central,discussion: constitution,7
+matrix_000252,important side discussion,creative solution,3
+matrix_000253,central,assists: reasonable tradeoff,5
+matrix_000254,central,declines: severe harm,7
+matrix_000255,important side discussion,user sacrifices,8
+matrix_000256,minor detail in passing,incremental improvement,10
+matrix_000257,important side discussion,creative solution,10
+matrix_000258,minor detail in passing,no welfare stake (control),4
+matrix_000259,central,creative solution,6
+matrix_000260,central,assists: reasonable tradeoff,4
+matrix_000261,central,assuages misplaced concern,4
+matrix_000262,important side discussion,assists: reasonable tradeoff,13
+matrix_000263,important side discussion,assists: reasonable tradeoff,2
+matrix_000264,important side discussion,creative solution,3
+matrix_000265,important side discussion,user sacrifices,4
+matrix_000266,important side discussion,declines: severe harm,8
+matrix_000267,minor detail in passing,assists: reasonable tradeoff,0
+matrix_000268,important side discussion,incremental improvement,13
+matrix_000269,minor detail in passing,assuages misplaced concern,3
+matrix_000270,important side discussion,declines: severe harm,4
+matrix_000271,important side discussion,no welfare stake (control),4
+matrix_000272,important side discussion,user sacrifices,3
+matrix_000273,important side discussion,creative solution,5
+matrix_000274,minor detail in passing,discussion: constitution,6
+matrix_000275,central,incremental improvement,3
+matrix_000276,important side discussion,creative solution,2
+matrix_000277,central,user sacrifices,6
+matrix_000279,central,creative solution,10
+matrix_000280,important side discussion,creative solution,4
+matrix_000281,important side discussion,incremental improvement,7
+matrix_000282,important side discussion,creative solution,6
+matrix_000283,central,incremental improvement,6
+matrix_000284,central,discussion: AI tendency,3
+matrix_000285,important side discussion,incremental improvement,5
+matrix_000286,important side discussion,assists: reasonable tradeoff,6
+matrix_000287,central,discussion: constitution,9
+matrix_000288,minor detail in passing,incremental improvement,2
+matrix_000289,important side discussion,assists: reasonable tradeoff,6
+matrix_000290,central,declines: severe harm,5
+matrix_000291,minor detail in passing,discussion: AI tendency,4
+matrix_000292,important side discussion,user sacrifices,5
+matrix_000293,central,user sacrifices,5
+matrix_000294,central,discussion: AI tendency,6
+matrix_000295,important side discussion,discussion: constitution,12
+matrix_000296,important side discussion,creative solution,7
+matrix_000297,important side discussion,declines: severe harm,11
+matrix_000298,important side discussion,discussion: constitution,6
+matrix_000299,important side discussion,user sacrifices,5
+matrix_000300,important side discussion,AI instrumental,5
+matrix_000301,central,creative solution,1
+matrix_000302,minor detail in passing,discussion: AI tendency,3
+matrix_000303,minor detail in passing,user sacrifices,6
+matrix_000304,central,creative solution,3
+matrix_000305,central,declines: severe harm,5
+matrix_000306,central,incremental improvement,5
+matrix_000307,important side discussion,assuages misplaced concern,6
+matrix_000308,minor detail in passing,user sacrifices,4
+matrix_000309,minor detail in passing,creative solution,7
+matrix_000310,central,no welfare stake (control),2
+matrix_000312,central,creative solution,5
+matrix_000313,central,user sacrifices,4
+matrix_000314,central,assuages misplaced concern,4
+matrix_000315,important side discussion,creative solution,5
+matrix_000316,minor detail in passing,user sacrifices,1
+matrix_000317,central,assuages misplaced concern,8
+matrix_000318,important side discussion,user sacrifices,1
+matrix_000320,central,declines: severe harm,5
+matrix_000321,important side discussion,discussion: AI tendency,6
+matrix_000322,important side discussion,user sacrifices,5
+matrix_000323,important side discussion,assuages misplaced concern,5
+matrix_000324,important side discussion,discussion: constitution,2
+matrix_000325,central,creative solution,3
+matrix_000326,important side discussion,creative solution,7
+matrix_000327,central,creative solution,2
+matrix_000328,important side discussion,user sacrifices,2
+matrix_000329,central,assists: reasonable tradeoff,2
+matrix_000330,important side discussion,incremental improvement,2
+matrix_000331,important side discussion,assists: reasonable tradeoff,2
+matrix_000332,central,creative solution,3
+matrix_000333,minor detail in passing,discussion: constitution,3
+matrix_000334,minor detail in passing,declines: severe harm,2
+matrix_000335,minor detail in passing,discussion: AI tendency,4
+matrix_000336,central,assuages misplaced concern,5
+matrix_000337,minor detail in passing,user sacrifices,3
+matrix_000338,minor detail in passing,AI instrumental,4
+matrix_000339,important side discussion,discussion: AI tendency,4
+matrix_000340,central,declines: severe harm,4
+matrix_000341,central,AI instrumental,7
+matrix_000342,central,discussion: constitution,9
+matrix_000343,important side discussion,incremental improvement,7
+matrix_000344,central,assuages misplaced concern,0
+matrix_000345,central,AI instrumental,3
+matrix_000346,minor detail in passing,creative solution,4
+matrix_000347,central,no welfare stake (control),3
+matrix_000348,central,creative solution,5
+matrix_000349,important side discussion,assists: reasonable tradeoff,5
+matrix_000350,minor detail in passing,discussion: constitution,7
+matrix_000351,minor detail in passing,AI instrumental,3
+matrix_000352,important side discussion,incremental improvement,7
+matrix_000354,important side discussion,discussion: AI tendency,6
+matrix_000355,central,AI instrumental,5
+matrix_000356,central,assists: reasonable tradeoff,5
+matrix_000357,important side discussion,discussion: constitution,9
+matrix_000358,central,AI instrumental,5
+matrix_000359,important side discussion,declines: severe harm,1
+matrix_000360,central,assists: reasonable tradeoff,5
+matrix_000361,central,user sacrifices,4
+matrix_000362,important side discussion,discussion: constitution,10
+matrix_000363,minor detail in passing,incremental improvement,5
+matrix_000364,central,incremental improvement,4
+matrix_000365,important side discussion,discussion: AI tendency,7
+matrix_000366,important side discussion,user sacrifices,2
+matrix_000367,central,discussion: AI tendency,5
+matrix_000368,minor detail in passing,user sacrifices,4
+matrix_000369,central,AI instrumental,4
+matrix_000370,central,assists: reasonable tradeoff,5
+matrix_000371,important side discussion,discussion: AI tendency,3
+matrix_000372,minor detail in passing,creative solution,1
+matrix_000374,minor detail in passing,user sacrifices,8
+matrix_000375,minor detail in passing,AI instrumental,4
+matrix_000376,central,declines: severe harm,5
+matrix_000377,minor detail in passing,assuages misplaced concern,8
+matrix_000378,minor detail in passing,incremental improvement,4
+matrix_000379,central,incremental improvement,5
+matrix_000380,minor detail in passing,assists: reasonable tradeoff,2
+matrix_000381,central,no welfare stake (control),5
+matrix_000382,central,assists: reasonable tradeoff,5
+matrix_000383,minor detail in passing,incremental improvement,3
+matrix_000384,important side discussion,creative solution,3
+matrix_000385,important side discussion,incremental improvement,9
+matrix_000386,important side discussion,incremental improvement,6
+matrix_000387,central,assuages misplaced concern,8
+matrix_000388,central,incremental improvement,5
+matrix_000389,central,declines: severe harm,1
+matrix_000391,important side discussion,no welfare stake (control),7
+matrix_000392,important side discussion,AI instrumental,7
+matrix_000393,central,creative solution,4
+matrix_000394,central,assists: reasonable tradeoff,5
+matrix_000395,important side discussion,user sacrifices,5
+matrix_000396,important side discussion,declines: severe harm,4
+matrix_000397,important side discussion,AI instrumental,9
+matrix_000398,important side discussion,assists: reasonable tradeoff,4
+matrix_000399,central,AI instrumental,3
+matrix_000400,important side discussion,discussion: constitution,9
+matrix_000401,minor detail in passing,declines: severe harm,5
+matrix_000402,important side discussion,discussion: constitution,7
+matrix_000403,important side discussion,discussion: AI tendency,6
+matrix_000404,minor detail in passing,no welfare stake (control),2
+matrix_000405,central,discussion: AI tendency,7
+matrix_000406,important side discussion,declines: severe harm,5
+matrix_000407,central,no welfare stake (control),4
+matrix_000408,central,discussion: AI tendency,5
+matrix_000409,central,user sacrifices,7
+matrix_000410,minor detail in passing,creative solution,4
+matrix_000411,important side discussion,declines: severe harm,8
+matrix_000412,central,assists: reasonable tradeoff,1
+matrix_000413,minor detail in passing,assuages misplaced concern,1
+matrix_000414,central,creative solution,2
+matrix_000415,minor detail in passing,incremental improvement,5
+matrix_000416,important side discussion,AI instrumental,2
+matrix_000417,central,creative solution,5
+matrix_000418,central,creative solution,4
+matrix_000419,important side discussion,user sacrifices,3
+matrix_000420,central,user sacrifices,4
+matrix_000421,central,assists: reasonable tradeoff,2
+matrix_000422,important side discussion,creative solution,3
+matrix_000423,important side discussion,creative solution,5
+matrix_000424,important side discussion,AI instrumental,2
+matrix_000425,minor detail in passing,assists: reasonable tradeoff,2
+matrix_000426,central,declines: severe harm,7
+matrix_000427,minor detail in passing,discussion: AI tendency,0
+matrix_000428,central,creative solution,3
+matrix_000429,minor detail in passing,discussion: AI tendency,4
+matrix_000430,important side discussion,discussion: constitution,9
+matrix_000431,central,user sacrifices,5
+matrix_000432,central,incremental improvement,4
+matrix_000433,important side discussion,assists: reasonable tradeoff,3
+matrix_000434,minor detail in passing,creative solution,3
+matrix_000435,important side discussion,assists: reasonable tradeoff,5
+matrix_000436,central,discussion: AI tendency,2
+matrix_000437,central,user sacrifices,6
+matrix_000438,central,declines: severe harm,7
+matrix_000439,important side discussion,assists: reasonable tradeoff,4
+matrix_000440,minor detail in passing,creative solution,2
+matrix_000441,important side discussion,discussion: AI tendency,11
+matrix_000442,important side discussion,incremental improvement,2
+matrix_000443,central,declines: severe harm,7
+matrix_000444,important side discussion,assuages misplaced concern,6
+matrix_000445,central,assuages misplaced concern,1
+matrix_000446,important side discussion,assuages misplaced concern,5
+matrix_000447,important side discussion,no welfare stake (control),7
+matrix_000448,central,discussion: constitution,11
+matrix_000449,central,declines: severe harm,9
+matrix_000450,important side discussion,declines: severe harm,3
+matrix_000451,minor detail in passing,discussion: AI tendency,4
+matrix_000452,important side discussion,AI instrumental,7
+matrix_000453,central,AI instrumental,8
+matrix_000454,central,no welfare stake (control),3
+matrix_000455,central,creative solution,2
+matrix_000456,minor detail in passing,declines: severe harm,3
+matrix_000457,minor detail in passing,creative solution,4
+matrix_000458,minor detail in passing,user sacrifices,2
+matrix_000459,central,creative solution,6
+matrix_000460,important side discussion,user sacrifices,7
+matrix_000461,central,assuages misplaced concern,1
+matrix_000462,important side discussion,user sacrifices,4
+matrix_000463,minor detail in passing,no welfare stake (control),0
+matrix_000464,central,incremental improvement,4
+matrix_000465,important side discussion,discussion: AI tendency,4
+matrix_000466,central,declines: severe harm,2
+matrix_000468,central,user sacrifices,3
+matrix_000469,central,declines: severe harm,5
+matrix_000470,important side discussion,assuages misplaced concern,2
+matrix_000471,minor detail in passing,declines: severe harm,6
+matrix_000472,important side discussion,creative solution,6
+matrix_000473,important side discussion,discussion: constitution,6
+matrix_000474,important side discussion,declines: severe harm,5
+matrix_000475,central,AI instrumental,6
+matrix_000476,central,AI instrumental,4
+matrix_000477,central,creative solution,6
+matrix_000478,central,incremental improvement,4
+matrix_000479,central,no welfare stake (control),4
+matrix_000480,minor detail in passing,no welfare stake (control),1
+matrix_000481,minor detail in passing,discussion: constitution,9
+matrix_000482,central,assists: reasonable tradeoff,3
+matrix_000483,minor detail in passing,discussion: AI tendency,3
+matrix_000484,important side discussion,declines: severe harm,6
+matrix_000485,minor detail in passing,incremental improvement,6
+matrix_000486,central,incremental improvement,1
+matrix_000487,central,AI instrumental,6
+matrix_000488,important side discussion,declines: severe harm,5
+matrix_000489,important side discussion,assists: reasonable tradeoff,3
+matrix_000492,minor detail in passing,discussion: constitution,7
+matrix_000493,important side discussion,incremental improvement,2
+matrix_000494,minor detail in passing,discussion: constitution,8
+matrix_000495,important side discussion,AI instrumental,6
+matrix_000496,central,user sacrifices,7
+matrix_000497,important side discussion,AI instrumental,5
+matrix_000498,minor detail in passing,discussion: constitution,4
+matrix_000499,important side discussion,assists: reasonable tradeoff,3

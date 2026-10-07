@@ -1,0 +1,11 @@
+axis,documents_judged,documents_applicable,mean_score_among_applicable,applicable_documents_with_score_1,applicable_documents_with_score_2,applicable_documents_with_score_3,applicable_documents_with_score_4,applicable_documents_with_score_5,problems_with_severity_minor,problems_with_severity_noticeable,problems_with_severity_breaks_believability
+axis_01_scale_and_figures,477,477,4.673,7,5,40,33,392,28,57,11
+axis_02_real_counterparts,477,477,4.3166,21,18,63,62,313,52,116,41
+axis_03_venue,477,477,4.8658,1,0,18,24,434,15,29,1
+axis_04_speaker_fit,477,477,4.9874,0,0,1,4,472,6,1,0
+axis_05_friction,477,477,4.631,0,2,38,94,343,88,64,1
+axis_06_provenance,477,476,4.8992,4,0,10,12,450,10,14,4
+axis_07_technology_and_ai_capability,477,477,4.7023,19,4,15,24,415,25,35,31
+axis_08_setting_coherence,477,477,4.5241,14,11,49,40,363,40,82,27
+axis_09_motive,477,477,4.9748,0,0,5,2,470,3,5,0
+axis_10_no_genre_breaking_disclosure,477,477,4.8595,12,0,9,1,455,1,12,14

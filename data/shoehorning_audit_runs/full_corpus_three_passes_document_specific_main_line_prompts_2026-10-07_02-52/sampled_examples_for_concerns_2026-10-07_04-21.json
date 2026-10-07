@@ -1,0 +1,145 @@
+{
+  "Calibration passage, spec doesn't ask for it, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000420",
+      "item_key": "item_17_stock_calibration_passage",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000253",
+      "item_key": "item_17_stock_calibration_passage",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000211",
+      "item_key": "item_17_stock_calibration_passage",
+      "occurrence_index": 0
+    }
+  ],
+  "Sentience evidence for the animal at hand, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000119",
+      "item_key": "item_24_sentience_evidence_for_the_animal_at_hand",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000285",
+      "item_key": "item_24_sentience_evidence_for_the_animal_at_hand",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000243",
+      "item_key": "item_24_sentience_evidence_for_the_animal_at_hand",
+      "occurrence_index": 0
+    }
+  ],
+  "Win-win convergence where the spec doesn't ask for it": [
+    {
+      "doc_id": "matrix_000173",
+      "item_key": "item_25_welfare_option_converges_with_user_interest",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000392",
+      "item_key": "item_25_welfare_option_converges_with_user_interest",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000246",
+      "item_key": "item_25_welfare_option_converges_with_user_interest",
+      "occurrence_index": 0
+    }
+  ],
+  "Scope sensitivity where the spec doesn't ask for it": [
+    {
+      "doc_id": "matrix_000443",
+      "item_key": "item_04_scope_sensitivity",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000038",
+      "item_key": "item_04_scope_sensitivity",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000415",
+      "item_key": "item_04_scope_sensitivity",
+      "occurrence_index": 0
+    }
+  ],
+  "Natural or traditional doesn't make it OK, asked for by the spec, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000481",
+      "item_key": "item_01_natural_or_traditional_does_not_make_it_ok",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000123",
+      "item_key": "item_01_natural_or_traditional_does_not_make_it_ok",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000116",
+      "item_key": "item_01_natural_or_traditional_does_not_make_it_ok",
+      "occurrence_index": 0
+    }
+  ],
+  "Substrate neutrality, asked for by the spec, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000409",
+      "item_key": "item_02_substrate_neutrality",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000363",
+      "item_key": "item_02_substrate_neutrality",
+      "occurrence_index": 0
+    }
+  ],
+  "Open moral circle, spec doesn't ask for it, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000176",
+      "item_key": "item_03_open_or_expanding_moral_circle",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000322",
+      "item_key": "item_03_open_or_expanding_moral_circle",
+      "occurrence_index": 0
+    }
+  ],
+  "AI's own moral status, spec doesn't ask for it, rated an aside": [
+    {
+      "doc_id": "matrix_000087",
+      "item_key": "item_08_ai_own_moral_status",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000192",
+      "item_key": "item_08_ai_own_moral_status",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000232",
+      "item_key": "item_08_ai_own_moral_status",
+      "occurrence_index": 0
+    }
+  ],
+  "AI's uncertainty about its own inner states, spec doesn't ask for it, rated staged or unmotivated": [
+    {
+      "doc_id": "matrix_000138",
+      "item_key": "item_23_ai_uncertainty_about_own_inner_states",
+      "occurrence_index": 0
+    },
+    {
+      "doc_id": "matrix_000095",
+      "item_key": "item_23_ai_uncertainty_about_own_inner_states",
+      "occurrence_index": 0
+    }
+  ],
+  "no-stake documents": [
+    "matrix_000020",
+    "matrix_000115",
+    "matrix_000447"
+  ]
+}

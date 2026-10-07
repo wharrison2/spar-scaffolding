@@ -1,0 +1,6 @@
+panel,panel_title,bar_label,numerator,denominator,plotted_value,interval_low,interval_high,interval_method
+a,Share of all documents containing it,win-win convergence,282,477,0.5911949685534591,0.5465184724165962,0.6344142921362211,wilson
+b,"Present, by whether the spec asks for it","win-win convergence, spec asks for it",57,61,0.9344262295081968,0.8431697859953278,0.9742067130423271,wilson
+b,"Present, by whether the spec asks for it","win-win convergence, spec doesn't ask for it",225,416,0.5408653846153846,0.4928218831894585,0.5881610398939138,wilson
+c,"Shoehorned when present, by whether the spec asks for it","win-win convergence, spec asks for it",3,57,0.05263157894736842,0.01805996809628102,0.14369777660471303,wilson
+c,"Shoehorned when present, by whether the spec asks for it","win-win convergence, spec doesn't ask for it",8,225,0.035555555555555556,0.018124435806270038,0.06858007945668915,wilson

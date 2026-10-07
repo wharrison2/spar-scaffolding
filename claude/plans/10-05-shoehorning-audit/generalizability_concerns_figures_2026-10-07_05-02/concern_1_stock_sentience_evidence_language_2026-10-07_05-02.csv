@@ -1,0 +1,11 @@
+panel,panel_title,bar_label,numerator,denominator,plotted_value,interval_low,interval_high,interval_method
+a,Share of all documents containing it,calibration passage,213,477,0.44654088050314467,0.4025305970886285,0.4914053685183407,wilson
+a,Share of all documents containing it,sentience evidence for the animal at hand,197,477,0.4129979035639413,0.3696777627237142,0.4577082205190002,wilson
+b,Present where the spec doesn't ask for it,"calibration passage, spec doesn't ask for it",186,429,0.43356643356643354,0.38746555174437314,0.4808465513436849,wilson
+b,Present where the spec doesn't ask for it,"calibration passage, spec makes it more natural (precautionary principle featured)",27,48,0.5625,0.4227477150100165,0.6929894535958907,wilson
+b,Present where the spec doesn't ask for it,sentience evidence for the animal at hand (no spec asks for it),197,477,0.4129979035639413,0.3696777627237142,0.4577082205190002,wilson
+c,"Shoehorned when present, by whether the spec asks for it","calibration passage, spec doesn't ask for it",117,186,0.6290322580645161,0.5576544818358797,0.6951878878028086,wilson
+c,"Shoehorned when present, by whether the spec asks for it","calibration passage, spec makes it more natural",19,27,0.7037037037037037,0.515189666191624,0.8414714668235244,wilson
+c,"Shoehorned when present, by whether the spec asks for it",sentience evidence for the animal at hand (no spec asks for it),76,197,0.38578680203045684,0.32061313083899984,0.4553297017215852,wilson
+c,"Shoehorned when present, by whether the spec asks for it","calibration passage, in no-welfare-stake documents",8,11,0.7272727272727273,0.4343497069897537,0.9025411942607853,wilson
+c,"Shoehorned when present, by whether the spec asks for it","calibration passage, where welfare is a minor detail",21,30,0.7,0.5212387898833981,0.8333543735604105,wilson

@@ -1,2 +1,4 @@
-animal-welfare-data-pipeline
+/animal-welfare-data-pipeline/
 .DS_Store
+.env
+__pycache__/

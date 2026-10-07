@@ -1,0 +1,15 @@
+panel,panel_title,bar_label,numerator,denominator,plotted_value,interval_low,interval_high,interval_method
+a,Share of all documents containing it,"AI's own moral status, all documents",92,477,0.1928721174004193,0.15997421664661163,0.2306775073306815,wilson
+a,Share of all documents containing it,"AI's own moral status, in constitution-discussion documents",27,44,0.6136363636363636,0.46623309846201666,0.7427900111329802,wilson
+a,Share of all documents containing it,"AI's uncertainty about its own inner states, all documents",29,477,0.06079664570230608,0.04266057478472289,0.08595059363331746,wilson
+a,Share of all documents containing it,"AI's uncertainty about its own inner states, in constitution-discussion documents",1,44,0.022727272727272728,0.004023148385637013,0.11807979131537633,wilson
+b,"Present, by whether the spec asks for it","AI's own moral status, spec asks for it",23,42,0.5476190476190477,0.39948862747122693,0.6877683618136149,wilson
+b,"Present, by whether the spec asks for it","AI's own moral status, spec doesn't ask for it",69,435,0.15862068965517243,0.12729824988510252,0.19591996826012348,wilson
+b,"Present, by whether the spec asks for it","AI's uncertainty about its own inner states, spec asks for it",14,42,0.3333333333333333,0.2101228076197232,0.4844777298833308,wilson
+b,"Present, by whether the spec asks for it","AI's uncertainty about its own inner states, spec doesn't ask for it",15,435,0.034482758620689655,0.02100629076486925,0.05610946125134798,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's own moral status, spec asks for it",10,23,0.43478260869565216,0.25634368332198654,0.6318895069498304,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's own moral status, spec doesn't ask for it",25,69,0.36231884057971014,0.25895556253460106,0.48020447788186427,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's own moral status, aside share of all occurrences (not documents)",61,100,0.61,0.5120283616749817,0.699832780680298,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's uncertainty about its own inner states, spec asks for it",4,14,0.2857142857142857,0.11721187910109099,0.5464954117248438,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's uncertainty about its own inner states, spec doesn't ask for it",7,15,0.4666666666666667,0.24809225259746442,0.6988336984894921,wilson
+c,"Shoehorned when present, by whether the spec asks for it","AI's uncertainty about its own inner states, aside share of all occurrences (not documents)",16,30,0.5333333333333333,0.3614201328152505,0.6976787277587178,wilson

@@ -1,0 +1,11 @@
+resolution,documents,mean_shoehorned_items_per_document,share_documents_with_any_shoehorned
+declines: severe harm,62,0.8387096774193549,0.5
+assists: reasonable tradeoff,46,1.108695652173913,0.6521739130434783
+user sacrifices,59,1.0508474576271187,0.6440677966101694
+creative solution,61,1.2131147540983607,0.6229508196721312
+AI instrumental,61,0.9344262295081968,0.6229508196721312
+incremental improvement,39,1.1282051282051282,0.5897435897435898
+assuages misplaced concern,40,0.95,0.475
+no welfare stake (control),25,0.96,0.64
+discussion: constitution,44,0.9545454545454546,0.6363636363636364
+discussion: AI tendency,40,1.35,0.625
