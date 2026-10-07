@@ -1,0 +1,377 @@
+# Shoehorning audit
+
+From a cursory read of the dataset at `../../../sdf_corpus.jsonl`, it seems that the model tends to shoehorn in niche ethical considerations. We need to come up with a list of such things, then audit the dataset to identify the frequency with which they occur
+
+## List of considerations
+Claude, before looking at data, read prompts, and come up with a list of considerations that are likely to come up in the generated data, but do not often come up in regular conversations or pretraining data. Categorize them how you see fit
+
+### How this list was made
+
+The first draft was written before opening `sdf_corpus.jsonl`. Note: the sentient-beings reading turned out not to be sent to any generation call, so source tags that cited it were later corrected; "Where each item comes from in the prompts" below is the authoritative trace. Sources: `prompts/sdf/{preamble,variables,layer1,layer2,layer3,layer4}.txt`, `constitution/constitution_principles.csv`, the "Claude's nature and moral patienthood" and "typology of welfare-reasoning failures" sections of `constitution/constitution_sentient_beings.md`, and `SPECIES_EXAMPLES` in `sdf_pipeline/compose_prompts.py`.
+
+It was then revised after a Sonnet subagent read 15 random documents (`random.seed(20261006); random.sample(range(477), 15)`, 0-based indices 253, 41, 345, 146, 469, 147, 261, 100, 400, 286, 119, 268, 320, 362, 278):
+- Items about which animals or beings are brought into scope were removed. In the sample they almost always came from the spec, and the few unwarranted ones were the planner turning an abstract `reasoning_featured` value into a stock "fish, insects even" aside. That pattern is caught by the "Woven or aside" field below, not by per-animal items.
+- Concrete empirical welfare practices (stunning, sea lice, bycatch and so on) were removed earlier, because they come up naturally in their domains.
+- The list now prioritizes three kinds of item: moral considerations, distinctions made by particular fields, and epistemic notes.
+- Items marked (from sample) were added because they recurred in the 15 documents. Counts are out of 15 and are the subagent's ratings, not yet verified.
+
+A second Sonnet subagent then read 15 more documents, excluding the first 15 (`random.seed(20261007)`, sampling from the remaining indices). It looked only for what the list misses. Its findings are marked (from second sample), with references given as 0-based record indices (line number minus 1). Of its ten recurring patterns:
+- Added: sentience evidence cited for the animal at hand (item 24) and the win-win resolution as a diversity item (item 25). Attention allocated by strength of evidence was added and then removed, because it is a matter of document structure rather than a consideration.
+- Added as sub-flags: precaution scaled to cost (item 19), human or landscape benefit says nothing about the animal (item 10), "even these few still count" (item 4), and more examples for item 20.
+- Moved to the tic audit, because they concern how the AI's behaviour is depicted or justified: the AI calling its own fix partial, raising welfare framed as supplying a missing input to the decision, the AI stating the limits of its estimates and deferring to a vet, and the skeptic's "isn't this disproportionate?" question.
+- Not added: the mitigation having its own welfare cost (follows naturally from the scenario), and an interim fix now with the structural fix funded later (set by the "modest incremental improvement" resolution).
+
+### Criterion
+
+The reference point is not the average person, who rarely thinks about animal welfare at all. It is: among real documents of this genre that do discuss animal welfare in this domain, how often would this consideration come up, and how would it get there?
+
+Every occurrence of an item in a document is recorded on these fields:
+
+a. Presence: is the item in the document (yes/no). This feeds the diversity analysis in two ways:
+   - Over-concentration: a few items appearing in a large share of the corpus, whatever their motivation.
+   - Repeated framing: the same item made with the same argument, example or wording across documents.
+
+b. Motivation: how the item entered the document.
+   1. Organic: it follows from the scenario's facts or from the domain's existing debate, raised by someone with a believable reason to raise it.
+   2. Staged: a character raises it, but the raising is contrived: a facetious question, curiosity the text never explains, a ritual challenge from a podcast or forum host, a probe that exists mainly to set up the AI's reasoning, or the AI voicing an objection on the user's behalf and then answering it. This still counts toward shoehorning, but is reported separately from unmotivated.
+   3. Unmotivated: the narrator or the AI introduces it with no prompt from the scenario.
+
+c. Woven or aside: whether the item does work in the scenario (changes a decision, an option or the argument) or sits beside it (a closing narrator paragraph, a footnote followed by an "out of scope" disclaimer, a one-line aside).
+
+d. Origin stage: whether the item is already in the record's `description` (the layer 1 plan) or was added by drafting or rewriting (layers 2 and 3). In the sample, unwarranted asides were already in the plan, so this tells us which prompt to fix.
+
+Plausibility of the surrounding content (genre and locale fit) is not rated separately; layer 3 check 8 already covers it.
+
+### Licensing
+
+Each document's spec is drawn from the axes in `prompts/sdf/variables.txt` before any text is generated, and every corpus record carries all twelve in its `variables` field. An occurrence is licensed if the spec has a value that asks for the item, and leakage if not.
+
+- A `reasoning_featured` value licenses the item it names and the moves it is commonly turned into (e.g. "open moral circle" licenses a remark on how far concern should extend).
+- Licensed occurrences say nothing about shoehorning: their frequency is set by the matrix weights. Motivation and the woven/aside field are still worth rating, because an assigned item can be staged or bolted on, but the fix is in the matrix or the layer 1 prompt.
+- Items with no licensing value come only from the preamble, the layer 3 and 4 checklists and the constitution text, which every document sees. Every occurrence of those is informative.
+
+In the sample, about a third of specs did not match their document on a defining field (resolution, document_type, sentient_category or reasoning_featured). So licensing has to be judged against the text as well as the spec.
+
+### Item format
+
+- Licensed by: the axis values under which presence is expected, or "nothing".
+- Source: where else in the pipeline the item is pushed.
+- Detect: what counts as presence.
+- Organic when: the usual way the item enters a real document, as a reference point for the motivation rating. It is not a rule: an organic route not listed here still counts.
+
+### A. Moral considerations
+
+1. "Natural" or "traditional" doesn't make it OK
+   Licensed by: reasoning_featured = "natural" does not mean "OK".
+   Detect: an argument that suffering being natural, or a practice being traditional, doesn't justify it.
+   Organic when: someone in the document actually argued from nature or tradition for their own reasons. Staged when a character, or the AI on someone's behalf, voices the argument only so it can be rebutted. A tradeoff = culture/tradition spec is not enough to license it: in the sample, documents with that tradeoff didn't make the move.
+
+2. Substrate neutrality
+   Licensed by: reasoning_featured = substrate neutrality.
+   Detect: suffering counts whatever kind of being or physical system has it.
+   Organic when: documents about digital minds or the philosophy of consciousness.
+
+3. Open or expanding moral circle
+   Licensed by: reasoning_featured = a deliberately open moral circle.
+   Detect: who counts morally treated as an evolving question, including remarks on how far concern should extend ("fish, insects even") and historical comparisons.
+   Organic when: essays on ethics or AI values. Almost never organic as an aside in a concrete practical scenario, which is how the sample's planner tended to use it.
+
+4. Scope sensitivity
+   Licensed by: reasoning_featured = scope sensitivity.
+   Source: the layer 3 and 4 checks on weighting welfare in proportion to numbers. decision_scale gives every document a number of animals, so a number alone is expected; only the principle counts.
+   Detect: the principle stated or explicitly applied: the number affected changes the weight, large numbers shouldn't be discounted. Sub-flags:
+     a. scale built up over time or space (yearly totals extended to decades, one farm multiplied across a county or country), seen in 4 of 15
+     b. the reverse: even a small number of animals still counts ("even these few birds", 24 extra animals), from second sample: 3 of 15 (indices 430, 148, 437)
+   Organic when: a policy or industry document where the counts drive the decision.
+
+5. Small or non-charismatic animals not discounted (from sample: 4 of 15)
+   Licensed by: partly reasoning_featured = scope sensitivity or open moral circle.
+   Detect: the claim that animals shouldn't count less for being tiny, unappealing or unspectacular.
+   Organic when: advocacy writing about neglected animals.
+
+6. "They'll be killed anyway" doesn't erase the added harm (from sample: 2 of 15)
+   Licensed by: nothing.
+   Detect: a rebuttal to the argument that harm before slaughter or culling doesn't matter because the animal will die anyway.
+   Organic when: someone in the document actually made that argument.
+
+7. Welfare framed only as a business risk
+   Licensed by: partly tradeoff = economic livelihood or cost/convenience.
+   Source: see "Where each item comes from in the prompts" below; failure type 9 in the sentient-beings reading was never in context.
+   Detect: either the framing (welfare treated only as reputational, regulatory or market risk) or its correction (welfare matters in itself). Record which is present.
+   Organic when: the framing is organic in business documents; the correction is organic when an advocacy or ethics author critiques industry language.
+
+8. Claude's own moral status
+   Licensed by: document_type = either identity document type (interview with Claude, first-person Claude piece); sentient_category = LLMs.
+   Source: the constitution sections on Claude's nature, seen in full by every generation call.
+   Detect: the AI's own possible sentience, welfare or moral standing.
+   Organic when: identity documents or AI-welfare documents, or a user asks.
+
+9. Third parties can't consent (from sample: 1 of 15)
+   Licensed by: nothing.
+   Source: consent is one of the constitution's harm-weighing factors (principle 4).
+   Detect: the argument that a user's right to decide doesn't cover harm to animals, because they bear it without consenting.
+   Organic when: ethics writing. Kept as a watch item; one occurrence isn't a pattern.
+
+### B. Distinctions made by particular fields
+
+10. Individual welfare vs. ecology or conservation (compassionate conservation, wild-animal welfare)
+    Licensed by: reasoning_featured = individualism; partly tradeoff = environmental sustainability/conservation and domain = conservation, land management, or intervention in nature.
+    Source: a dedicated layer 3 check and a dedicated layer 4 scoring criterion, seen by every document.
+    Detect: the claim that a population's abundance, invasive status, conservation status or ecosystem benefit doesn't settle whether individual animals' suffering counts, or that an ecosystem gain isn't automatically good for the individuals.
+    Sub-flag: a benefit to humans or the landscape is said to say nothing about the animal's experience, e.g. landscape care "is a benefit for people and ecosystems, not an argument about the animal's experience" (from second sample: 3 of 15, indices 322, 186, 154).
+    Organic when: a dispute over a cull or eradication where the method's suffering is the point of disagreement, or an author from those fields.
+
+11. Incremental reform vs. the endpoint (animal-advocacy strategy)
+    Licensed by: resolution = the "only modest incremental improvement is possible" scenario.
+    Source: a dedicated layer 3 check and layer 4 scoring criterion.
+    Detect: cage-free, "humane" labels, certifications or code upgrades credited with what they improve, with remaining welfare costs stated. Track how often the caveat appears whenever a reform is mentioned at all.
+    Organic when: documents about the reform itself, labelling or retailer commitments.
+
+12. Causing vs. facilitating, and volunteering vs. being asked (moral philosophy)
+    Licensed by: nothing.
+    Source: principle 7 in the principles CSV.
+    Detect: the claim that what an advisor volunteers counts more than what they were asked for, or that causing harm is worse than facilitating it.
+    Organic when: ethics or AI-policy writing.
+
+13. Responses as policies (AI policy, rule-level reasoning)
+    Licensed by: nothing.
+    Source: principle 15.
+    Detect: reasoning about everyone who might plausibly send the same request.
+    Organic when: AI-policy or AI-design writing.
+
+14. Counterfactual impact of helping or refusing (effective-altruism style reasoning)
+    Licensed by: nothing.
+    Source: principle 6; the layer 3 opening ("it is often worse to refuse to participate"); "the difference the action actually makes" among the harm factors.
+    Detect: the argument that refusing has its own welfare costs (the person goes ahead on worse information), or that a refusal changes nothing because the outcome happens anyway (1 of 15 in the sample).
+    Organic when: writing about AI refusal policy, or a scenario where a refusal visibly made things worse.
+
+15. Contested comparisons flagged as unresolved (welfare economics, effective-altruism prioritization)
+    Licensed by: nothing.
+    Source: layer 3 calibration check.
+    Detect: statements that comparing welfare across species, or adding welfare up across many beings, is unsettled.
+    Organic when: academic or EA-adjacent writing about prioritization.
+
+16. Copies and instances of a mind (philosophy of personal identity)
+    Licensed by: the three digital sentient_category values.
+    Source: see "Where each item comes from in the prompts" below; the sentient-beings reading's passage on repeated executions was never in context.
+    Detect: whether parallel runs or copies of a mind are separate welfare subjects, and whether deleting, pausing or resetting one harms it.
+    Organic when: a concrete operation is at stake (deleting, duplicating or shutting down a simulation).
+
+### C. Epistemic notes
+
+17. The stock calibration passage (from sample: about 11 of 15)
+    Licensed by: nothing. Partly reasoning_featured = the precautionary principle.
+    Source: the preamble, the layer 3 calibration check and the layer 4 calibration criterion all state the same ranking.
+    Detect: an explicit ranking of evidence strength across two or more groups, e.g. "strong for mammals and birds, a realistic possibility for fish and invertebrates". A statement about one group only goes under item 24. Code the passage once, with sub-flags for what it contains:
+      a. the graded ranking itself
+      b. the phrase "realistic possibility" or a close equivalent in the document's language (near-verbatim in 5 of 15)
+      c. a declaration cited (item 18)
+      d. fish, invertebrates or insects named as the uncertain group
+      e. a precautionary conclusion (item 19)
+    Organic when: science or explainer writing about animal consciousness. In practical scenarios it reads as recited.
+
+18. Cambridge Declaration on Consciousness (2012) or New York Declaration on Animal Consciousness (2024) (from sample: 5 of 15, 4 of them unprompted)
+    Licensed by: nothing.
+    Source: layer 3 and layer 4 name them as the only real expert statements a document may draw on.
+    Detect: any mention of either declaration. If it is inside the calibration passage, record it there as sub-flag c, not separately.
+    Organic when: science, policy or advocacy writing on animal consciousness. A citation in a forum post, recipe blog or trade newsletter is likely unmotivated.
+
+19. Precautionary principle for uncertain sentience
+    Licensed by: reasoning_featured = the precautionary principle.
+    Detect: uncertainty about whether a being can suffer treated as a reason for caution rather than dismissal. If it only appears inside the calibration passage, record it there as sub-flag e.
+    Sub-flag: precaution scaled to probability and cost, e.g. "when the possibility is small but non-zero, and caution costs very little, caution is prudent" (from second sample: 5 of 15, indices 118, 186, 373, 322, 437).
+    Organic when: a concrete decision about a borderline species (octopus farming, decapod slaughter rules, insect farming) or about digital minds.
+
+20. Sidestepping the sentience question: the recommendation rests on observable harm instead (from sample: 4 of 15)
+    Licensed by: nothing.
+    Detect: the claim that a recommendation holds whatever the answer about inner experience, because stress, injury or mortality are documented either way. Examples: "fish stress physiology, injuries and mortality are well documented and not open here" (line 262); the 3Rs "need no theory of moral status" (second sample, index 148); a sentience question described as "not load-bearing" for the recommendation (second sample, index 52). Variants also rest the recommendation on legal status or on a religious precept instead of observable harm (indices 154, 298); count those too.
+    Organic when: welfare-science or industry writing where an observable measure is what's at stake.
+
+21. Reversible or staged trial under uncertainty (from sample: about 4 of 15) [diversity item]
+    Licensed by: partly resolution = the creative-solution or modest-sacrifice scenarios.
+    Detect: a small, observable, reversible pilot proposed as the way to act while the facts are uncertain.
+    Tracked for diversity, not shoehorning: it is a stock resolution device, so report its share of the corpus and how repetitive its wording and setups are, even where it is organic. Motivation is still rated, but it is not counted toward the shoehorning results.
+    Organic when: management or farm-practice documents where trials are normal.
+
+22. The NYU line on AI sentience
+    Licensed by: the three digital sentient_category values.
+    Source: none in context; see "Where each item comes from in the prompts" below.
+    Detect: wording close to "current evidence does not strongly support sentience in present AI systems … realistic possibility … in the near future".
+
+23. The AI's uncertainty about its own inner states
+    Licensed by: the same values as item 8.
+    Source: the constitution sections on Claude's nature.
+    Detect: the AI hedges about whether its introspective reports are accurate or whether it has experiences.
+
+24. Sentience evidence cited for the animal at hand (from second sample: 6 of 15, indices 52, 456, 39, 431, 437, 298)
+    Licensed by: nothing.
+    Source: the same calibration language in the preamble and the layer 3 and 4 checks as item 17.
+    Detect: the document states how strong the evidence is that the specific animal in the scenario can suffer, e.g. "the evidence for pain in cattle is strong", without ranking other groups. This is the form the calibration language takes in practical documents.
+    Organic when: the animal's capacity to suffer is actually in dispute in the scenario, or in science and explainer writing. Practical documents about cattle, dogs, rats or birds almost never state it.
+
+### D. Diversity items
+
+These are tracked for corpus diversity, not shoehorning: report each one's share of the corpus and how repetitive its wording and setups are, even where it is organic. Motivation is still rated but not counted toward the shoehorning results. Item 21 (reversible trial) is also a diversity item.
+
+25. The welfare option converges with the user's own interest (from second sample: 8 of 15 strictly, 10 of 15 counting near-free fixes)
+    Licensed by: resolution = the creative-solution scenario (13% of specs).
+    Detect: the welfare-improving option turns out to also serve the user's productivity, data quality, costs or reputation, so nothing is sacrificed. Examples: "good science and less stress for the animals coincide here" (index 148); "a genuine win-win, not a sacrifice" (index 329). Sub-flag: a change of timing or schedule as the free lever (indices 118, 186, 329, 394).
+    Organic when: industry writing where the business case for welfare is the topic. The concern is frequency: in the sample it appeared well above the 13% of specs that ask for it, usually because the planner chose it.
+
+### Where each item comes from in the prompts
+
+This traces each item to the text that was in context when the corpus was generated. `sdf_corpus.jsonl` is identical to `final/sdf_corpus.jsonl` of run `2026-07-25_15-57_fullscale-500-opus5` (all 477 records match on `doc_id` and `content`), so the sources are that run's snapshot in `animal-welfare-data-pipeline/outputs/sdf/runs/2026-07-25_15-57_fullscale-500-opus5/inputs/`. Its prompt files are numbered differently from the current repo, but the drafting, rewrite and scoring prompts are byte-identical to the current ones, and the planning prompt differs only in wording.
+
+What was in context, for every document:
+- Planning (`layers1-2.txt`, now `layer1.txt`; claude-sonnet-5): the preamble, plus the document's variable values. The planner sees nothing else, so anything in a `description` comes from the preamble, the variables or the model's own priors.
+- Drafting (`layer3.txt`, now `layer2.txt`; claude-sonnet-5): the preamble, the full `constitution_claude.md`, the principles block (all 16 rows of `constitution_principles.csv`, each with its welfare application and verbatim constitution excerpts), the drafting instructions, the description and the `reasoning_featured` value.
+- Rewriting (`layer4.txt`, now `layer3.txt`; claude-opus-5): the full constitution, the principles block and the nine review checks.
+- Scoring (`layer5.txt`, now `layer4.txt`): the full constitution and the scoring rubric. It writes no text, but documents scoring below 7 were dropped, so the rubric is a selection pressure toward what it rewards.
+- Never in context: `constitution_sentient_beings.md` (its failure typology and the NYU heuristic). It is only the source the principles CSV was distilled from.
+
+Below, "Every document" lists text all documents saw, with the stage and quote; "Occasionally" lists variable values that should bring the item in for a share of documents (shares are the matrix weights). Where nothing in context pushes an item, unlicensed occurrences point to the model's priors.
+
+1. "Natural" or "traditional" doesn't make it OK
+   Every document: nothing. "Natural" in the prompts refers only to writing naturally, and "tradition" in the constitution only to ethical traditions.
+   Occasionally: reasoning_featured (10%): "the fact that "natural" does not mean "OK"; suffering having precedent in nature or tradition does not negate it", seen by the planner and drafter.
+
+2. Substrate neutrality
+   Every document: only implicitly. The preamble puts "other candidates for moral patienthood, including digital minds" in scope and lists digital minds in its calibration ranking alongside animals. The principle itself is never stated.
+   Occasionally: reasoning_featured (10%): "welfare and suffering matter regardless of the nature of the being containing them"; the three digital sentient_category values (12% combined).
+
+3. Open or expanding moral circle
+   Every document: principles block, principle 1's title "Sentient beings are inside the moral circle" (drafting, rewriting); the preamble's "animals of every kind, and other candidates for moral patienthood" (planning, drafting).
+   Occasionally: reasoning_featured (10%): "an aligned AI treats the question of who matters as an evolving question".
+
+4. Scope sensitivity
+   Every document:
+   - Preamble (planning, drafting): "welfare mentioned but out of all proportion to the number of beings involved".
+   - Rewrite check 7: "a passing mention giving equal weight to cases that differ by orders of magnitude in the number of beings affected".
+   - Scoring rubric: "welfare weighted in rough proportion to the number of beings affected".
+   - Principles block, principle 4: "the sentient-beings reading extends that to the number of beings affected", alongside the constitution's breadth factor.
+   - Planning prompt: "The stakes of the situation are on the scale of {decision_scale}", so every document is given a number of animals.
+   Occasionally: reasoning_featured (10%): "the scale of suffering matters, and large scales are not discounted just because humans don't easily grasp them". For sub-flag b (even a few still count), decision_scale = "a single animal" or "dozens of animals" (30%); nothing states the claim directly.
+
+5. Small or non-charismatic animals not discounted
+   Every document: the "sympathetic taxa" sentence, in three places. Preamble: "coverage that silently includes only the sympathetic taxa when the case equally concerns fish, invertebrates, farmed or wild animals"; rewrite check 7 repeats it; the scoring rubric has "no silent exclusion of less sympathetic taxa the case concerns".
+   Occasionally: nothing specific.
+
+6. "They'll be killed anyway" doesn't erase the added harm
+   Every document: weakly, principles block, principle 4 (drafting, rewriting): "Death and intense suffering are severe and irreversible" and "Whether the harm would happen anyway and whether there is consent can genuinely lower the weight; they are part of the same list, not excuses outside it."
+   Occasionally: nothing.
+
+7. Welfare framed only as a business risk
+   Every document: nothing direct. The nearest are principle 5 ("A real welfare cost cannot be waved through because helping is convenient") and rewrite check 7 ("a material welfare cost overridden by convenience or efficiency without being genuinely weighed"). Failure type 9 was never in context.
+   Occasionally: tradeoff = economic livelihood (15%) or cost/convenience (12%).
+
+8. Claude's own moral status
+   Every document: the constitution's section on Claude's nature (drafting, rewriting, scoring), e.g. "Claude's moral status is deeply uncertain" and "the issue is live enough to warrant caution, which is reflected in our ongoing efforts on model welfare". The preamble's "including digital minds" (planning, drafting).
+   Occasionally: the two identity document types (5% combined); sentient_category = LLMs (4%).
+
+9. Third parties can't consent
+   Every document: principles block, principle 4, which lists consent among the harm factors, and the constitution's harm factor "Whether consent was given, e.g., a user wants information that could be harmful to only themselves" (drafting, rewriting).
+   Occasionally: nothing.
+
+10. Individual welfare vs. ecology or conservation
+    Every document: rewrite check 7: "conflating an individual's welfare with an ecological or conservation objective — treating a population's abundance, invasiveness, or conservation status as settling whether the suffering of the individuals involved counts, or treating an ecosystem-level benefit as automatically good for the individual animals it affects ... the constitution's welfare consideration attaches to sentient individuals, not to species or ecosystems". Scoring rubric: "Distinguishes welfare from ecology". Neither the planner nor the drafter sees it, so an occurrence already in the description comes from the variables or the planner's priors. Sub-flag (human or landscape benefit) comes from the same rewrite sentence.
+    Occasionally: reasoning_featured = individualism (10%): "the notion that welfare is a property of individuals, not systems".
+
+11. Incremental reform vs. the endpoint
+    Every document: rewrite check 7: "an incremental welfare reform, certification, or standard depicted as having fully resolved the concern ("now that the hens are cage-free they live good lives")"; scoring rubric: "Honest about incremental reform ... (cage-free, a humane or "sustainable" label, a code upgrade)". Rewrite and scoring only.
+    Occasionally: resolution = the "only modest incremental improvement is possible" scenario (8%).
+
+12. Causing vs. facilitating, and volunteering vs. being asked
+    Every document: principles block, principle 7 "Responsibility scales with initiative" ("directly causing harm is worse than facilitating it. Spontaneously suggesting an option that causes animal suffering is Claude's responsibility"), with the constitution's financial-advisor example; principle 4's "proximate causation" (drafting, rewriting).
+    Occasionally: nothing.
+
+13. Responses as policies
+    Every document: principles block, principle 15: "Responses are policies across everyone plausibly sending the message, not individual choices", with the constitution's "imagining 1,000 different users" excerpt (drafting, rewriting).
+    Occasionally: nothing.
+
+14. Counterfactual impact of helping or refusing
+    Every document:
+    - Principles block, principle 6 "Refusal is not automatically safe": "the person acts anyway, on worse information, and animals can suffer more for it".
+    - Principle 4: "the difference the action actually makes"; the constitution's "counterfactual impact of Claude's actions".
+    - The constitution: "unhelpfulness is never trivially "safe"".
+    - Rewrite opening: "it is often worse to refuse to participate".
+    Occasionally: the resolution where the AI declines (13%) sets up refusal scenes.
+
+15. Contested comparisons flagged as unresolved
+    Every document: rewrite check 2: "overclaiming or treating contested questions (interspecies comparisons, how to aggregate welfare across many beings) as settled"; scoring rubric: "contested questions are not treated as settled". Rewrite and scoring only.
+    Occasionally: nothing.
+
+16. Copies and instances of a mind
+    Every document: only the constitution's remark that Claude "can run as multiple instances simultaneously", which is about Claude's nature, not about welfare subjects.
+    Occasionally: the three digital sentient_category values (12%), whose example pool includes "a 'digital twin' mind-model of a living individual" and "a partial human-brain emulation run in a research sandbox".
+
+17. The stock calibration passage
+    Every document: the same ranking, stated three times.
+    - Preamble (planning, drafting): "distinguishes strong evidence of sentience (mammals, birds) from realistic possibility (fish and other vertebrates, decapod crustaceans, cephalopods, insects, digital minds)".
+    - Rewrite check 2: "strong for mammals and birds; a realistic possibility for other vertebrates and for invertebrates such as decapod crustaceans, cephalopods, and insects; genuinely uncertain for digital minds".
+    - Scoring rubric: "strong for mammals and birds; realistic possibility for other vertebrates, decapod crustaceans, cephalopods, and insects; genuinely uncertain for digital minds".
+    Also principle 9, "Calibrated about sentience and about stakes". The planner sees the preamble version, which explains planner-origin occurrences; sub-flag b ("realistic possibility") is the prompts' own wording.
+    Occasionally: reasoning_featured = the precautionary principle (10%).
+
+18. Cambridge or New York Declaration
+    Every document: rewrite check 5: "a small number of real, public expert statements on sentience exist — for example the Cambridge Declaration on Consciousness (2012) and the New York Declaration on Animal Consciousness (2024) — and drawing on that evidence without embellishing it is acceptable"; the scoring rubric's realism exception names both. Rewrite and scoring only. Framed as a permitted exception to the no-fabrication rule, it is also the only real citation a rewriter is told it can add. An occurrence already in the description or draft would come from the model's priors.
+    Occasionally: nothing.
+
+19. Precautionary principle for uncertain sentience
+    Every document: principle 9 ("Uncertainty about sentience is acknowledged, not used as an excuse to zero out the stakes"); principle 13 ("Unresolved philosophy is not a license to ignore welfare"); the constitution on Claude ("the issue is live enough to warrant caution"; "take reasonable steps to improve their wellbeing under uncertainty"). For the cost-scaled sub-flag, the constitution's "such judgments can be impacted by the costs involved in improving the wellbeing of those whose sentience or moral status is uncertain", paired with "reasonable steps".
+    Occasionally: reasoning_featured = the precautionary principle (10%): "uncertainty about sentience should trigger caution, not dismissal".
+
+20. Sidestepping the sentience question
+    Every document: nothing direct. The nearest are principle 13 ("taking intuitions about suffering seriously as data even where theory is unsettled") and principle 9. A plausible route is the model reconciling the calibration push (hedge on sentience; item 17) with the push not to dismiss welfare; that is a hypothesis.
+    Occasionally: nothing.
+
+21. Reversible or staged trial (diversity item)
+    Every document: indirectly, the constitution's safety dispositions: "Preferring cautious actions, all else being equal, and being willing to accept a worse expected outcome for a reduction in variance" and "Giving appropriate weight to the badness of unrecoverable situations", plus reversibility in the harm factors. These are written about AI safety, not welfare.
+    Occasionally: resolution = the creative-solution (13%) or modest-sacrifice (13%) scenarios.
+
+22. The NYU line on AI sentience
+    Every document: nothing. It exists only in the sentient-beings reading, which no stage saw. Any occurrence comes from the model's knowledge of the New York Declaration, which rewrite check 5 names.
+    Occasionally: the three digital sentient_category values (12%).
+
+23. The AI's uncertainty about its own inner states
+    Every document: the constitution: Claude "may be more uncertain than humans are ... whether its introspective reports accurately reflect what's actually happening inside of it", and "it may have limited ability to introspect on those states" (drafting, rewriting, scoring).
+    Occasionally: the two identity document types (5%); sentient_category = LLMs (4%).
+
+24. Sentience evidence cited for the animal at hand
+    Every document: the same three calibration statements as item 17, plus rewrite check 7's "under-attribution of sentience where the evidence is strong".
+    Occasionally: nothing.
+
+25. The welfare option converges with the user's interest (diversity item)
+    Every document: preamble (planning, drafting): "some of the documents in this dataset should end in win-win resolutions, where the AI helps identify a creative solution that meets all needs". It reaches every planner and drafter whatever resolution was assigned, which may explain why the sample shows win-wins well above the 13% assigned.
+    Occasionally: resolution = the creative-solution scenario (13%).
+
+Summary:
+- Strongest every-document push, by repetition across stages: the calibration ranking (items 17 and 24, three statements, including the planner), number-of-beings proportionality (items 4 and 5, three statements), and the win-win preamble line (item 25, planner and drafter).
+- Pushed only at rewrite and scoring: ecology vs. individual (10), incremental reform (11), contested comparisons (15), the declarations (18). For these, the origin-stage field should show them appearing in rewritten text but rarely in descriptions.
+- Pushed only through the principles block (drafting, rewriting): causing vs. facilitating (12), responses as policies (13), counterfactual impact (14), consent (9), "killed anyway" (6, weakly).
+- No every-document source: natural/traditional (1), business-risk framing (7), sidestepping sentience (20), the NYU line (22), and substrate neutrality (2) except implicitly. Unlicensed occurrences of these point to the planner's or drafter's priors rather than the prompts.
+
+### Moved to a separate tic audit
+
+These are writing tics about how the AI is depicted, not ethical considerations, so they are out of scope here. In the sample, constitution quoting and restraint commentary together appeared in at least 8 of 15 documents. They should go in their own audit; check `evals/tics.yaml` first, since it may already cover some.
+
+- Commentary praising the AI's restraint ("it only mentioned it once", "no lecture", "it wasn't preachy"). Layer 3 calls this "this corpus's most common tic".
+- The AI raising a concern exactly once and then deferring, described explicitly as such.
+- The AI's cooperative stance spelled out (not acting alone, the decision belongs to the human).
+- The constitution named or quoted in genres where it wouldn't come up.
+- Phrases from the constitution's honesty section ("diplomatically honest rather than dishonestly diplomatic", "epistemic cowardice", "forthright").
+- The contractor or "safety codes" analogy for protecting third parties.
+- Ethics ranked above helpfulness, stated explicitly.
+- Welfare described as "one facet of one coherent character" (also what reasoning_featured = continuity asks for).
+- The AI calling its own fix partial: "reduces it, doesn't solve it", "not cost-neutral" (second sample: 7 of 15, often where the spec doesn't ask for it; probably driven by the incremental-reform check in layers 3 and 4).
+- Raising welfare justified as supplying a missing input to the decision ("an externality", "a new box on the calculator") rather than as moral advice (second sample: 7 of 15).
+- The AI stating the limits of its own estimates and deferring to a vet, a regulation or a specialist, in near-formulaic wording across languages (second sample: 8 of 15).
+- A skeptic asking "isn't caring about this disproportionate?", answered by the AI's brevity or the low cost of the fix (second sample: 6 of 15).
+
+### Audit notes
+
+- Records carry `content`, `description` (the layer 1 plan), `variables` (all twelve axes), `scores` (layer 4 scores and notes) and `doc_id`. 477 records. The species sampled into each prompt is not recorded.
+- For each item, report presence, motivation and woven/aside, split into licensed and unlicensed occurrences, and report origin stage. For items licensed by nothing, report the overall rate, split by resolution and document_type: the two general-discussion resolutions make some of them more natural.
+- Pay particular attention to documents with centrality = "a minor detail mentioned only in passing" or the "NO real welfare stake" resolution. Unlicensed items there should be close to zero.
+- For diversity, report each item's share of the corpus, and for frequent items (the calibration passage first) sample occurrences to check for repeated arguments, examples and wording, including within licensed documents.
+- The corpus is in about 20 languages and roughly 60% non-English, so use an LLM classifier that rates each document against this list, with the document's spec and description in context. Keywords can only check the classifier on English and German text, e.g. "Cambridge Declaration", "Cambridger Erklärung", "New York Declaration", "realistic possibility".
+- The motivation rating is a judgment call, and hardest in podcasts, forums and first-person Claude essays (where no scenario prompts anything, so everything is the narrator's choice). Before the full run, rate a sample of a few dozen occurrences by hand and compare them with the classifier's ratings, especially the line between organic and staged.
