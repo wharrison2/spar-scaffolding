@@ -1,4 +1,4 @@
-"""Figures for the plausibility report (claude/plans/10-06-plausibility-axis/).
+"""Figures for the plausibility report (plans/10-06-plausibility-axis/).
 
 Figure 1: share of documents judged implausible (overall score 2 or below) by group, with 95% Wilson intervals,
 computed from a full run's per-document scores file.
@@ -8,7 +8,7 @@ analysis report (analysis/sonnet_theme_clustering_and_validity_check_of_full_run
 Usage:
     python scripts/plausibility_audit/make_figures_for_plausibility_report.py \
         data/plausibility_audit_runs/full_corpus_plausibility_audit_medium_effort_2026-10-07_04-51 \
-        claude/plans/10-06-plausibility-axis
+        plans/10-06-plausibility-axis
 """
 
 import glob
