@@ -4,3 +4,6 @@
 .DS_Store
 .env
 __pycache__/
+
+# Run data stays local
+data/
