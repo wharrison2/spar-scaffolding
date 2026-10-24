@@ -140,22 +140,21 @@ Each phase ends with the offline test suite showing no new failures, and nothing
 | 3. Rewrites | One rewrite command for positive and neutral controls, through `shared/api.py`. | Stubbed tests. A cost estimate for a 10-document sample. |
 | 4. Pod | Scorer with atomic writes, launcher with keys through the shared loader, separate pod requirements, neutral defaults. | The launcher tests run with fake clients. A local rehearsal runs end to end with a tiny model. |
 | 5. Skill and documentation | Skill and references, an `evals/README.md` section, a `CLAUDE.md` line, git-ignore rules. | Someone unfamiliar with the check can follow the skill to a dry run. |
-| 6. Validation runs (paid) | The neutral control for preachiness, then a pilot of a second persona. | Both against criteria pre-registered in their configuration files. |
+| 6. Validation run (paid) | A short base-model preachiness pilot, run from the pipeline repository. | Verification against full logits passes, and the outputs match the run-folder contract. |
 
 Phases 1–5 are about 4–6 days of work: around 4,500 lines of code and 2,900 lines of tests come across, and the persona-set and neutral-control work is new. Phase 6 costs a few dollars for the neutral control. A full-corpus run of a new persona costs in the range of the first full run.
 
-**Left out of the port:**
-- the pilot go/no-go summary specific to preachiness;
-- the research plans and run data.
+**Left out of the port:** the research plans and run data. The pilot go/no-go summary comes across in a general form.
 
-## Decisions needed
+## Decisions
 
-1. **What to port.** Should the pod launcher go into the public repository, or only the analysis, with scoring run from the research project? A launcher in a public repository needs a stated policy on whose provider account and key it uses.
-2. **Repository rules.** Should "explicit go-ahead before any paid run" become a rule in the repository's `CLAUDE.md`, not only in the skill?
-3. **Default scoring model.** Gemma 4 12B at a pinned revision, or another.
-4. **Second persona.** Which persona to validate the general process on after preachiness.
-5. **Published example.** Should the preachiness results appear in the public repository as the worked example, or only the procedure?
-6. **Pull request placement.** A fifth pull request on top of the current stack (it needs only the plumbing and audit helpers), or a separate one based on `main` once those land.
+1. **What to port.** Everything needed to run the check goes into the pipeline repository: persona sets, rewrites, scoring inputs, the scorer, the pod launcher, the analysis and a general pilot summary. Keys come from the contributor's own `.env`, and no default is tied to this project.
+2. **Repository rules.** "Explicit go-ahead before any paid run" goes into the repository's `CLAUDE.md` as well as the skill.
+3. **Default scoring models.** One for each model type, at pinned revisions: instruct `google/gemma-4-12b-it` at `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, base `google/gemma-4-12b` at `023679ed352de9bb66cc873c9009ce3482585c08`.
+4. **Second persona.** Not part of this port. The design procedure is documented in the skill.
+5. **Published example.** The procedure, plus a short summary of the preachiness results. No run data.
+6. **Pull request placement.** One pull request, based on `main`. `main` has `shared/api.py` but not `shared/api_keys.py` or `evals/model_judged_audit_support.py`, which exist only on unpushed local branches, so the port uses what `main` has and keeps its own small helpers where needed.
+7. **Validation run.** After the port, a short base-model pilot is run from the pipeline repository, after a separate go-ahead.
 
 ## Paths
 
