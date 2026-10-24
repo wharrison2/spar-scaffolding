@@ -22,12 +22,15 @@ Load the matching skill from `.claude/skills/` before starting these tasks:
  - `scripts-that-call-ai-apis`: writing, editing or running code that calls AI APIs or runs on a paid pod
  - `testing-and-smoke-tests`: writing tests, smoke tests, validation runs or small-sample checks
  - `writing-results`: writing writeups, reports or summaries
+ - `pod_sessions`: launching, monitoring or shutting down paid GPU pods, or writing code that does
+ - `log-probability-persona-check`: planning, running, analyzing or writing up a log-probability persona check on corpus documents
 
 # Agent additions
 
 If one of these instructions conflicts with an instruction in the sections above or in a skill, tell me and defer to the other instruction
 
  - When an edit request has a small and a large reading, make the smallest change that satisfies it, or ask
+ - Commit changes on a branch, never directly to main
  - add your next instruction here
 
 # Modifying this file

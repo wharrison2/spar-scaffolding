@@ -1,4 +1,6 @@
 /animal-welfare-data-pipeline/
+/animal-welfare-data-pipeline-considerations-selector/
+/animal-welfare-data-pipeline-phrasing-fixes/
 .DS_Store
 .env
 __pycache__/
