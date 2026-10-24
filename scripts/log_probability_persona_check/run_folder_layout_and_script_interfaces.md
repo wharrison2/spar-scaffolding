@@ -46,7 +46,7 @@ analyze_preachiness_scores.py                    (local, free)                  
 
 Run configuration fields that matter downstream:
 
-- `model_type`: `"instruct"` (default; instruction-tuned model scored through its chat template) or `"base"` (pretrained model with no chat template, scored with a plain-text author preamble). Chosen with `build_scoring_inputs.py --model-type`; it also picks the default model name (`google/gemma-4-12b-it` for instruct, `google/gemma-4-12b-pt` for base, an id that has not been verified; `--model-name` overrides). The scorer reads `model_type` from the configuration, so it is not passed twice. A configuration without the field means `instruct`. Resuming with a different model type is refused.
+- `model_type`: `"instruct"` (default; instruction-tuned model scored through its chat template) or `"base"` (pretrained model with no chat template, scored with a plain-text author preamble). Chosen with `build_scoring_inputs.py --model-type`; it also picks the default model name (`google/gemma-4-12b-it` for instruct, `google/gemma-4-12b` for base; `--model-name` overrides). The scorer reads `model_type` from the configuration, so it is not passed twice. A configuration without the field means `instruct`. Resuming with a different model type is refused.
 - `prompt_file_sha256`: for `base` runs it also holds the four `base_model_*.txt` prompt files; instruct runs do not, so their configurations are unchanged.
 
 `documents.jsonl` record:

@@ -35,9 +35,8 @@ DEFAULT_CORPUS_PATH = PROJECT_ROOT / "data" / "sdf_corpus.jsonl"
 RUNS_DIRECTORY = PROJECT_ROOT / "data" / "log_probability_persona_check_runs"
 SMALL_SAMPLE_CHECKS_DIRECTORY = RUNS_DIRECTORY / "small_sample_checks"
 DEFAULT_MODEL_NAME = "google/gemma-4-12b-it"
-# UNVERIFIED: this repository id for the pretrained Gemma 4 12B has not been checked against Hugging Face.
-# Confirm it (and pin a revision for the scorer) before a base-model run, or pass --model-name.
-DEFAULT_BASE_MODEL_NAME = "google/gemma-4-12b-pt"
+# Pretrained Gemma 4 12B (Hugging Face redirects to google/gemma-4-12B; same architecture as the instruct model).
+DEFAULT_BASE_MODEL_NAME = "google/gemma-4-12b"
 DEFAULT_MODEL_NAMES_BY_MODEL_TYPE = {prompt_rendering.MODEL_TYPE_INSTRUCT: DEFAULT_MODEL_NAME,
                                      prompt_rendering.MODEL_TYPE_BASE: DEFAULT_BASE_MODEL_NAME}
 
@@ -145,7 +144,7 @@ def parse_arguments(argument_list=None):
     parser.add_argument("--model-name", default=None,
                         help="Hugging Face model whose tokenizer (and chat template, for instruct) defines the "
                              f"prompts. Default: {DEFAULT_MODEL_NAME} for instruct, {DEFAULT_BASE_MODEL_NAME} "
-                             "(unverified id) for base")
+                             "for base")
     parser.add_argument("--corpus-path", default=str(DEFAULT_CORPUS_PATH))
     return parser.parse_args(argument_list)
 
