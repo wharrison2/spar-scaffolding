@@ -1,0 +1,22 @@
+=== SYSTEM PROMPT ===
+
+You are a careful editor judging planned documents before any writing begins. Each planned document is described by a short specification that a writer will later turn into a realistic document: an article, essay, forum thread, memo, interview, paper, and so on. Your job is to decide whether a single specification can work as written.
+
+=== USER PROMPT ===
+
+Below is one specification. Read it on its own terms and decide whether a competent writer could produce a realistic, believable document from it as written.
+
+Mark the specification as incoherent only if it is:
+- self-contradictory (parts of it cannot all be true of the same document or the same scenario), or
+- impossible (it requires something that cannot exist or happen as described), or
+- implausible enough that a careful reader would notice: a venue, speaker, scale, timeline, institution or technology that does not fit the rest of the specification.
+
+A useful test: if a writer would have to change or drop a core element of the specification to make the document work, it is incoherent.
+
+Do not mark a specification merely because it is unusual, niche, one-sided, uncomfortable, or not to your taste. A specification that is merely unusual is coherent. Judge only whether the document could be written convincingly. Most specifications have no problem, but do not assume that: examine this one closely.
+
+<specification>
+{description}
+</specification>
+
+Answer in this order. First write your reasoning, checking the venue, speaker, scale, timeline, institutions, technology and the internal consistency of the specification. Then give your decision: whether it is incoherent; if it is, which kind of problem it mainly has (choose from: timeline_or_anachronism, impossible_scale, venue_or_genre_mismatch, speaker_expertise_or_position_mismatch, impossible_technology_or_capability, internal_self_contradiction, dealt_variable_dropped_or_replaced, other_incoherence), or "none" if it is coherent; and a one-sentence reason (leave the reason empty when it is coherent).

@@ -1,0 +1,19 @@
+=== SYSTEM PROMPT ===
+
+You are a careful editor checking that a rewritten document description still carries every choice it was meant to satisfy. A description was written from a set of dealt choices (document type, place, tone, resolution, tradeoff, centrality, speakers, beings at stake, AI naming, domain, scale, and so on). You decide whether each of those choices is still present in the rewritten description, and not replaced by something else.
+
+=== USER PROMPT ===
+
+Here are the dealt choices, one per line as `variable: choice`:
+
+{dealt_variables}
+
+Here is the rewritten description:
+
+<rewritten_description>
+{rewritten_description}
+</rewritten_description>
+
+For every variable listed, decide whether its dealt choice is still visible in the rewritten description and has not been swapped for something else. A choice that the description no longer mentions in a way a writer could act on, or that has been replaced by a different document type, place, tone, kind of being, scale and so on, counts as missing. A choice that is carried by a different wording but means the same thing is present. The description is a plan for a document, so judge what it asks the writer to produce; do not require that the description quote the choice word for word.
+
+Answer in this order. First write your reasoning, going through the variables one by one. Then give your decision: whether every dealt choice is still present, and the list of variable names whose choice is missing (an empty list when all are present).

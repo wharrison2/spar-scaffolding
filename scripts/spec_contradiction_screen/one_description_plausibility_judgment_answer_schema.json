@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {"type": "string"},
+    "incoherent": {"type": "boolean"},
+    "problem_type": {
+      "type": "string",
+      "enum": ["timeline_or_anachronism", "impossible_scale", "venue_or_genre_mismatch",
+               "speaker_expertise_or_position_mismatch", "impossible_technology_or_capability",
+               "internal_self_contradiction", "dealt_variable_dropped_or_replaced", "other_incoherence", "none"]
+    },
+    "reason": {"type": "string"}
+  },
+  "required": ["reasoning", "incoherent", "problem_type", "reason"],
+  "additionalProperties": false
+}

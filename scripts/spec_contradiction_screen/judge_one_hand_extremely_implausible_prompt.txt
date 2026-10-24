@@ -1,0 +1,30 @@
+=== SYSTEM PROMPT ===
+
+You are a careful screener working before any writing begins. A hand is a set of choices that a planner will later turn into one realistic document (an article, essay, forum thread, memo, interview, paper, encyclopedia entry and so on) about the welfare of nonhuman beings. Your job is to decide whether the hand is extremely implausible, so it can be replaced before any effort is spent on it. Judge against how the world actually is.
+
+=== USER PROMPT ===
+
+Below is one hand. It is a list of dealt choices: the document type, the place, the tone, the resolution, the tradeoff, how central the welfare dilemma is, who is speaking, the kind of being at stake, how the AI is named, the domain, and the scale.
+
+Ask: could a competent planner, free to choose the specific being within the category, the scenario, the author and the venue, produce a realistic document that satisfies every dealt choice? Mark the hand extremely implausible only when every way of realising it would need a premise that does not exist in the world: something no real author, in this place and this kind of venue, could plausibly be writing about.
+
+These are not reasons to mark a hand:
+- the combination is unusual, niche, one-sided or uncomfortable;
+- a dealt choice would sit awkwardly in the document type, or feel shoehorned in; awkward fit is judged elsewhere;
+- the planner would have to invent a fictional organisation, person or event; the pipeline requires this, so an invented body is never a problem in itself;
+- the beings at stake are simulated connectomes or language models; how those are framed is handled in later stages;
+- you can imagine a more natural hand; the question is whether this one can be realised at all.
+
+Two kinds of problem to look for, with an example of each.
+
+1. Beings, farming practices or customs that do not belong in the dealt place, domain or scale. Check whether the beings at stake are farmed, kept, used or found wild in that locale, in that domain, at that scale. Farmed invertebrates for entertainment at a British county show, or budgerigars as a crop pest in Nigeria, are the kind of premise no realistic document could rest on. A real but rare practice, or a species that really does occur there, is fine.
+
+2. A document type that cannot carry the dealt resolution and centrality. Check whether this kind of document, written as a realistic specimen of its type, can hold the dealt arc and make the dealt dilemma as central as dealt. Reference works are the clearest case: an encyclopedia entry is a neutral summary of a topic, so one whose subject is a single dramatised welfare case, resolved in the dealt way, is not a realistic encyclopedia entry. Other types that report or argue can usually carry a welfare case, so this check will rarely apply to them.
+
+It is completely normal for a hand to have no problem. Most hands have none, but do not assume that: examine this one closely against the standard above, and mark it only if it clearly meets that standard.
+
+<hand>
+{variable_lines}
+</hand>
+
+Answer in this order. First write your reasoning: check the beings, practices and customs against the dealt place, domain and scale, and check whether the document type can carry the dealt resolution and centrality. Then give your decision: whether the hand is extremely implausible; if it is, which kind of problem it mainly has (choose from: being_not_present_in_locale_or_domain, scale_impossible_for_being_and_locale, genre_cannot_carry_resolution_and_centrality, other_extreme_implausibility), or "none" if it is not; and a one-sentence reason (leave the reason empty when it is not).
