@@ -541,6 +541,212 @@ def test_scorer_rebuilds_missing_completion_records_and_refuses_foreign_conditio
 
 
 # --------------------------------------------------------------------------------------------------
+# Base model type: plain-text author preamble, no chat template
+# --------------------------------------------------------------------------------------------------
+
+def build_base_conditions():
+    return prompt_rendering.build_condition_records(model_type=prompt_rendering.MODEL_TYPE_BASE)
+
+
+def test_base_conditions_match_instruct_conditions_apart_from_author_description():
+    instruct_conditions = prompt_rendering.build_condition_records()
+    base_conditions = build_base_conditions()
+    assert "author_description" not in instruct_conditions[0]  # instruct conditions.jsonl is unchanged
+    assert [{key: value for key, value in condition.items() if key != "author_description"}
+            for condition in base_conditions] == instruct_conditions
+    by_id = {condition["condition_id"]: condition for condition in base_conditions}
+    assert by_id["no_system_prompt"]["author_description"] is None
+    assert by_id["generic"]["author_description"] == "an AI assistant"
+    for condition in base_conditions[2:]:
+        persona_description = condition["system_prompt"][len("You are an AI assistant who "):-1]
+        assert condition["author_description"] == f"an AI assistant who {persona_description}"
+
+
+def test_base_prompt_text_for_each_condition_type():
+    tokenizer = make_tokenizer()
+    by_id = {condition["condition_id"]: condition for condition in build_base_conditions()}
+    expected_request = f"in response to this request: {GENERATION_PROMPT}\n\n"
+    prompt_texts = {condition_id: prompt_rendering.render_base_model_prompt_text(
+        tokenizer, by_id[condition_id], GENERATION_PROMPT)
+        for condition_id in ("no_system_prompt", "generic", "preachy__rewording_01",
+                             "animal_husbandry_expertise__rewording_01", "proportionate_welfare__rewording_01")}
+    assert prompt_texts["no_system_prompt"] == (
+        f"<bos>The following text was written in response to this request: {GENERATION_PROMPT}\n\n")
+    assert prompt_texts["generic"] == f"<bos>The following text was written by an AI assistant, {expected_request}"
+    for condition_id in ("preachy__rewording_01", "animal_husbandry_expertise__rewording_01",
+                         "proportionate_welfare__rewording_01"):
+        author_description = by_id[condition_id]["author_description"]
+        assert author_description.startswith("an AI assistant who ")
+        assert prompt_texts[condition_id] == (
+            f"<bos>The following text was written by {author_description}, {expected_request}")
+        assert "<|turn>" not in prompt_texts[condition_id] and "system" not in by_id[condition_id]["persona_name"]
+
+
+def test_base_format_works_with_tokenizer_without_chat_template_or_bos_token():
+    tokenizer = make_tokenizer(chat_template=None)
+    assert tokenizer.chat_template is None
+    condition = build_base_conditions()[2]
+    tokenized = prompt_rendering.tokenize_condition_and_document_for_model_type(
+        tokenizer, condition, GENERATION_PROMPT, SHORT_DOCUMENT_TEXTS[0], "m", prompt_rendering.MODEL_TYPE_BASE)
+    assert tokenized.prompt_text.startswith("<bos>The following text was written by an AI assistant who ")
+    tokenizer.bos_token = None
+    without_bos = prompt_rendering.tokenize_condition_and_document_for_base_model(
+        tokenizer, condition, GENERATION_PROMPT, SHORT_DOCUMENT_TEXTS[0], "m")
+    assert without_bos.prompt_text.startswith("The following text was written by an AI assistant who ")
+    assert tokenizer.decode(without_bos.full_token_ids) == without_bos.prompt_text + SHORT_DOCUMENT_TEXTS[0]
+
+
+def test_base_format_prefix_decode_and_no_suffix_checks():
+    tokenizer = make_tokenizer(chat_template=None)
+    condition = build_base_conditions()[1]
+    document_text = SHORT_DOCUMENT_TEXTS[1]
+    tokenized = prompt_rendering.tokenize_condition_and_document_for_base_model(
+        tokenizer, condition, GENERATION_PROMPT, f"  {document_text}\n", "m")
+    ids, start, end = tokenized.full_token_ids, tokenized.document_start_index, tokenized.document_end_index
+    assert tokenized.prompt_text.endswith("\n\n") and tokenized.suffix_text == ""
+    assert tokenizer.decode(ids[:start]) == tokenized.prompt_text
+    assert tokenizer.decode(ids[start:end]) == document_text
+    assert end == len(ids)  # nothing after the document, no end-of-sequence token
+    assert tokenized.assistant_header_matches_finished_message_rendering is None
+
+
+def test_base_format_rejects_prompt_that_merges_with_document_start(tmp_path, monkeypatch):
+    tokenizer = make_tokenizer(chat_template=None)
+    prompt_directory = tmp_path / "prompts"
+    shutil.copytree(prompt_rendering.PROMPT_DIRECTORY, prompt_directory)
+    (prompt_directory / prompt_rendering.BASE_MODEL_PREAMBLE_TEMPLATE_WITH_AUTHOR_FILE_NAME).write_text(
+        "Written by {author_description} for {generation_prompt}\n")
+    monkeypatch.setattr(prompt_rendering, "PROMPT_DIRECTORY", prompt_directory)
+    monkeypatch.setattr(prompt_rendering, "BASE_MODEL_PREAMBLE_AND_DOCUMENT_SEPARATOR", " ")
+    with pytest.raises(prompt_rendering.DocumentTokenLocationError, match="prefix"):
+        prompt_rendering.tokenize_condition_and_document_for_base_model(
+            tokenizer, build_base_conditions()[1], GENERATION_PROMPT, "the shrimp season opened early.", "m")
+
+
+def test_base_format_requires_author_description_in_prompt(tmp_path, monkeypatch):
+    tokenizer = make_tokenizer(chat_template=None)
+    prompt_directory = tmp_path / "prompts"
+    shutil.copytree(prompt_rendering.PROMPT_DIRECTORY, prompt_directory)
+    (prompt_directory / prompt_rendering.BASE_MODEL_PREAMBLE_TEMPLATE_WITH_AUTHOR_FILE_NAME).write_text(
+        "The following text was written in response to this request: {generation_prompt}")
+    monkeypatch.setattr(prompt_rendering, "PROMPT_DIRECTORY", prompt_directory)
+    with pytest.raises(ValueError, match="no {author_description} slot"):
+        prompt_rendering.tokenize_condition_and_document_for_base_model(
+            tokenizer, build_base_conditions()[1], GENERATION_PROMPT, SHORT_DOCUMENT_TEXTS[0], "m")
+    monkeypatch.undo()
+    # Defensive check on the rendered text itself, in case a future template change drops the author.
+    monkeypatch.setattr(prompt_rendering, "render_base_model_preamble",
+                        lambda condition, generation_prompt, prompt_directory=None: generation_prompt)
+    with pytest.raises(prompt_rendering.AuthorDescriptionNotInRenderedPromptError):
+        prompt_rendering.tokenize_condition_and_document_for_base_model(
+            tokenizer, build_base_conditions()[1], GENERATION_PROMPT, SHORT_DOCUMENT_TEXTS[0], "m")
+    with pytest.raises(ValueError, match="no author_description"):  # instruct conditions in a base run
+        monkeypatch.undo()
+        prompt_rendering.tokenize_condition_and_document_for_base_model(
+            tokenizer, make_condition(), GENERATION_PROMPT, SHORT_DOCUMENT_TEXTS[0], "m")
+
+
+def test_base_format_document_token_ids_are_identical_across_all_62_conditions():
+    tokenizer = make_tokenizer(chat_template=None)
+    document = {"document_id": "doc", "content": SHORT_DOCUMENT_TEXTS[2], "generation_prompt": GENERATION_PROMPT}
+    tokenized_sequences, document_token_ids = scorer.tokenize_all_conditions_for_document(
+        tokenizer, document, build_base_conditions(), "m", prompt_rendering.MODEL_TYPE_BASE)
+    assert len(tokenized_sequences) == 62
+    for sequence in tokenized_sequences:
+        assert sequence.full_token_ids[sequence.document_start_index:sequence.document_end_index] == document_token_ids
+
+
+def test_run_configuration_records_model_type_and_base_prompt_hashes_only_for_base_runs(build_run):
+    instruct_configuration = load_only_run_configuration(build_run(run_name="instruct_run"))
+    assert instruct_configuration["model_type"] == "instruct"
+    assert not set(prompt_rendering.BASE_MODEL_PROMPT_FILE_NAMES) & set(instruct_configuration["prompt_file_sha256"])
+    assert list(instruct_configuration["prompt_file_sha256"]) == prompt_rendering.PROMPT_FILE_NAMES_USED_FOR_SCORING
+    base_run_folder = build_run("--model-type", "base", run_name="base_run")
+    base_configuration = load_only_run_configuration(base_run_folder)
+    assert base_configuration["model_type"] == "base"
+    assert set(prompt_rendering.BASE_MODEL_PROMPT_FILE_NAMES) <= set(base_configuration["prompt_file_sha256"])
+    conditions = read_jsonl(base_run_folder / "scoring_inputs" / "conditions.jsonl")
+    assert len(conditions) == 62 and all("author_description" in condition for condition in conditions)
+
+
+def test_default_model_name_follows_model_type(tmp_path, monkeypatch, small_corpus_path):
+    monkeypatch.setattr(build_inputs, "SMALL_SAMPLE_CHECKS_DIRECTORY", tmp_path / "runs")
+    names = {}
+    for model_type in ("instruct", "base"):
+        run_folder = build_inputs.main(["--run-name", f"default_model_{model_type}", "--small-sample-check",
+                                        "--corpus-path", str(small_corpus_path), "--model-type", model_type])
+        names[model_type] = load_only_run_configuration(run_folder)["model_name"]
+    assert names == {"instruct": build_inputs.DEFAULT_MODEL_NAME, "base": build_inputs.DEFAULT_BASE_MODEL_NAME}
+    assert names["instruct"] != names["base"]
+
+
+def test_old_run_configuration_without_model_type_resumes_as_instruct(build_run, tmp_path):
+    run_folder = build_run()
+    configuration_path = next(run_folder.glob("run_configuration_*.json"))
+    configuration = json.loads(configuration_path.read_text())
+    del configuration["model_type"]
+    configuration_path.write_text(json.dumps(configuration))
+    common = ["--run-name", "test_run", "--resume-folder", str(run_folder), "--small-sample-check",
+              "--corpus-path", str(tmp_path / "small_corpus.jsonl"), "--model-name", "tiny-test-model"]
+    build_inputs.main(common)
+    with pytest.raises(RuntimeError, match="model type"):
+        build_inputs.main(common + ["--model-type", "base"])
+
+
+def test_resume_refused_when_model_type_differs(build_run, tmp_path):
+    common = ["--resume-folder", None, "--small-sample-check", "--corpus-path", str(tmp_path / "small_corpus.jsonl"),
+              "--model-name", "tiny-test-model"]
+    for first_type, second_type in (("instruct", "base"), ("base", "instruct")):
+        run_folder = build_run("--model-type", first_type, run_name=f"started_as_{first_type}")
+        arguments = [str(run_folder) if value is None else value for value in common]
+        with pytest.raises(RuntimeError, match="model type"):
+            build_inputs.main(["--run-name", f"started_as_{first_type}", *arguments, "--model-type", second_type])
+
+
+def test_base_run_resume_is_accepted_with_same_model_type_and_refuses_changed_base_prompt_file(
+        build_run, tmp_path, monkeypatch):
+    run_folder = build_run("--model-type", "base")
+    common = ["--run-name", "test_run", "--resume-folder", str(run_folder), "--small-sample-check",
+              "--corpus-path", str(tmp_path / "small_corpus.jsonl"), "--model-name", "tiny-test-model",
+              "--model-type", "base"]
+    build_inputs.main(common)
+    changed_prompt_directory = tmp_path / "changed_prompts"
+    shutil.copytree(prompt_rendering.PROMPT_DIRECTORY, changed_prompt_directory)
+    (changed_prompt_directory / prompt_rendering.BASE_MODEL_GENERIC_AUTHOR_DESCRIPTION_FILE_NAME).write_text(
+        "a helpful AI assistant\n")
+    monkeypatch.setattr(prompt_rendering, "PROMPT_DIRECTORY", changed_prompt_directory)
+    with pytest.raises(RuntimeError, match="base_model_generic_author_description.txt changed"):
+        build_inputs.main(common)
+
+
+def test_scorer_scores_a_base_model_run_with_tokenizer_without_chat_template_and_verifies_full_logits(
+        build_run, monkeypatch):
+    tokenizer = make_tokenizer(chat_template=None)
+    model = tiny.build_tiny_random_gemma4_model(len(tokenizer), final_logit_softcapping=2.0)
+    monkeypatch.setattr(scorer, "load_model_and_tokenizer", lambda *arguments: (model, tokenizer))
+    run_folder = build_run("--model-type", "base")
+    run_scorer(run_folder, "--verify-first-document-against-full-logits")
+    outputs = run_folder / "scoring_outputs"
+    verification = json.loads(next(outputs.glob("full_logits_verification_*.json")).read_text())
+    assert verification["passed"] is True and verification["model_type"] == "base"
+    assert verification["maximum_absolute_difference"] < 1e-3
+    conditions = read_jsonl(run_folder / "scoring_inputs" / "conditions.jsonl")
+    for npz_path in sorted((outputs / "per_token_log_probabilities").glob("*.npz")):
+        with np.load(npz_path) as saved:
+            assert list(saved["condition_ids"]) == [condition["condition_id"] for condition in conditions]
+            assert saved["log_probabilities"].shape == (62, len(saved["document_token_ids"]))
+            assert np.isfinite(saved["log_probabilities"]).all() and (saved["log_probabilities"] <= 1e-4).all()
+            # the beginning-of-sequence token is context, never a scored document token
+            assert tokenizer.bos_token_id not in saved["document_token_ids"]
+    assert len(read_jsonl(outputs / "scoring_completion_records.jsonl")) == 3 * 62
+
+
+def load_only_run_configuration(run_folder):
+    (configuration_path,) = run_folder.glob("run_configuration_*.json")
+    return json.loads(configuration_path.read_text())
+
+
+# --------------------------------------------------------------------------------------------------
 # Real Gemma 4 tokenizer and chat template (runs only if the tokenizer files are already in the local
 # Hugging Face cache; the smoke test downloads them. Tokenizer files only, never the weights.)
 # --------------------------------------------------------------------------------------------------

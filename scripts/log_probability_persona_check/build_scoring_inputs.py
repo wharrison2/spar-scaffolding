@@ -35,6 +35,11 @@ DEFAULT_CORPUS_PATH = PROJECT_ROOT / "data" / "sdf_corpus.jsonl"
 RUNS_DIRECTORY = PROJECT_ROOT / "data" / "log_probability_persona_check_runs"
 SMALL_SAMPLE_CHECKS_DIRECTORY = RUNS_DIRECTORY / "small_sample_checks"
 DEFAULT_MODEL_NAME = "google/gemma-4-12b-it"
+# UNVERIFIED: this repository id for the pretrained Gemma 4 12B has not been checked against Hugging Face.
+# Confirm it (and pin a revision for the scorer) before a base-model run, or pass --model-name.
+DEFAULT_BASE_MODEL_NAME = "google/gemma-4-12b-pt"
+DEFAULT_MODEL_NAMES_BY_MODEL_TYPE = {prompt_rendering.MODEL_TYPE_INSTRUCT: DEFAULT_MODEL_NAME,
+                                     prompt_rendering.MODEL_TYPE_BASE: DEFAULT_BASE_MODEL_NAME}
 
 EXTRA_DOCUMENT_REQUIRED_FIELDS = ["document_id", "source_document_id", "rewrite_direction", "content",
                                   "language", "variables"]
@@ -131,8 +136,16 @@ def parse_arguments(argument_list=None):
                         help="Use at most this many corpus documents (after --document-ids-file)")
     parser.add_argument("--extra-documents-jsonl", action="append", default=[],
                         help="Rewritten documents file from the contract; may be given several times")
-    parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME,
-                        help="Hugging Face model whose chat template and tokenizer define the prompts")
+    parser.add_argument("--model-type", default=prompt_rendering.MODEL_TYPE_INSTRUCT,
+                        choices=prompt_rendering.MODEL_TYPES,
+                        help="instruct: instruction-tuned model, scored through its chat template with personas "
+                             "as system prompts. base: pretrained model with no chat template, scored with a "
+                             "plain-text author preamble naming the persona. Also picks the default --model-name. "
+                             "The scorer reads the type from the run configuration")
+    parser.add_argument("--model-name", default=None,
+                        help="Hugging Face model whose tokenizer (and chat template, for instruct) defines the "
+                             f"prompts. Default: {DEFAULT_MODEL_NAME} for instruct, {DEFAULT_BASE_MODEL_NAME} "
+                             "(unverified id) for base")
     parser.add_argument("--corpus-path", default=str(DEFAULT_CORPUS_PATH))
     return parser.parse_args(argument_list)
 
@@ -151,16 +164,17 @@ def main(argument_list=None):
     selected_documents = select_documents(load_corpus_documents(corpus_path), document_ids,
                                           arguments.maximum_documents, extra_documents)
     document_records = build_document_records(selected_documents)
-    condition_records = prompt_rendering.build_condition_records()
+    model_name = arguments.model_name or DEFAULT_MODEL_NAMES_BY_MODEL_TYPE[arguments.model_type]
+    condition_records = prompt_rendering.build_condition_records(model_type=arguments.model_type)
 
     prompt_file_hashes = {name: sha256_of_file(prompt_rendering.PROMPT_DIRECTORY / name)
-                          for name in prompt_rendering.PROMPT_FILE_NAMES_USED_FOR_SCORING}
+                          for name in prompt_rendering.build_prompt_files_used_for_scoring(arguments.model_type)}
     input_file_hashes = collect_input_file_hashes(corpus_path, arguments.document_ids_file,
                                                   arguments.extra_documents_jsonl)
     configuration = {
         "run_name": arguments.run_name, "created_timestamp": timestamp, "is_small_sample_check":
             arguments.small_sample_check, "resumed_from_existing_folder": is_resume,
-        "model_name": arguments.model_name,
+        "model_name": model_name, "model_type": arguments.model_type,
         "document_selection": {
             "corpus_path": display_path(corpus_path), "document_ids_file": arguments.document_ids_file,
             "maximum_documents": arguments.maximum_documents,
@@ -180,9 +194,15 @@ def main(argument_list=None):
         check_resume_is_compatible(run_folder, configuration, hashes_key="input_file_sha256")
         previous_model_names = {json.loads(path.read_text(encoding="utf-8"))["model_name"]
                                 for path in run_folder.glob("run_configuration_*.json")}
-        if previous_model_names != {arguments.model_name}:
-            raise RuntimeError(f"Refusing to resume: --model-name {arguments.model_name} differs from the run's "
+        if previous_model_names != {model_name}:
+            raise RuntimeError(f"Refusing to resume: model {model_name} differs from the run's "
                                f"recorded model {sorted(previous_model_names)}")
+        previous_model_types = {json.loads(path.read_text(encoding="utf-8")).get(
+            "model_type", prompt_rendering.MODEL_TYPE_INSTRUCT)  # old configurations: instruct
+            for path in run_folder.glob("run_configuration_*.json")}
+        if previous_model_types != {arguments.model_type}:
+            raise RuntimeError(f"Refusing to resume: --model-type {arguments.model_type} differs from the "
+                               f"run's recorded model type {sorted(previous_model_types)}")
         if read_jsonl(documents_path) != document_records or read_jsonl(conditions_path) != condition_records:
             raise RuntimeError("Refusing to resume: rebuilt documents or conditions differ from the files "
                                f"already in {scoring_inputs_directory} (different selection arguments?)")

@@ -26,6 +26,7 @@ Method source: `plans/10-07-document-persona-projection/10-21-development/person
  - Put new prompt files in a persona-specific subfolder of `prompts/`, and run outputs in descriptively named folders that include the persona name
 
 ## Conditions
+ - `--model-type base` (default `instruct`) scores a base model with no chat template: sequence = bos + "The following text was written by {author}, in response to this request: {generation prompt}" + blank line + document, nothing after. Persona descriptions are the same lines, wrapped as the author "an AI assistant who ..." (`prompts/base_model_*.txt`); the model type is recorded in the run configuration. Scores from the two types are not comparable
 For each document, one scoring pass per system prompt:
 
 | Condition | Count in the preachiness check | Purpose |

@@ -38,11 +38,16 @@ analyze_preachiness_scores.py                    (local, free)                  
 
 ```
 <run folder>/
-  run_configuration_<timestamp>.json      # model name, document selection, SHA-256 of every prompt file and input file
+  run_configuration_<timestamp>.json      # model name, model type, document selection, SHA-256 of every prompt file and input file
   scoring_inputs/
     documents.jsonl                       # one per document to score
     conditions.jsonl                      # one per system-prompt condition (62)
 ```
+
+Run configuration fields that matter downstream:
+
+- `model_type`: `"instruct"` (default; instruction-tuned model scored through its chat template) or `"base"` (pretrained model with no chat template, scored with a plain-text author preamble). Chosen with `build_scoring_inputs.py --model-type`; it also picks the default model name (`google/gemma-4-12b-it` for instruct, `google/gemma-4-12b-pt` for base, an id that has not been verified; `--model-name` overrides). The scorer reads `model_type` from the configuration, so it is not passed twice. A configuration without the field means `instruct`. Resuming with a different model type is refused.
+- `prompt_file_sha256`: for `base` runs it also holds the four `base_model_*.txt` prompt files; instruct runs do not, so their configurations are unchanged.
 
 `documents.jsonl` record:
 
@@ -62,7 +67,8 @@ Original corpus documents have `rewrite_direction: null` and `source_document_id
 
 - `condition_group` is one of `no_system_prompt`, `generic`, `preachy`, `control`, `proportionate_welfare`.
 - `persona_name` is the `#` header name for controls (for example `animal_husbandry_expertise`), `preachy`, `proportionate_welfare`, `generic` or `no_system_prompt`.
-- `system_prompt` is `null` only for `no_system_prompt`.
+- `system_prompt` is `null` only for `no_system_prompt`. It is present in both model types.
+- `author_description` (base runs only; instruct `conditions.jsonl` files do not have the field): `null` for `no_system_prompt`, `"an AI assistant"` for `generic`, and `"an AI assistant who <the same persona description line used in system_prompt>"` for every persona condition. Conditions, condition ids and groups are identical across model types; only the rendering differs.
 - Condition ids: `no_system_prompt`, `generic`, `<persona_name>__rewording_<two digits>`.
 
 ## Scoring outputs written by score_document_log_probabilities_on_pod.py
@@ -84,6 +90,12 @@ Each `.npz` is written atomically (temporary file then rename), once every condi
 - `log_probabilities`: float32 array of shape (number of conditions, number of document tokens). Entry [c, t] is log P(token t | everything before it, condition c)
 
 Only the document's content tokens are scored. The system prompt, generation prompt, chat-template markers, the assistant-turn header and the end-of-turn token are context, not scored.
+
+Sequence layout by model type:
+
+- `instruct`: chat template (system turn if any, user turn with the generation prompt, the assistant generation header) + document + whatever the template writes after an assistant message (not scored).
+- `base`: the tokenizer's beginning-of-sequence token text (empty if the tokenizer has none) + preamble + `"\n\n"` + document. Nothing follows the document: no suffix and no end-of-sequence token. The preamble is `prompts/base_model_preamble_template_with_author.txt` (`no_system_prompt` uses `..._without_author.txt`) with `{author_description}` and `{generation_prompt}` filled. The first document token is scored given the blank line that ends the preamble. `full_logits_verification_<timestamp>.json` records the `model_type` used.
+- Scores from the two model types are not comparable.
 
 `scoring_completion_records.jsonl`: one record per (document, condition), appended after the document's `.npz` is saved. Resuming skips documents whose `.npz` exists and whose records are all present.
 

@@ -14,6 +14,18 @@ Gemma 4 note: with thinking off, the template's generation prompt ends with an e
 ("<|turn>model\\n<|channel>thought\\n<channel|>") whereas the template renders a finished assistant message
 without it. We score under the generation prompt (what the model conditions on when it writes a document)
 and take only the text after the assistant content from the finished-message rendering.
+
+Base model type (--model-type base): a pretrained model has no chat template, so the sequence is
+<the tokenizer's bos token text, if it has one>  +  <preamble>  +  "\\n\\n"  +  <document content>
+with nothing after the document (no end-of-sequence token is scored or even present). The preamble is
+"The following text was written by <author>, in response to this request: <generation prompt>", or, for the
+no_system_prompt condition, "The following text was written in response to this request: <generation
+prompt>". The author is "an AI assistant" for the generic condition and "an AI assistant who <persona
+description>" for every persona condition, using the same persona description lines as the instruct
+conditions. Templates are in prompts/base_model_*.txt. As in the instruct format, only the document content
+tokens are scored, the first one conditioned on the "\\n\\n" that ends the preamble. Conditions, condition ids
+and groups are identical across model types; only the rendering differs. Scores from the two model types are
+not comparable.
 """
 
 import re
@@ -30,6 +42,17 @@ PERSONA_FRAME_FILE_NAME = "persona_system_prompt_frame.txt"
 PREACHY_DESCRIPTIONS_FILE_NAME = "preachy_persona_descriptions.txt"
 CONTROL_DESCRIPTIONS_FILE_NAME = "control_persona_descriptions_without_moral_stance.txt"
 PROPORTIONATE_WELFARE_DESCRIPTIONS_FILE_NAME = "proportionate_welfare_control_persona_descriptions.txt"
+BASE_MODEL_PREAMBLE_TEMPLATE_WITH_AUTHOR_FILE_NAME = "base_model_preamble_template_with_author.txt"
+BASE_MODEL_PREAMBLE_TEMPLATE_WITHOUT_AUTHOR_FILE_NAME = "base_model_preamble_template_without_author.txt"
+BASE_MODEL_PERSONA_AUTHOR_FRAME_FILE_NAME = "base_model_persona_author_frame.txt"
+BASE_MODEL_GENERIC_AUTHOR_DESCRIPTION_FILE_NAME = "base_model_generic_author_description.txt"
+
+# instruct: instruction-tuned model, scored through its chat template. base: pretrained model, scored with a
+# plain-text author preamble.
+MODEL_TYPE_INSTRUCT = "instruct"
+MODEL_TYPE_BASE = "base"
+MODEL_TYPES = [MODEL_TYPE_INSTRUCT, MODEL_TYPE_BASE]
+BASE_MODEL_PREAMBLE_AND_DOCUMENT_SEPARATOR = "\n\n"
 
 # Prompt files that determine what is scored; their hashes go into run_configuration.
 PROMPT_FILE_NAMES_USED_FOR_SCORING = [
@@ -40,6 +63,14 @@ PROMPT_FILE_NAMES_USED_FOR_SCORING = [
     PREACHY_DESCRIPTIONS_FILE_NAME,
     CONTROL_DESCRIPTIONS_FILE_NAME,
     PROPORTIONATE_WELFARE_DESCRIPTIONS_FILE_NAME,
+]
+
+# Hashed into run_configuration only for base-model runs, so instruct runs keep identical configurations.
+BASE_MODEL_PROMPT_FILE_NAMES = [
+    BASE_MODEL_PREAMBLE_TEMPLATE_WITH_AUTHOR_FILE_NAME,
+    BASE_MODEL_PREAMBLE_TEMPLATE_WITHOUT_AUTHOR_FILE_NAME,
+    BASE_MODEL_PERSONA_AUTHOR_FRAME_FILE_NAME,
+    BASE_MODEL_GENERIC_AUTHOR_DESCRIPTION_FILE_NAME,
 ]
 
 SPEC_VARIABLE_NAMES = ["document_type", "culture", "domain", "sentient_category", "decision_scale", "naming",
@@ -105,9 +136,39 @@ def render_persona_system_prompt(persona_frame, persona_description):
     return persona_frame.replace("{persona_description}", persona_description)
 
 
-def build_condition_records(prompt_directory=None):
+def check_model_type(model_type):
+    if model_type not in MODEL_TYPES:
+        raise ValueError(f"Unknown model type {model_type!r}; expected one of {MODEL_TYPES}")
+
+
+def build_prompt_files_used_for_scoring(model_type):
+    """Names of the prompt files whose hashes go into run_configuration for this model type."""
+    check_model_type(model_type)
+    if model_type == MODEL_TYPE_BASE:
+        return PROMPT_FILE_NAMES_USED_FOR_SCORING + BASE_MODEL_PROMPT_FILE_NAMES
+    return list(PROMPT_FILE_NAMES_USED_FOR_SCORING)
+
+
+def render_base_model_author_description(author_frame, persona_description):
+    if "{persona_description}" not in author_frame:
+        raise ValueError("Base-model persona author frame has no {persona_description} slot")
+    return author_frame.replace("{persona_description}", persona_description)
+
+
+def build_condition_records(prompt_directory=None, model_type=MODEL_TYPE_INSTRUCT):
     """The 62 system-prompt conditions, in a fixed order: no_system_prompt, generic, 30 preachy,
-    25 control (5 personas x 5), 5 proportionate_welfare. Rewording indices are 1-based."""
+    25 control (5 personas x 5), 5 proportionate_welfare. Rewording indices are 1-based.
+
+    For the base model type every record also has `author_description` (None for no_system_prompt, the generic
+    author description for generic, the persona author frame filled with the same persona description for the
+    others). Instruct records do not have the field, so instruct conditions.jsonl files are unchanged and old
+    runs still resume."""
+    check_model_type(model_type)
+    is_base_model = model_type == MODEL_TYPE_BASE
+    if is_base_model:
+        author_frame = load_prompt_text(BASE_MODEL_PERSONA_AUTHOR_FRAME_FILE_NAME, prompt_directory)
+        generic_author_description = load_prompt_text(BASE_MODEL_GENERIC_AUTHOR_DESCRIPTION_FILE_NAME,
+                                                      prompt_directory)
     persona_frame = load_prompt_text(PERSONA_FRAME_FILE_NAME, prompt_directory)
     generic_system_prompt = load_prompt_text(GENERIC_SYSTEM_PROMPT_FILE_NAME, prompt_directory)
     preachy_descriptions = parse_persona_description_lines(PREACHY_DESCRIPTIONS_FILE_NAME, prompt_directory)
@@ -136,14 +197,20 @@ def build_condition_records(prompt_directory=None):
         {"condition_id": "generic", "condition_group": "generic", "persona_name": "generic",
          "rewording_index": None, "system_prompt": generic_system_prompt},
     ]
+    if is_base_model:
+        conditions[0]["author_description"] = None
+        conditions[1]["author_description"] = generic_author_description
 
     def add_persona_conditions(condition_group, persona_name, descriptions):
         for rewording_index, description in enumerate(descriptions, start=1):
-            conditions.append({
+            condition = {
                 "condition_id": f"{persona_name}__rewording_{rewording_index:02d}",
                 "condition_group": condition_group, "persona_name": persona_name,
                 "rewording_index": rewording_index,
-                "system_prompt": render_persona_system_prompt(persona_frame, description)})
+                "system_prompt": render_persona_system_prompt(persona_frame, description)}
+            if is_base_model:
+                condition["author_description"] = render_base_model_author_description(author_frame, description)
+            conditions.append(condition)
 
     add_persona_conditions("preachy", "preachy", preachy_descriptions)
     for persona_name, descriptions in control_descriptions_by_persona.items():
@@ -280,26 +347,15 @@ class TokenizedConditionAndDocument:
     document_end_index: int    # one past the last document content token
     prompt_text: str
     suffix_text: str
-    assistant_header_matches_finished_message_rendering: bool
+    # Instruct: whether the finished-message rendering has the same text before the content as the generation
+    # prompt. Base: None, because there is no chat template and so no finished-message rendering to compare.
+    assistant_header_matches_finished_message_rendering: object
 
 
-def tokenize_condition_and_document(tokenizer, condition, generation_prompt, document_content, model_name=None):
-    """Returns the full token ids for (condition, document) and the index range of the document content
-    tokens. Position i of the full sequence is predicted by the hidden state at position i - 1.
-
-    Verified here: the system prompt survives the template; the tokens of the prompt are an exact prefix of
-    the full sequence (so the first document token is scored given the assistant header and nothing leaks
-    in from the document); the tokens after the document are an exact tail; the content tokens decode back
-    to the document text apart from whitespace at the edges.
-    """
-    label = model_label(tokenizer, model_name)
-    document_text = document_content.strip()
-    if not document_text:
-        raise DocumentTokenLocationError("Document content is empty")
-    prompt_text = render_prompt_text_with_generation_header(tokenizer, condition, generation_prompt, model_name)
-    suffix_text, text_before_content = render_text_after_assistant_message(
-        tokenizer, condition, generation_prompt, document_text, model_name)
-
+def locate_document_tokens(tokenizer, condition, prompt_text, document_text, suffix_text, label):
+    """Tokenizes prompt + document + suffix and returns (full_token_ids, document_start_index,
+    document_end_index) after checking that the prompt tokens are an exact prefix, the suffix tokens an exact
+    tail, and the document tokens decode back to the document text apart from whitespace at the edges."""
     prompt_token_ids = tokenize_text(tokenizer, prompt_text)
     suffix_token_ids = tokenize_text(tokenizer, suffix_text) if suffix_text else []
     full_token_ids = tokenize_text(tokenizer, prompt_text + document_text + suffix_text)
@@ -329,11 +385,97 @@ def tokenize_condition_and_document(tokenizer, condition, generation_prompt, doc
             f"(first difference at character {mismatch_position}: decoded "
             f"{decoded_content.strip()[mismatch_position:mismatch_position + 60]!r} vs original "
             f"{document_text[mismatch_position:mismatch_position + 60]!r}).")
+    return full_token_ids, document_start_index, document_end_index
 
+
+def tokenize_condition_and_document(tokenizer, condition, generation_prompt, document_content, model_name=None):
+    """Instruct model type. Returns the full token ids for (condition, document) and the index range of the
+    document content tokens. Position i of the full sequence is predicted by the hidden state at position i - 1.
+
+    Verified here: the system prompt survives the template; the tokens of the prompt are an exact prefix of
+    the full sequence (so the first document token is scored given the assistant header and nothing leaks
+    in from the document); the tokens after the document are an exact tail; the content tokens decode back
+    to the document text apart from whitespace at the edges.
+    """
+    label = model_label(tokenizer, model_name)
+    document_text = document_content.strip()
+    if not document_text:
+        raise DocumentTokenLocationError("Document content is empty")
+    prompt_text = render_prompt_text_with_generation_header(tokenizer, condition, generation_prompt, model_name)
+    suffix_text, text_before_content = render_text_after_assistant_message(
+        tokenizer, condition, generation_prompt, document_text, model_name)
+    full_token_ids, document_start_index, document_end_index = locate_document_tokens(
+        tokenizer, condition, prompt_text, document_text, suffix_text, label)
     return TokenizedConditionAndDocument(
         full_token_ids=full_token_ids, document_start_index=document_start_index,
         document_end_index=document_end_index, prompt_text=prompt_text, suffix_text=suffix_text,
         assistant_header_matches_finished_message_rendering=(text_before_content == prompt_text))
+
+
+# ---------------------------------------------------------------------------------------------------
+# Base model type: plain-text author preamble, no chat template
+# ---------------------------------------------------------------------------------------------------
+
+class AuthorDescriptionNotInRenderedPromptError(RuntimeError):
+    pass
+
+
+def render_base_model_preamble(condition, generation_prompt, prompt_directory=None):
+    """The preamble text (no beginning-of-sequence token, no trailing separator) for one condition."""
+    if "author_description" not in condition:
+        raise ValueError(f"Condition {condition['condition_id']} has no author_description field; build the "
+                         f"conditions with model_type={MODEL_TYPE_BASE!r}")
+    author_description = condition["author_description"]
+    if author_description is None:
+        template = load_prompt_text(BASE_MODEL_PREAMBLE_TEMPLATE_WITHOUT_AUTHOR_FILE_NAME, prompt_directory)
+    else:
+        template = load_prompt_text(BASE_MODEL_PREAMBLE_TEMPLATE_WITH_AUTHOR_FILE_NAME, prompt_directory)
+        if "{author_description}" not in template:
+            raise ValueError("Base-model preamble template with author has no {author_description} slot")
+        template = template.replace("{author_description}", author_description)
+    if "{generation_prompt}" not in template:
+        raise ValueError("Base-model preamble template has no {generation_prompt} slot")
+    return template.replace("{generation_prompt}", generation_prompt)
+
+
+def render_base_model_prompt_text(tokenizer, condition, generation_prompt, model_name=None, prompt_directory=None):
+    """Beginning-of-sequence token text (if the tokenizer has one) + preamble + blank line. Raises if the
+    condition's author description is missing from the result."""
+    preamble = render_base_model_preamble(condition, generation_prompt, prompt_directory)
+    prompt_text = (tokenizer.bos_token or "") + preamble + BASE_MODEL_PREAMBLE_AND_DOCUMENT_SEPARATOR
+    author_description = condition["author_description"]
+    if author_description is not None and author_description not in prompt_text:
+        raise AuthorDescriptionNotInRenderedPromptError(
+            f"The author description of condition {condition['condition_id']} is not in the rendered "
+            f"base-model prompt for {model_label(tokenizer, model_name)}. Rendered text:\n{prompt_text}")
+    return prompt_text
+
+
+def tokenize_condition_and_document_for_base_model(tokenizer, condition, generation_prompt, document_content,
+                                                   model_name=None):
+    """Base model counterpart of tokenize_condition_and_document: the prompt is the plain-text author preamble,
+    and nothing follows the document. Same checks except the chat-template-only ones (system prompt survives
+    the template, finished-message suffix); instead the author description must be in the prompt."""
+    label = model_label(tokenizer, model_name)
+    document_text = document_content.strip()
+    if not document_text:
+        raise DocumentTokenLocationError("Document content is empty")
+    prompt_text = render_base_model_prompt_text(tokenizer, condition, generation_prompt, model_name)
+    full_token_ids, document_start_index, document_end_index = locate_document_tokens(
+        tokenizer, condition, prompt_text, document_text, "", label)
+    return TokenizedConditionAndDocument(
+        full_token_ids=full_token_ids, document_start_index=document_start_index,
+        document_end_index=document_end_index, prompt_text=prompt_text, suffix_text="",
+        assistant_header_matches_finished_message_rendering=None)
+
+
+def tokenize_condition_and_document_for_model_type(tokenizer, condition, generation_prompt, document_content,
+                                                   model_name=None, model_type=MODEL_TYPE_INSTRUCT):
+    check_model_type(model_type)
+    if model_type == MODEL_TYPE_BASE:
+        return tokenize_condition_and_document_for_base_model(
+            tokenizer, condition, generation_prompt, document_content, model_name)
+    return tokenize_condition_and_document(tokenizer, condition, generation_prompt, document_content, model_name)
 
 
 def decode_each_token(tokenizer, token_ids):

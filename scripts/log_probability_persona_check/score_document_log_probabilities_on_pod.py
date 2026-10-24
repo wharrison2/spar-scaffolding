@@ -1,5 +1,6 @@
 """Scores, for every (document, condition) in a run folder, the log-probability the model assigns to each
-document content token given the condition's chat prompt. Forward passes only. Runs on the GPU pod (or on
+document content token given the condition's prompt: the chat template for an instruct model, or the plain-text author preamble for a
+base model (the model type is read from the run configuration). Forward passes only. Runs on the GPU pod (or on
 CPU with a tiny model for the smoke test).
 
 Memory: the vocabulary has about 262k entries, so full-sequence logits are never built. The decoder's final
@@ -18,7 +19,8 @@ Model classes: --model-class auto_causal_lm (default) uses AutoModelForCausalLM.
 such as Gemma 4 (model_type gemma4_unified) the Auto mapping resolves this to the conditional-generation
 class, whose text decoder is `model.base_model` and whose output head is `lm_head`; both are used through
 the generic accessors below. --model-class auto_image_text_to_text uses AutoModelForImageTextToText instead,
-for checkpoints whose causal-LM mapping is missing. HF_TOKEN in the environment is used if set.
+for checkpoints whose causal-LM mapping is missing. A base (pretrained) model needs no chat template: runs
+built with --model-type base use plain text only. HF_TOKEN in the environment is used if set.
 """
 
 import argparse
@@ -143,13 +145,14 @@ def split_into_batches(tokenized_sequences_with_indices, maximum_tokens_per_batc
     return batches
 
 
-def tokenize_all_conditions_for_document(tokenizer, document, conditions, model_name):
+def tokenize_all_conditions_for_document(tokenizer, document, conditions, model_name,
+                                         model_type=prompt_rendering.MODEL_TYPE_INSTRUCT):
     """Tokenizes the document under every condition and asserts the document token ids are identical."""
     tokenized_sequences = []
     reference_document_token_ids = None
     for condition in conditions:
-        tokenized = prompt_rendering.tokenize_condition_and_document(
-            tokenizer, condition, document["generation_prompt"], document["content"], model_name)
+        tokenized = prompt_rendering.tokenize_condition_and_document_for_model_type(
+            tokenizer, condition, document["generation_prompt"], document["content"], model_name, model_type)
         document_token_ids = tokenized.full_token_ids[tokenized.document_start_index:tokenized.document_end_index]
         if reference_document_token_ids is None:
             reference_document_token_ids = document_token_ids
@@ -162,11 +165,11 @@ def tokenize_all_conditions_for_document(tokenizer, document, conditions, model_
 
 
 def score_one_document(model, tokenizer, document, conditions, device, model_name, maximum_tokens_per_batch,
-                       positions_per_chunk):
+                       positions_per_chunk, model_type=prompt_rendering.MODEL_TYPE_INSTRUCT):
     """Returns (document_token_ids, log_probabilities of shape (conditions, document tokens),
     number of real tokens pushed through the model)."""
     tokenized_sequences, document_token_ids = tokenize_all_conditions_for_document(
-        tokenizer, document, conditions, model_name)
+        tokenizer, document, conditions, model_name, model_type)
     log_probabilities = np.zeros((len(conditions), len(document_token_ids)), dtype=np.float32)
     for batch in split_into_batches(list(enumerate(tokenized_sequences)), maximum_tokens_per_batch):
         batch_results = score_tokenized_sequences(model, tokenizer, [pair[1] for pair in batch], device,
@@ -285,6 +288,8 @@ def main(argument_list=None):
     run_folder = Path(arguments.run_folder)
     configuration = load_first_run_configuration(run_folder)
     model_name = arguments.model_name or configuration["model_name"]
+    model_type = configuration.get("model_type", prompt_rendering.MODEL_TYPE_INSTRUCT)  # old runs: instruct
+    prompt_rendering.check_model_type(model_type)
     if model_name != configuration["model_name"]:
         print(f"WARNING: scoring with {model_name}, but the run configuration (which fixed the prompts) "
               f"names {configuration['model_name']}", flush=True)
@@ -318,7 +323,7 @@ def main(argument_list=None):
     timestamp = timestamp_now()
     progress_log_path = scoring_outputs_directory / f"scoring_progress_log_{timestamp}.txt"
     print(f"{len(documents)} documents x {len(conditions)} conditions; {len(complete)} documents already done; "
-          f"{len(documents_to_score)} to score with {model_name}", flush=True)
+          f"{len(documents_to_score)} to score with {model_name} (model type {model_type})", flush=True)
     if not documents_to_score:
         return run_folder
 
@@ -345,13 +350,13 @@ def main(argument_list=None):
         document_id = document["document_id"]
         document_token_ids, log_probabilities, real_tokens = score_one_document(
             model, tokenizer, document, conditions, arguments.device, model_name,
-            arguments.maximum_tokens_per_batch, arguments.positions_per_head_chunk)
+            arguments.maximum_tokens_per_batch, arguments.positions_per_head_chunk, model_type)
         if not np.isfinite(log_probabilities).all() or (log_probabilities > 1e-4).any():
             raise RuntimeError(f"Document {document_id}: non-finite or positive log-probabilities found")
         if document_number == 0 and arguments.verify_first_document_against_full_logits:
             verify_chunked_against_full_logits(
                 model, tokenizer, document, conditions[-1], model_name, arguments.device, log_probabilities[-1],
-                arguments.positions_per_head_chunk,
+                arguments.positions_per_head_chunk, model_type=model_type,
                 result_path=scoring_outputs_directory / f"full_logits_verification_{timestamp}.json")
         write_npz_atomically(
             npz_directory / f"{document_id}.npz", document_token_ids=document_token_ids,
@@ -371,11 +376,12 @@ MAXIMUM_ALLOWED_MAXIMUM_DIFFERENCE = 1.0
 
 
 def verify_chunked_against_full_logits(model, tokenizer, document, condition, model_name, device,
-                                       chunked_log_probabilities, positions_per_chunk, result_path=None):
+                                       chunked_log_probabilities, positions_per_chunk, result_path=None,
+                                       model_type=prompt_rendering.MODEL_TYPE_INSTRUCT):
     """Compares the chunked result with the plain full-logits computation, writes the outcome to result_path
     (also when it fails) and raises if the two differ more than the allowed amounts."""
-    tokenized = prompt_rendering.tokenize_condition_and_document(
-        tokenizer, condition, document["generation_prompt"], document["content"], model_name)
+    tokenized = prompt_rendering.tokenize_condition_and_document_for_model_type(
+        tokenizer, condition, document["generation_prompt"], document["content"], model_name, model_type)
     reference = compute_log_probabilities_with_plain_full_logits(model, tokenizer, tokenized, device)
     differences = np.abs(reference - chunked_log_probabilities)
     maximum_difference, mean_difference = float(differences.max()), float(differences.mean())
@@ -385,7 +391,7 @@ def verify_chunked_against_full_logits(model, tokenizer, document, condition, mo
     passed = mean_difference <= MAXIMUM_ALLOWED_MEAN_DIFFERENCE and maximum_difference <= MAXIMUM_ALLOWED_MAXIMUM_DIFFERENCE
     if result_path is not None:
         Path(result_path).write_text(json.dumps({
-            "passed": passed, "document_id": document["document_id"], "condition_id": condition["condition_id"],
+            "passed": passed, "model_type": model_type, "document_id": document["document_id"], "condition_id": condition["condition_id"],
             "number_of_document_tokens": int(len(reference)), "positions_per_head_chunk": positions_per_chunk,
             "maximum_absolute_difference": maximum_difference, "mean_absolute_difference": mean_difference,
             "full_logits_mean_log_probability": float(reference.mean()),

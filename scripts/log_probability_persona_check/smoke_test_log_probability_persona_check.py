@@ -6,7 +6,7 @@ data/log_probability_persona_check_runs/small_sample_checks/.
 What it exercises: build_scoring_inputs.py, the real chat template (system prompt survives, document token
 location on real corpus documents in several languages), the scorer's model loading through
 AutoModelForCausalLM (which resolves to the multimodal Gemma 4 class), batching, chunked head with softcapping,
-verification against plain full logits, atomic .npz outputs, completion records, and resume.
+verification against plain full logits, atomic .npz outputs, completion records, and resume. It then repeats build and scoring with --model-type base (author preamble, no chat template).
 
 Usage: python3 scripts/log_probability_persona_check/smoke_test_log_probability_persona_check.py
 """
@@ -102,6 +102,17 @@ def main():
                       f"mean log-probability {log_probabilities.mean():.3f}, first tokens "
                       f"{list(saved['document_token_strings'][:4])}")
         print(f"Run folder: {run_folder}")
+
+        # Base model type: same tiny model and tokenizer, plain-text author preamble instead of the chat template.
+        base_run_folder = build_inputs.main([
+            "--run-name", "smoke_test_tiny_random_gemma4_base_model_type", "--small-sample-check",
+            "--document-ids-file", str(document_ids_file), "--model-name", str(tiny_model_directory),
+            "--model-type", "base"])
+        scorer.main(["--run-folder", str(base_run_folder), "--device", "cpu", "--dtype", "float32",
+                     "--maximum-tokens-per-batch", "40000", "--verify-first-document-against-full-logits"])
+        base_records = read_jsonl(base_run_folder / "scoring_outputs" / "scoring_completion_records.jsonl")
+        assert len(base_records) == 186, len(base_records)
+        print(f"Base model type run folder: {base_run_folder}")
         return run_folder
     finally:
         shutil.rmtree(working_directory, ignore_errors=True)

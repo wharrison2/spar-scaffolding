@@ -48,6 +48,15 @@ python3 scripts/log_probability_persona_check/build_scoring_inputs.py --run-name
 
 Output: the pilot run folder `data/log_probability_persona_check_runs/small_sample_checks/pilot_twenty_plus_twenty_documents_<timestamp>/` (`<pilot run folder>` below) with `scoring_inputs/documents.jsonl` (40 documents), `scoring_inputs/conditions.jsonl` (62 conditions) and `run_configuration_<timestamp>.json`.
 
+### Choosing instruct or base model type
+
+`build_scoring_inputs.py --model-type instruct` (default) scores through the instruction-tuned model's chat template. `--model-type base` scores a base (pretrained) model with the plain-text author preamble instead (layout: `run_folder_layout_and_script_interfaces.md`); it uses `google/gemma-4-12b-pt` unless `--model-name` is given (that repository id has not been verified; check it first). The choice is recorded in the run configuration and the scorer and launcher need no extra flag. Notes for base runs:
+
+ - A base model is a different checkpoint from the instruct model, so it needs its own pinned revision: pass `--model-revision` to the launcher and record it. Load it with the default `--model-class auto_causal_lm`; no chat template is needed
+ - Scores from the two model types are not directly comparable (different prompts, different models). Compare conclusions, not numbers, and do not mix the two in one analysis
+ - The pilot and positive control steps apply unchanged; run them again for a base model before trusting its results
+ - A run folder cannot be resumed under a different model type
+
 ## 5. Launcher dry run (free)
 
 ```
