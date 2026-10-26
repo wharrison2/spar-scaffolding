@@ -69,6 +69,8 @@ Follow `pilot_runbook.md`. Every step marked PAID needs its own go-ahead.
  - extreme spans: the 3 highest and 3 lowest non-overlapping 32-token windows of the per-token target-minus-generic difference, with their text
  - scores by spec variable, with an ordinary least squares regression on one-hot spec variables (leave out language, which is collinear with culture)
  - **Read a sample of the extreme spans** before making any claim about which documents carry the persona. In the preachiness check they were never read
+ - **Document openings and headers are noisy.** With little text before them, opening tokens depend mostly on the prompt, and titles, bylines and header blocks are hard to predict. In the preachiness check the spread of per-token differences was 3 to 4 times larger in tokens 0 to 31 than after token 512, and 7 of the 12 most extreme preachy-against-same-values spans across the corpus (top 3 each direction, two instruct models) were titles, bylines or header lines. Extreme-span selection by maximum or minimum therefore favours openings, and the permutation test does not correct for it
+ - So also compute extreme spans of the target-minus-same-values-control difference (average over target rewordings minus average over same-values rewordings, per token), counting only windows that start at token 64 or later. In the preachiness check this comparison showed the clearest pattern: both personas peaked on text *describing* their behaviour rather than text showing it
 
 ## Known engineering problems (already fixed, don't reintroduce)
  - tar on the pod must use `--no-same-owner --no-same-permissions`; locally use `--no-mac-metadata --no-xattrs` with `COPYFILE_DISABLE=1`
@@ -79,4 +81,5 @@ Follow `pilot_runbook.md`. Every step marked PAID needs its own go-ahead.
 ## Writing up
  - Report the positive control before the corpus results, and say at which level (whole document, changed spans) it passed
  - Report whole-document and span-level results separately, and do not present whole-document scores as a persona measure unless the positive control passed at that level
+ - Report the target-against-same-values-control extreme spans with openings excluded, with the top 5 in each direction per model and their context, and the opening-versus-later spread table that justifies the exclusion. When showing extreme spans that include openings, say how many start in the first 64 tokens
  - Record the model, revision, GPU, dtype, throughput and cost of every run, including failed launches
