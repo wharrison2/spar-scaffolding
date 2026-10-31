@@ -86,9 +86,27 @@ Each test uses the 10 preachier rewrites, measuring changed-span tokens minus th
   - That component alone accounts for most of the document projections' offset of about −118 (0.68 × −172 ≈ −117).
   - Across extraction answers, the facet vector has cosine −0.85 with the first principal component, which carries 28% of the variance between answers.
 
+### Changed-span shift with the topic projection removed token by token
+
+Method:
+- Regress each token's facet projection on its topic projection, fitted on the body tokens (after token 64) of the 20 corpus documents, separately per format.
+- Test the residual on the changed span of each preachier rewrite against the rewrite's unchanged tokens.
+
+| Format | Share of token-level facet variance explained by topic | Residual shift on changed span | Rewrites negative | t-test p | Wilcoxon p | Rewrites with within-document p < 0.05 |
+|---|---|---|---|---|---|---|
+| assistant_turn | 94% | −0.74 | 10 of 10 | 0.001 | 0.002 | 4 of 10 |
+| user_message | 93% | −0.68 | 10 of 10 | < 0.001 | 0.002 | 4 of 10 |
+| raw_text | 96% | −0.31 | 9 of 10 | 0.005 | 0.004 | 2 of 10 |
+
+- **The residual varies much less from token to token than the raw projection.** Its per-token standard deviation is 2.0 to 2.8, against about 10 before removal.
+- **On extraction answers, the same residual separates lecturing only.** It uses the slope fitted on assistant_turn corpus tokens, 1.49, applied to the answers' mean activations.
+  - Positive −9.4, lecturing −12.2, refusing or watering down −9.4, generic assistant −7.8.
+  - The gap between positive and lecturing is 2.7, so the changed-span shift in assistant_turn (−0.74) is about a quarter of that gap.
+
 ## Interpretation
 
 - **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
+- **With the topic projection removed, a small, consistent lecturing signal remains.** The residual moves the expected way on the inserted preachy text in 29 of 30 rewrite-format pairs, raw text included. Its size is about a quarter of the gap between lecturing and positive answers. It does not separate refusing from positive answers, so it is a lecturing signal, not a non-intrusive one. The regression slope was fitted on these same documents, so this is a post-hoc reading, to be confirmed with the slope fixed in advance on new documents, or with a vector rebuilt without the outlier dimension.
 - **The vector does not pass the positive control.** On whole documents it does not separate preachier from plainer rewrites in any format. On the inserted preachy text in the assistant_turn format it leans the right way, by about a fifth of the per-token spread. But the topic vector moves the same way, and raw text reverses the sign. That is too weak and too format-dependent to count as tracking preachiness.
 - **At the token level the vector seems to track register and language more than intrusiveness.** Formal English and Chinese prose about AI scores low; non-English narrative scores high. This fits the extraction finding that layer 1 already separates the poles at 0.82: much of the direction is surface style induced by the system prompts.
 - **The pilot's positive control is weak as a test.** The plainer rewrites change almost nothing, so only the preachier half is informative. The facet rewrites planned for the full run, and facet-neutral rewrites of the same size, would test more directly.
