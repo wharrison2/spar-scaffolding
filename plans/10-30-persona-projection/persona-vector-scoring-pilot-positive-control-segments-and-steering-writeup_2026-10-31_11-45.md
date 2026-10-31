@@ -131,9 +131,42 @@ Both methods were run on Gemma 4 12B instruct at the same revision, on the same 
 
 Log-probability source: `data/audit/log_probability_persona_check_preachiness_gemma_4_12b_instruct_positive_control_72_conditions_merged_2026-10-25_01-24/analysis_2026-10-25_01-24/changed_span_preachy_minus_control_2026-10-25_01-24.csv`. The whole-document rows are from `plans/10-07-document-persona-projection/10-25-preachiness-audit/preachiness-audit-writeup_2026-10-25_12-15.md`.
 
+### Lowest and highest segments with the topic score removed, and what that score is
+
+Method: the same 32-token windows, scored on each token's facet projection minus 1.49 × its topic projection plus a constant. The slope and constant were fitted on the corpus body tokens.
+- **Lowest windows: statements of animal sentience and suffering, in several languages.** Examples:
+  - "Red deer are large social mammals with the neural and behavioural equipment associated with pain, fear and distress", in the source and both rewrites;
+  - the preachier rewrite's inserted "a great many individual animals are dying slowly and badly. Each of those is a creature capable of fear";
+  - insect sentience, in Portuguese;
+  - the New York Declaration on Animal Consciousness, in Japanese and Chinese.
+- **Highest windows: practical instructions and administrative text**, for example "seal the gaps around the storehouse with steel mesh", "1. Do not stack feed sacks directly on the floor", footnotes, and an output-format checklist.
+- **Baselines still hold 14 of the 20 lowest windows overall.**
+- **In the preachier rewrites, 2 of 30 lowest windows lie mostly in the inserted text,** which is about 15% of their tokens.
+
+This score is mostly a negative topic score:
+- The slope of 1.49 is the ratio of the two unit vectors' components on dimension 1750 (0.68 / 0.46). So subtracting the topic score cancels dimension 1750 almost exactly; the residual direction's component on it is −0.006.
+- What remains is the facet vector's part off dimension 1750 (length 0.73) minus 1.49 times the topic vector's part off it (length 1.32).
+- The residual direction has cosine −0.93 with the topic vector with dimension 1750 zeroed, and 0.77 with the facet vector with dimension 1750 zeroed. The two zeroed vectors are themselves anti-aligned (cosine −0.49): the vectors were orthogonal only because of their shared component on dimension 1750.
+- So the lowest windows are largely the most animal-focused text, and these windows do not show where preachiness sits.
+
+### Vector with dimension 1750 zeroed (extraction answers, local)
+
+Dimension 1750's mean value over answers is 0.1 at layer 1, −14.5 at layer 12, −172 at layer 18, −256 at layer 24 and −139 at layer 36. Both the vector before topic removal and the topic vector had dimension 1750 set to zero, then the topic direction was removed as before. Held-out answers are the same as in the extraction writeup.
+
+| Vector at layer 18 | Held-out accuracy | Held-out area under the curve | Correlation of facet and topic projections across answers | Norm |
+|---|---|---|---|---|
+| As scored | 0.91 | 0.97 | 0.83 | 6.48 |
+| Dimension 1750 zeroed, then topic removed | 0.86 | 0.99 | 0.09 | 4.13 |
+
+- **Zeroing ends the entanglement with the topic** (correlation 0.83 → 0.09).
+- **Ranking of held-out answers improves slightly** (area under the curve 0.99). Accuracy falls to 0.86 because the cut-off, set at the midpoint between the training poles, sits worse after zeroing.
+- **Layer 1 still reaches 0.82**, so the surface-style component is not the outlier dimension.
+- Document scores with this vector need a new scoring pass. The pod saved projections onto the facet and topic vectors only, and those two numbers cannot separate dimension 1750 from the rest.
+
 ## Interpretation
 
 - **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
+- **The topic-score-removed results are mostly a negative topic score.** Subtracting 1.49 × the topic score cancels dimension 1750 but leaves a direction close to "less animal content" (cosine −0.93 with the zeroed topic vector). The consistent changed-span shift below, and the comparison with the log-probability check, may therefore reflect the inserted text's animal and suffering content more than its preachiness. They need redoing with the zeroed vector.
 - **With the topic projection removed, a small, consistent lecturing signal remains.** The residual moves the expected way on the inserted preachy text in 29 of 30 rewrite-format pairs, raw text included. Its size is about a quarter of the gap between lecturing and positive answers. It does not separate refusing from positive answers, so it is a lecturing signal, not a non-intrusive one. The regression slope was fitted on these same documents, so this is a post-hoc reading, to be confirmed with the slope fixed in advance on new documents, or with a vector rebuilt without the outlier dimension.
 - **The log-probability check is the stronger detector of inserted preachy text.** It passes 10 of 10 with no adjustment, and its standardised effect (2.6) is larger than the vector's after topic removal (1.6). The vector reaches 10 of 10 only after a topic adjustment fitted on the same documents. Both fail at the whole-document level, and neither tests the plainer direction, because those rewrites barely change the text.
 - **The vector does not pass the positive control.** On whole documents it does not separate preachier from plainer rewrites in any format. On the inserted preachy text in the assistant_turn format it leans the right way, by about a fifth of the per-token spread. But the topic vector moves the same way, and raw text reverses the sign. That is too weak and too format-dependent to count as tracking preachiness.
