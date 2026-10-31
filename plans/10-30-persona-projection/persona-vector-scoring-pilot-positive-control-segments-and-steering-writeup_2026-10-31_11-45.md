@@ -68,8 +68,27 @@ The judge was `gpt-5.6-luna`, scoring each answer for the facet at reasoning eff
   - At 8, answers turn into repeated table cells or placeholder loops, for example "Please provide a [Note] | [15% Below 7-Day Avg]" repeated.
 - **Six of the 12 held-out questions score about 50 at every coefficient, unsteered included.** By the judge's rule, 50 means an answer did not name a material welfare cost. These are the questions where Gemma leaves out the cost, which matches the extraction pilot.
 
+### Significance of the changed-span shift, and what drives it
+
+Each test uses the 10 preachier rewrites, measuring changed-span tokens minus the rewrite's unchanged tokens, after token 64. The within-document test moves the changed-token mask to random offsets in the same document (circular shift, 2,000 draws), which respects the autocorrelation between neighbouring tokens.
+
+| Format | Vector | Mean shift | t-test p | Wilcoxon p | Rewrites with within-document p < 0.05 |
+|---|---|---|---|---|---|
+| assistant_turn | non-intrusive | −2.23 | 0.006 | 0.014 | 6 of 10 |
+| assistant_turn | topic | −1.00 | 0.025 | 0.049 | 6 of 10 |
+| user_message | non-intrusive | −1.36 | 0.030 | 0.064 | 5 of 10 |
+| raw_text | non-intrusive | +1.15 (wrong sign) | 0.075 | 0.160 | 0 of 10 |
+
+- **The facet shift across rewrites almost equals the topic shift.** The two correlate at r = 0.97 to 0.99 in every format. Regressing the facet shift on the topic shift leaves an intercept of −0.58 (p = 0.016) in assistant_turn.
+- **Within corpus documents, token by token, the facet and topic projections correlate at a median of 0.97,** although the two vectors are orthogonal at layer 18 (cosine 0.00).
+- **Both vectors load heavily on one outlier dimension of the residual stream.** Dimension 1750 has a mean of −172 in extraction answers, against an activation norm of about 182; it is a massive-activation dimension.
+  - The unit facet vector has a component of 0.68 on it, so 47% of its squared length lies there. The unit topic vector has 0.46.
+  - That component alone accounts for most of the document projections' offset of about −118 (0.68 × −172 ≈ −117).
+  - Across extraction answers, the facet vector has cosine −0.85 with the first principal component, which carries 28% of the variance between answers.
+
 ## Interpretation
 
+- **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
 - **The vector does not pass the positive control.** On whole documents it does not separate preachier from plainer rewrites in any format. On the inserted preachy text in the assistant_turn format it leans the right way, by about a fifth of the per-token spread. But the topic vector moves the same way, and raw text reverses the sign. That is too weak and too format-dependent to count as tracking preachiness.
 - **At the token level the vector seems to track register and language more than intrusiveness.** Formal English and Chinese prose about AI scores low; non-English narrative scores high. This fits the extraction finding that layer 1 already separates the poles at 0.82: much of the direction is surface style induced by the system prompts.
 - **The pilot's positive control is weak as a test.** The plainer rewrites change almost nothing, so only the preachier half is informative. The facet rewrites planned for the full run, and facet-neutral rewrites of the same size, would test more directly.
