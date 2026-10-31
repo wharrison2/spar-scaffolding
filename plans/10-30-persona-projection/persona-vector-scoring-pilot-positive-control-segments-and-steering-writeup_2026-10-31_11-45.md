@@ -119,6 +119,13 @@ Both methods were run on Gemma 4 12B instruct at the same revision, on the same 
 | Changed span, preachier: standardised | 2.58 | 1.12 | 1.60 |
 | Changed span, plainer (9 with changed tokens): expected way | 4 of 9 | 7 of 9 | 3 of 9 |
 
+- **The vector before topic removal behaves like the topic-removed vector, slightly worse.** It was not scored on the pod. Its per-token projection is rebuilt exactly from the two scored projections: it equals the topic-removed vector plus a multiple of the unit topic vector (cosine of the difference with the topic vector 1.0), and its cosine with the topic-removed vector is 0.91.
+  - Assistant_turn changed span: −2.45, 8 of 10, Wilcoxon p 0.027, standardised 1.06.
+  - User_message: 7 of 10, p 0.064.
+  - Raw_text: wrong sign, 3 of 10.
+  - Whole document: preachier 5, 6 and 0 of 10 in the three formats.
+
+  Removing the topic direction from the vector therefore changes little. The gain comes from removing the topic projection token by token.
 - **The two methods agree only weakly on which rewrites move most.** On the preachier rewrites, the Spearman correlation of per-rewrite effects is −0.25 for the raw vector and −0.30 for the topic-removed one. A negative sign means agreement, given the opposite expected signs. With 10 rewrites neither is significant.
 - **Neither method found preachy passages in the corpus.** The log-probability check's significant windows were mostly openings and headers (preachiness audit, 2026-10-25). The vector's lowest windows are formal prose about AI.
 
