@@ -85,7 +85,7 @@ OUTPUTS_FOLDER_NAME = "generation_and_activation_outputs"
 ANSWERS_FOLDER_NAME = "answers"                    # inside the outputs folder: one JSONL shard per work unit
 ACTIVATIONS_FOLDER_NAME = "answer_token_mean_activations"  # inside the outputs folder: one .npz shard per batch group
 JUDGEMENTS_FOLDER_NAME = "judge_outputs"
-VECTORS_FOLDER_NAME = "vector_outputs"
+VECTOR_SETS_FOLDER_NAME = "vector_sets"  # one subfolder per vector computation: <vector set name>_<timestamp>
 
 
 def find_latest_file(folder, stem, extension):

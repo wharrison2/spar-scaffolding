@@ -580,7 +580,7 @@ def test_steered_condition_generation_uses_the_hook_and_unsteered_does_not(synth
 
 
 def test_adapter_reads_a_vector_folder_written_by_the_extraction_half_rehearsal():
-    folders = sorted((defs.SMALL_SAMPLE_CHECKS_ROOT).glob("rehearsal_tiny_model_mocked_judge_*/vector_outputs"))
+    folders = sorted((defs.SMALL_SAMPLE_CHECKS_ROOT).glob("rehearsal_tiny_model_mocked_judge_*/vector_sets/*"))
     if not folders:
         pytest.skip("no extraction rehearsal output present")
     loaded = load_scoring_vectors(folders[-1])

@@ -52,7 +52,8 @@ class FakeTransfer:
     def __init__(self, scorer_finishes_after_seconds=None, scorer_exit_code="0", clock=None, fail_pulls=0,
                  raise_during_install=False, fail_final_pulls=0, scorer_vanishes_after_seconds=None,
                  scorer_output_text="Traceback ... FileNotFoundError: boom", install_failures=0, ssh_never_ready=False,
-                 scorer_attempts=None, scorer_idle_before_first_start=False, requirements_marker_text=""):
+                 scorer_attempts=None, scorer_idle_before_first_start=False, requirements_marker_text="",
+                 exit_code_written_after_scorer_seen_gone=False):
         self.commands, self.pulls, self.uploads = [], [], 0
         self.final_pull_attempts, self.final_pull_clock_times = 0, []
         self.host = "1.2.3.4"
@@ -64,6 +65,8 @@ class FakeTransfer:
         # scorer_attempts: one (seconds until finished, exit code) per scorer start, measured from that start
         self.scorer_attempts, self.scorer_start_times = scorer_attempts, []
         self.scorer_idle_before_first_start, self.requirements_marker_text = scorer_idle_before_first_start, requirements_marker_text
+        # the exit code file only appears after a pgrep has reported the scorer gone (the exit-code race)
+        self.exit_code_written_after_scorer_seen_gone, self.scorer_seen_gone = exit_code_written_after_scorer_seen_gone, False
 
     def wait_until_ready(self, pod, deadline, get_pod_function, sleep_function):
         if self.ssh_never_ready:
@@ -86,9 +89,12 @@ class FakeTransfer:
                 return 1, ""
             vanished = (self.scorer_vanishes_after_seconds is not None
                         and self.clock.time() - 1_000_000.0 >= self.scorer_vanishes_after_seconds)
+            self.scorer_seen_gone = self.scorer_seen_gone or vanished
             return (1, "") if vanished else (0, "")
         if command.startswith("tail -n") and "scorer_standard_output.txt" in command:
             return 0, self.scorer_output_text
+        if "scorer_exit_code.txt 2>/dev/null" in command and self.exit_code_written_after_scorer_seen_gone:
+            return (0, self.scorer_exit_code) if self.scorer_seen_gone else (1, "")
         if "scorer_exit_code.txt 2>/dev/null" in command and self.scorer_attempts is not None:
             if not self.scorer_start_times:
                 return 1, ""
@@ -303,6 +309,15 @@ def test_early_crash_check_reports_a_still_running_scorer_and_detects_a_vanished
     assert launch(run_folder, client, transfer, clock, "--failure-wait-minutes", "0") == 1
     assert read_cost_log(run_folder)["termination_reason"].startswith("scorer_vanished_without_exit_code")
     assert transfer.final_pull_attempts == 1 and client.call_names().count("delete_pod") == 1
+
+
+def test_exit_code_written_just_after_the_scorer_exits_is_a_normal_finish_not_a_vanish(run_folder):
+    clock, client = FakeClock(), FakeRunPodClient()
+    transfer = FakeTransfer(scorer_vanishes_after_seconds=20, exit_code_written_after_scorer_seen_gone=True, clock=clock)
+    assert launch(run_folder, client, transfer, clock) == 0
+    progress = read_progress_log(run_folder)
+    assert "Scorer finished with exit code 0" in progress and "left no exit code" not in progress
+    assert read_cost_log(run_folder)["termination_reason"] == "scorer_finished"
 
 
 def test_termination_retries_after_failure(run_folder):

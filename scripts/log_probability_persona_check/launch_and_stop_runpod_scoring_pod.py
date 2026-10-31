@@ -67,6 +67,7 @@ REMOTE_RUN_FOLDER = f"{REMOTE_WORKING_DIRECTORY}/run_folder"
 WATCHDOG_GRACE_SECONDS = 600  # the pod's own deletion fires this long after the launcher's limit
 LOOP_SLEEP_SECONDS = 30
 SCORER_FINISHED_CHECK_INTERVAL_SECONDS = 60
+EXIT_CODE_REREAD_DELAY_SECONDS = 5  # the scorer can exit just before its exit code is written, so wait before declaring it vanished
 EARLY_CRASH_CHECK_DELAY_SECONDS = 60  # after starting the scorer, check once that it has not already crashed
 SCORER_OUTPUT_TAIL_LINES = 40
 FINAL_PULL_TOTAL_BUDGET_SECONDS = 300  # attempts plus waits, also never past the hours and dollar limits
@@ -915,7 +916,12 @@ class PodSession:
                 scorer_exit = self.scorer_exit_code()
                 if early_check_due:
                     early_crash_check_done = True
-                if scorer_exit is None and self.scorer_has_vanished_without_exit_code():
+                scorer_has_vanished = scorer_exit is None and self.scorer_has_vanished_without_exit_code()
+                if scorer_has_vanished:
+                    # The on-pod command writes the exit code just after the scorer exits, so look again before judging
+                    self.sleep(EXIT_CODE_REREAD_DELAY_SECONDS)
+                    scorer_exit = self.scorer_exit_code()
+                if scorer_has_vanished and scorer_exit is None:
                     self.say("Scorer process is gone and left no exit code")
                     failure_reason = "scorer_vanished_without_exit_code"
                 if early_check_due and scorer_exit is None and failure_reason is None:

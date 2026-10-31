@@ -16,7 +16,7 @@ Memory: the activations (about 5 GB in fp16 for a full run) are never loaded tog
 time), and each pass over a facet's answers keeps a single shard in memory. Resident memory therefore scales with one
 facet's questions and one shard, not with the whole run.
 
-Outputs, in <run folder>/vector_outputs/ (every file carries the timestamp):
+Outputs, in <run folder>/vector_sets/<vector set name>_<timestamp>/ (a new folder per run, never overwritten; every file carries the timestamp):
   persona_vector_<facet>_topic_removed_<ts>.npy              float32 (layers, hidden); the vectors to use
   persona_vector_<facet>_before_topic_removal_<ts>.npy
   persona_vector_<facet>__vector_from_half_A_<ts>.npy, ..._half_B_...  topic-removed facet vector from one half of the domains
@@ -286,8 +286,13 @@ def compute_all(run_folder, thresholds, facets, bootstrap_resamples, minimum_lay
                 output_folder=None, say=print):
     run_folder = Path(run_folder)
     stamp = timestamp_now()
-    output_folder = Path(output_folder or run_folder / defs.VECTORS_FOLDER_NAME)
-    output_folder.mkdir(parents=True, exist_ok=True)
+    if output_folder is None:
+        # Each run gets its own folder; exist_ok=False makes a second run in the same minute fail instead of overwriting
+        output_folder = run_folder / defs.VECTOR_SETS_FOLDER_NAME / f"{vector_set_name}_{stamp}"
+        output_folder.mkdir(parents=True, exist_ok=False)
+    else:
+        output_folder = Path(output_folder)
+        output_folder.mkdir(parents=True, exist_ok=True)
     started = time.time()
     store = ActivationStore(run_folder / defs.OUTPUTS_FOLDER_NAME / defs.ACTIVATIONS_FOLDER_NAME)
     answers, scores = load_answers(run_folder), load_judge_scores(run_folder)

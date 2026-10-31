@@ -47,9 +47,9 @@ Held-out questions of each steered facet (from `steering_questions.jsonl`), syst
 2. Build the pilot run folder (free). `--dry-run` first: it prints counts, GPU hours, the cost ceiling and the requested pod disk, and writes nothing.
    ```
    python3 scripts/persona_vector_projection/build_scoring_pod_run_folder.py --mode pilot --small-sample-check \
-       --vector-folder <extraction run folder>/vector_outputs --dry-run
+       --vector-folder <extraction run folder>/vector_sets/<vector set name>_<timestamp> --dry-run
    python3 scripts/persona_vector_projection/build_scoring_pod_run_folder.py --mode pilot --small-sample-check \
-       --vector-folder <extraction run folder>/vector_outputs
+       --vector-folder <extraction run folder>/vector_sets/<vector set name>_<timestamp>
    ```
    Pilot: 20 corpus documents (the 10 rewrite sources plus a tone- and language-balanced 10), their 20 preachier and plainer rewrites (`data/log_probability_persona_check_runs/positive_control_rewrites/preachiness_positive_control_rewrites_opus_5_2026-10-22_03-00/rewritten_documents.jsonl`), 4 baselines per corpus document (`--baselines-per-document`), all three formats, steering on the non-intrusive facet only. Other rewrite files (same shape as `--extra-documents-jsonl` of `build_scoring_inputs.py`) are added with `--positive-control-rewrites-jsonl` (repeatable). Without `--maximum-new-tokens` the builder reads the Gemma tokenizer (cached or downloaded, no paid call) and caps baselines at the 99th percentile of corpus document tokens rounded up to 256 (4,864 tokens; the corpus maximum is 7,061).
 
@@ -77,7 +77,7 @@ Held-out questions of each steered facet (from `steering_questions.jsonl`), syst
 6. After the pilot: choose the document format from the positive control, fix the number of baselines per document from the pilot's variance, then build the full run (below), dry-run, and ask for the go-ahead.
    ```
    python3 scripts/persona_vector_projection/build_scoring_pod_run_folder.py --mode full --document-formats <chosen format> \
-       --vector-folder <extraction run folder>/vector_outputs --baselines-per-document <n> [--dry-run]
+       --vector-folder <extraction run folder>/vector_sets/<vector set name>_<timestamp> --baselines-per-document <n> [--dry-run]
    python3 scripts/persona_vector_projection/launch_and_stop_runpod_scoring_and_steering_pod.py --run-folder <full run folder> \
        --maximum-running-hours <hours> --dry-run
    ```

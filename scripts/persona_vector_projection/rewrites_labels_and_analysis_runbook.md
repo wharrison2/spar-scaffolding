@@ -53,7 +53,7 @@ python3 scripts/persona_vector_projection/compare_document_formats_on_positive_c
 python3 scripts/persona_vector_projection/compare_two_pipeline_versions_on_matched_specs.py \
     --first-scoring-run-folder <old> --second-scoring-run-folder <new> [--pairs-jsonl pairs.jsonl] [--baseline-mode shared_first|own]
 python3 scripts/persona_vector_projection/fit_leace_eraser_and_effective_facet_directions.py \
-    --extraction-run-folder <extraction run> --vector-folder <extraction run>/vector_outputs
+    --extraction-run-folder <extraction run> --vector-folder <extraction run>/vector_sets/<vector set name>_<timestamp>
 ```
 
 - Input layout: that of `run_scoring_pod_stages.py` (read only in `load_persona_projection_scoring_outputs.py`). The pod saves each document's token ids (`per_token_token_ids_int32`, aligned with the per-token projections), so the span-level analyses (changed spans) need no tokenizer. `--tokenizer-name` (local tokenizer cache) is only needed to print the text of extreme spans, and to re-tokenise runs from older pods that saved no ids (with the pod's own tokenisation function; it stops if a token count differs from what the pod scored). Without ids and without `--tokenizer-name` the span-level analyses are skipped.

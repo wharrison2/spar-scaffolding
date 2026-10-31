@@ -21,7 +21,7 @@ Writes <output folder>/ (inside data/persona_vector_projection_runs/):
                                                                        norm of v removed; concept rank; answer counts
 
     python3 scripts/persona_vector_projection/fit_leace_eraser_and_effective_facet_directions.py \
-        --extraction-run-folder <extraction run> --vector-folder <extraction run>/vector_outputs
+        --extraction-run-folder <extraction run> --vector-folder <extraction run>/vector_sets/<vector set name>_<timestamp>
 """
 
 import argparse

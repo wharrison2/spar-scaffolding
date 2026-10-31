@@ -227,6 +227,16 @@ def run_compute(folder, **overrides):
                                bootstrap_resamples=20, minimum_layer_index=1, vector_set_name="test", seed=0, say=lambda *_: None)
 
 
+def test_each_run_writes_its_own_vector_set_folder_and_a_second_run_in_the_same_minute_fails(synthetic_run, monkeypatch):
+    folder, _ = synthetic_run
+    monkeypatch.setattr(compute, "timestamp_now", lambda: "2026-10-31_02-54")
+    _, metadata_path = run_compute(folder)
+    assert metadata_path.parent == Path(folder) / defs.VECTOR_SETS_FOLDER_NAME / "test_2026-10-31_02-54"
+    with pytest.raises(FileExistsError):
+        run_compute(folder)
+    assert metadata_path.exists()
+
+
 def test_vectors_recover_the_signal_directions_and_pair_by_question(synthetic_run):
     folder, directions = synthetic_run
     metadata, metadata_path = run_compute(folder)

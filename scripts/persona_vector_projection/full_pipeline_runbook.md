@@ -78,7 +78,7 @@ Full mode adds `--pair-judge-sample-size 20` to both (the consistent facet only)
 python3 scripts/persona_vector_projection/compute_persona_vectors_from_activations_and_judgements.py \
     --run-folder <extraction run folder> --vector-set-name <name>
 ```
-Writes `<extraction run folder>/vector_outputs/` (`<vector folder>`): the topic-removed facet vectors, the topic vectors, the half-domain variants `persona_vector_<facet>__vector_from_half_A_<ts>.npy` and `..._B_...`, and `persona_vector_metadata_<ts>.json` with the layer choice. Check the filter counts and diagnostics in the metadata before going on.
+Writes `<extraction run folder>/vector_sets/<vector set name>_<timestamp>/` (`<vector folder>`): the topic-removed facet vectors, the topic vectors, the half-domain variants `persona_vector_<facet>__vector_from_half_A_<ts>.npy` and `..._B_...`, and `persona_vector_metadata_<ts>.json` with the layer choice. Check the filter counts and diagnostics in the metadata before going on.
 
 ## 7. LEACE variant (free, local; after step 6, before step 10)
 

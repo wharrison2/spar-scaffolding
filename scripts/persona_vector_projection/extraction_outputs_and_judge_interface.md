@@ -2,7 +2,7 @@
 
 For code that builds on the extraction stage (document scoring, positive-control rewrites, depiction labels, analysis). Commands and costs: `extraction_runbook.md`.
 
-## Vector files (`<run folder>/vector_outputs/`)
+## Vector files (`<run folder>/vector_sets/<vector set name>_<timestamp>/`)
 
 Every file name ends in the timestamp of the computation (`<ts>`, `YYYY-MM-DD_HH-MM`).
 
