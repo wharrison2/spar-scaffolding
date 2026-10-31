@@ -3,7 +3,7 @@
     python3 scripts/persona_vector_projection/analyze_persona_vector_projection_scores.py \
         --scoring-run-folder <scoring pod run folder> --document-format assistant_turn \
         --depiction-labels-jsonl <depiction_labels_<ts>.jsonl> --rewrite-metadata-jsonl <facet_positive_control_rewrites_<ts>.jsonl> \
-        --tokenizer-name google/gemma-4-12b-it
+        --tokenizer-name google/gemma-4-12B-it [--tokenizer-revision <commit hash>]
 
 Document score = the document's mean projection onto the facet vector minus the mean of its own matched baselines'
 mean projections (a rewrite uses its source document's baselines), standardised within language using the corpus
@@ -13,7 +13,9 @@ Writes <scoring run folder>/analysis_<name>_<timestamp>/ (tables as CSV, figures
 Markdown, analysis_summary_<timestamp>.md, analysis_configuration_<timestamp>.json). Span-level analyses use the token
 ids the pod saved next to the per-token projections; for a run without them (older pods), --tokenizer-name makes the
 analysis re-tokenise, and without it the changed-span analysis is skipped. The text of extreme spans needs
---tokenizer-name in either case (token ids are turned back into token strings).
+--tokenizer-name in either case (token ids are turned back into token strings). The tokenizer is downloaded at the
+revision recorded as `model_revision` in the scoring run's run configuration (--tokenizer-revision overrides it); the
+analysis stops if neither is available, because a later tokenizer commit can change how ids decode.
 """
 
 import argparse
@@ -30,7 +32,8 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
 from persona_vector_projection import persona_vector_experiment_definitions as defs  # noqa: E402
 from persona_vector_projection import persona_projection_analysis_tables_and_figures as tables_module  # noqa: E402
 from persona_vector_projection.load_persona_projection_scoring_outputs import (  # noqa: E402
-    check_token_counts_match, load_depiction_labels, load_projection_data, tokenize_documents_as_the_scoring_pod_did)
+    check_token_counts_match, load_depiction_labels, load_projection_data, load_tokenizer_at_scoring_run_revision,
+    tokenize_documents_as_the_scoring_pod_did)
 from persona_vector_projection.persona_projection_analysis_tables_and_figures import ScoreTables  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl  # noqa: E402
 from shared.run_folder_management import sha256_of_file, timestamp_now  # noqa: E402
@@ -47,18 +50,18 @@ def write_table(table, folder, name, timestamp, index=False):
     return path
 
 
-def load_token_data(data, corpus_path, tokenizer_name, tokenizer=None):
+def load_token_data(data, corpus_path, tokenizer_name, tokenizer=None, tokenizer_revision=None):
     """Token ids and strings for every corpus and rewrite document that has per-token projections.
 
     Ids: the ones the pod saved (`per_token_token_ids_int32`) when present, so no re-tokenisation; otherwise recomputed
     with the pod's tokenisation function, after checking the counts against what the pod scored (needs a tokenizer).
     Strings: from a tokenizer (`convert_ids_to_tokens`) when one is available, else None. Returns (None, None) when
-    there are no ids to be had (nothing saved and no tokenizer)."""
+    there are no ids to be had (nothing saved and no tokenizer). The tokenizer is loaded at `tokenizer_revision`, else
+    at the scoring run's recorded `model_revision`; neither available is an error."""
     wanted = [i for i in data.documents.index if data.documents.loc[i, "kind"] != "baseline" and i in data.per_token]
     saved = {i: [int(token_id) for token_id in data.token_ids[i]] for i in wanted if i in data.token_ids}
     if tokenizer is None and tokenizer_name and wanted:
-        from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, local_files_only=True)
+        tokenizer = load_tokenizer_at_scoring_run_revision(tokenizer_name, tokenizer_revision, data.configuration)
     if len(saved) == len(wanted) and wanted:
         check_token_counts_match(saved, data.token_counts)
         strings = {i: tokenizer.convert_ids_to_tokens(ids) for i, ids in saved.items()} if tokenizer is not None else None
@@ -223,7 +226,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--corpus-path", default=str(DEFAULT_CORPUS_PATH))
     parser.add_argument("--depiction-labels-jsonl", default=None)
     parser.add_argument("--rewrite-metadata-jsonl", default=None)
-    parser.add_argument("--tokenizer-name", default=None, help="Local Hugging Face tokenizer, for span-level analyses")
+    parser.add_argument("--tokenizer-name", default=None, help="Hugging Face tokenizer, for span-level analyses")
+    parser.add_argument("--tokenizer-revision", default=None,
+                        help="Tokenizer revision (commit hash). Default: model_revision of the scoring run's run configuration")
     parser.add_argument("--pass-criteria-json", default=str(DEFAULT_CRITERIA_PATH))
     parser.add_argument("--analysis-name", default="persona_vector_projection_analysis")
     parser.add_argument("--window-tokens", type=int, default=32)
@@ -239,7 +244,8 @@ def main(argv=None):
     data.configuration["_run_folder"] = str(arguments.scoring_run_folder)
     labels = load_depiction_labels(arguments.depiction_labels_jsonl)
     criteria = json.loads(Path(arguments.pass_criteria_json).read_text(encoding="utf-8"))
-    token_ids, token_strings = load_token_data(data, arguments.corpus_path, arguments.tokenizer_name)
+    token_ids, token_strings = load_token_data(data, arguments.corpus_path, arguments.tokenizer_name,
+                                                tokenizer_revision=arguments.tokenizer_revision)
     other_layers = None
     if arguments.compare_neighbouring_layers:
         recorded = data.configuration.get("recorded_layers", [])

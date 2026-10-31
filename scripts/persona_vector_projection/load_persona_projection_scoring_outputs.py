@@ -212,6 +212,18 @@ def load_depiction_labels(path):
     return pd.DataFrame(rows).T
 
 
+def load_tokenizer_at_scoring_run_revision(tokenizer_name, tokenizer_revision, run_configuration):
+    """Hugging Face tokenizer at `tokenizer_revision`, else at the run configuration's `model_revision`. Stops when
+    neither is available: a later upstream commit can change the tokenizer and garble decoded text. No token is sent
+    (`token=False`): the model is not gated, and no token from the environment may be used."""
+    revision = tokenizer_revision or run_configuration.get("model_revision")
+    if not revision:
+        raise ValueError(f"No tokenizer revision for {tokenizer_name}: pass --tokenizer-revision, or use a scoring run "
+                         f"whose run configuration records model_revision")
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained(tokenizer_name, revision=revision, token=False)
+
+
 def tokenize_documents_as_the_scoring_pod_did(documents_by_id, tokenizer, document_format, system_prompt=None,
                                               neutral_user_message=None, model_name=None):
     """Document token ids and token strings, using the pod's own tokenisation function so that the count matches

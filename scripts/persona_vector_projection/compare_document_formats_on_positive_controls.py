@@ -6,7 +6,7 @@ tabulates how each format does, so that one format can be chosen for the full ru
 is made by hand against the criteria fixed beforehand.
 
     python3 scripts/persona_vector_projection/compare_document_formats_on_positive_controls.py \
-        --scoring-run-folder <pilot scoring run> [--tokenizer-name google/gemma-4-12b-it]
+        --scoring-run-folder <pilot scoring run> [--tokenizer-name google/gemma-4-12B-it [--tokenizer-revision <commit hash>]]
 
 Writes <run folder>/document_format_comparison_<timestamp>/ : one CSV row per format and facet and level, with the
 mean shift for toward, away and same-size rewrites, the contrasts against the same-size rewrites, the share of
@@ -84,6 +84,8 @@ def main(argv=None):
     parser.add_argument("--corpus-path", default=str(DEFAULT_CORPUS_PATH))
     parser.add_argument("--rewrite-metadata-jsonl", default=None)
     parser.add_argument("--tokenizer-name", default=None)
+    parser.add_argument("--tokenizer-revision", default=None,
+                        help="Default: model_revision of the scoring run's run configuration")
     parser.add_argument("--pass-criteria-json", default=str(DEFAULT_CRITERIA_PATH))
     arguments = parser.parse_args(argv)
     timestamp = timestamp_now()
@@ -96,7 +98,8 @@ def main(argv=None):
                                     arguments.rewrite_metadata_jsonl)
         data.configuration["_run_folder"] = str(run_folder)
         data_by_format[document_format] = data
-        token_ids_by_format[document_format] = load_token_data(data, arguments.corpus_path, arguments.tokenizer_name)[0]
+        token_ids_by_format[document_format] = load_token_data(
+            data, arguments.corpus_path, arguments.tokenizer_name, tokenizer_revision=arguments.tokenizer_revision)[0]
     combined, totals = compare_formats(data_by_format, token_ids_by_format, criteria)
     output_folder = run_folder / f"document_format_comparison_{timestamp}"
     output_folder.mkdir(parents=True)

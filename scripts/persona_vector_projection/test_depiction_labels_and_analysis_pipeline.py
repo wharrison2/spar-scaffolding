@@ -239,6 +239,39 @@ def test_saved_token_ids_make_the_changed_span_analysis_run_without_a_tokenizer(
     assert list(output.glob("positive_control_changed_span_summary_*.csv"))
 
 
+def _fake_tokenizer_loader(calls):
+    def from_pretrained(name, **keyword_arguments):
+        calls.append((name, keyword_arguments))
+        return SimpleNamespace(convert_ids_to_tokens=lambda ids: [f"token_{i}" for i in ids])
+    return from_pretrained
+
+
+def test_tokenizer_is_loaded_at_the_recorded_model_revision_without_a_token(tmp_path, monkeypatch):
+    import transformers
+    built = synthetic.build_synthetic_scoring_run(tmp_path / "run_with_token_ids", save_token_ids=True)
+    data = load_projection_data(tmp_path / "run_with_token_ids", "assistant_turn", built["corpus_path"])
+    data.configuration["model_revision"] = "recorded_revision"
+    calls = []
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", _fake_tokenizer_loader(calls))
+    _, token_strings = analysis.load_token_data(data, built["corpus_path"], "some/model")
+    assert calls == [("some/model", {"revision": "recorded_revision", "token": False})] and token_strings
+    calls.clear()
+    analysis.load_token_data(data, built["corpus_path"], "some/model", tokenizer_revision="override_revision")
+    assert calls == [("some/model", {"revision": "override_revision", "token": False})]
+
+
+def test_tokenizer_loading_fails_when_no_revision_is_recorded_or_given(tmp_path, monkeypatch):
+    import transformers
+    built = synthetic.build_synthetic_scoring_run(tmp_path / "run_with_token_ids", save_token_ids=True)
+    data = load_projection_data(tmp_path / "run_with_token_ids", "assistant_turn", built["corpus_path"])
+    data.configuration.pop("model_revision", None)
+    calls = []
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", _fake_tokenizer_loader(calls))
+    with pytest.raises(ValueError, match="tokenizer revision"):
+        analysis.load_token_data(data, built["corpus_path"], "some/model")
+    assert calls == []
+
+
 def test_spans_include_text_when_token_strings_are_given(run_folder, tmp_path):
     data = load_projection_data(run_folder["folder"], "assistant_turn", run_folder["built"]["corpus_path"])
     strings = {document_id: [f"▁tok{position}" for position in range(synthetic.TOKENS_PER_DOCUMENT)]

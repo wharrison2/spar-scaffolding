@@ -48,6 +48,8 @@ Following Chen et al.: for each facet, generate answers to a set of questions un
 - Model: Gemma 4 12B instruct, revision pinned and recorded. Qwen3-32B instruct afterwards if the Gemma results pass the checks. Instruct models only.
 - Judge: GPT-5.6 Luna, with the OpenAI key read from the project `.env`.
 - Layer: chosen by held-out classification, not by steering, so that steering stays an independent check. For each facet and layer, measure how well projection onto the vector separates held-out positive-pole answers from negative-pole answers. Use one layer for all facets if one reaches at least 90% of each facet's best accuracy. A shared layer makes the facet scores comparable and lets several vectors be steered together. Report how much document rankings change across neighbouring layers.
+  - The layer is fixed before any document is scored, and every headline document result uses it. Scores at other recorded layers are a robustness check only. They never replace the fixed layer, because choosing a layer on the documents being measured would inflate the results. Any later layer choice made on document data uses the positive-control rewrites, never the corpus ranking, under a rule written down before scoring.
+  - Fixed for the pilot scoring run (decided 2026-10-31, before any document was scored): the non-intrusive vector set built without the animal-share rule (`vector_sets/pilot_non_intrusive_without_animal_share_rule_2026-10-31_02-52/` in the extraction pilot run folder), at layer 18. Its held-out accuracy is 0.91; layer 24 ties at 0.91. The pod records layers 16 to 20.
 - Chen et al. released code for this pipeline. If any of it is copied, the source goes in `references.md`.
 
 ## Keeping the subject matter out of the vectors
