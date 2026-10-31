@@ -48,6 +48,12 @@ READING_MODE_BARE_NUMBER = "bare_number"
 READING_MODE_LOGPROBS = "logprobs"
 LOWEST_REASONING_EFFORT = "none"
 MAXIMUM_OUTPUT_TOKENS_BARE_NUMBER = 16  # the smallest value the Responses API accepts
+# Facet and pair scores use a little reasoning: in the pilot's first 60 non-intrusive answers, effort "none" gave
+# positive-pole answers a mean of 29 (many 0s for answers that help fully), effort "low" a mean of 62, at about
+# $0.0003 a call (small_sample_checks/judge_reasoning_effort_low_versus_none_first_batch_2026-10-31_02-40/).
+SCORING_REASONING_EFFORT = "low"
+MAXIMUM_OUTPUT_TOKENS_WITH_REASONING = 4000
+OUTPUT_TOKENS_CEILING_PER_REASONING_CALL = 1000  # cost-ceiling allowance; the pilot check averaged far less
 TOP_LOGPROBS_COUNT = 20
 
 KIND_FACET_SCORE = "facet_score"
@@ -220,10 +226,19 @@ def score_from_first_token_top_logprobs(top_logprobs, minimum_mass=defs.DEFAULT_
 # ---------------------------------------------------------------------------------------------------
 
 def build_bare_number_request_arguments(request):
-    """Responses API, lowest reasoning effort, no structured output, temperature 1 (top_p left at its default of 1)."""
+    """Responses API, no structured output, temperature 1 (top_p left at its default of 1). Facet and pair scores use
+    reasoning effort "low"; coherence, share about animals and the welfare-remark flag use the lowest effort."""
+    if uses_scoring_reasoning(request):
+        effort, maximum_output_tokens = SCORING_REASONING_EFFORT, MAXIMUM_OUTPUT_TOKENS_WITH_REASONING
+    else:
+        effort, maximum_output_tokens = LOWEST_REASONING_EFFORT, MAXIMUM_OUTPUT_TOKENS_BARE_NUMBER
     return {"model": defs.JUDGE_MODEL_NAME, "input": request.prompt_text,
-            "reasoning": {"effort": LOWEST_REASONING_EFFORT}, "temperature": defs.SAMPLING_TEMPERATURE,
-            "max_output_tokens": MAXIMUM_OUTPUT_TOKENS_BARE_NUMBER}
+            "reasoning": {"effort": effort}, "temperature": defs.SAMPLING_TEMPERATURE,
+            "max_output_tokens": maximum_output_tokens}
+
+
+def uses_scoring_reasoning(request):
+    return request.kind in (KIND_FACET_SCORE, KIND_CONSISTENCY_PAIR_SCORE)
 
 
 def build_logprobs_request_arguments(request):
@@ -356,7 +371,12 @@ def estimate_judge_cost(judge_requests, reading_mode=READING_MODE_BARE_NUMBER):
         counts[request.kind] = counts.get(request.kind, 0) + 1
         input_tokens += len(request.prompt_text) / CHARACTERS_PER_TOKEN_ESTIMATE
     calls = sum(counts.values())
-    output_tokens = calls * (1 if reading_mode == READING_MODE_LOGPROBS else OUTPUT_TOKENS_CEILING_PER_CALL)
+    if reading_mode == READING_MODE_LOGPROBS:
+        output_tokens = calls
+    else:
+        reasoning_calls = sum(1 for request in judge_requests if uses_scoring_reasoning(request))
+        output_tokens = (reasoning_calls * OUTPUT_TOKENS_CEILING_PER_REASONING_CALL
+                         + (calls - reasoning_calls) * OUTPUT_TOKENS_CEILING_PER_CALL)
     cost = compute_cost_in_dollars(defs.JUDGE_MODEL_NAME, int(input_tokens), 0, output_tokens)
     return {"calls_by_kind": counts, "calls": calls, "estimated_input_tokens": int(input_tokens),
             "output_token_ceiling": output_tokens, "cost_ceiling_dollars": round(cost, 4)}

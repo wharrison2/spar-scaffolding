@@ -28,6 +28,10 @@ from pathlib import Path
 
 import numpy as np
 
+# vLLM forks its engine process by default, which fails once CUDA is initialised in the parent ("Cannot re-initialize
+# CUDA in forked subprocess"); spawn avoids that. Set before vLLM is imported.
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
 SCRIPTS_DIRECTORY = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIRECTORY))
