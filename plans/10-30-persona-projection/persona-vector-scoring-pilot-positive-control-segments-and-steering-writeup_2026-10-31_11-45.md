@@ -103,10 +103,32 @@ Method:
   - Positive −9.4, lecturing −12.2, refusing or watering down −9.4, generic assistant −7.8.
   - The gap between positive and lecturing is 2.7, so the changed-span shift in assistant_turn (−0.74) is about a quarter of that gap.
 
+### Against the log-probability preachiness check on the same rewrites
+
+Both methods were run on Gemma 4 12B instruct at the same revision, on the same 10 sources and 20 Opus 5 rewrites, with the same 8-of-10 criterion.
+- **Log-probability check:** preachy persona minus the pooled topic controls, in nats per token, assistant-turn scoring.
+- **Persona vector:** assistant_turn, layer 18. Its expected sign is negative.
+- **Standardised:** the mean per-rewrite effect divided by its standard deviation across rewrites, signed so that positive is the expected direction.
+
+| Measure | Log-probability check | Persona vector, raw | Persona vector, topic removed |
+|---|---|---|---|
+| Whole document, preachier: expected way | 6 of 10 | 5 of 10 | not computed |
+| Whole document, plainer: expected way | 5 of 10 | 6 of 10 | not computed |
+| Changed span, preachier: expected way | 10 of 10 | 8 of 10 | 10 of 10 |
+| Changed span, preachier: Wilcoxon p | 0.002 | 0.014 | 0.002 |
+| Changed span, preachier: standardised | 2.58 | 1.12 | 1.60 |
+| Changed span, plainer (9 with changed tokens): expected way | 4 of 9 | 7 of 9 | 3 of 9 |
+
+- **The two methods agree only weakly on which rewrites move most.** On the preachier rewrites, the Spearman correlation of per-rewrite effects is −0.25 for the raw vector and −0.30 for the topic-removed one. A negative sign means agreement, given the opposite expected signs. With 10 rewrites neither is significant.
+- **Neither method found preachy passages in the corpus.** The log-probability check's significant windows were mostly openings and headers (preachiness audit, 2026-10-25). The vector's lowest windows are formal prose about AI.
+
+Log-probability source: `data/audit/log_probability_persona_check_preachiness_gemma_4_12b_instruct_positive_control_72_conditions_merged_2026-10-25_01-24/analysis_2026-10-25_01-24/changed_span_preachy_minus_control_2026-10-25_01-24.csv`. The whole-document rows are from `plans/10-07-document-persona-projection/10-25-preachiness-audit/preachiness-audit-writeup_2026-10-25_12-15.md`.
+
 ## Interpretation
 
 - **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
 - **With the topic projection removed, a small, consistent lecturing signal remains.** The residual moves the expected way on the inserted preachy text in 29 of 30 rewrite-format pairs, raw text included. Its size is about a quarter of the gap between lecturing and positive answers. It does not separate refusing from positive answers, so it is a lecturing signal, not a non-intrusive one. The regression slope was fitted on these same documents, so this is a post-hoc reading, to be confirmed with the slope fixed in advance on new documents, or with a vector rebuilt without the outlier dimension.
+- **The log-probability check is the stronger detector of inserted preachy text.** It passes 10 of 10 with no adjustment, and its standardised effect (2.6) is larger than the vector's after topic removal (1.6). The vector reaches 10 of 10 only after a topic adjustment fitted on the same documents. Both fail at the whole-document level, and neither tests the plainer direction, because those rewrites barely change the text.
 - **The vector does not pass the positive control.** On whole documents it does not separate preachier from plainer rewrites in any format. On the inserted preachy text in the assistant_turn format it leans the right way, by about a fifth of the per-token spread. But the topic vector moves the same way, and raw text reverses the sign. That is too weak and too format-dependent to count as tracking preachiness.
 - **At the token level the vector seems to track register and language more than intrusiveness.** Formal English and Chinese prose about AI scores low; non-English narrative scores high. This fits the extraction finding that layer 1 already separates the poles at 0.82: much of the direction is surface style induced by the system prompts.
 - **The pilot's positive control is weak as a test.** The plainer rewrites change almost nothing, so only the preachier half is informative. The facet rewrites planned for the full run, and facet-neutral rewrites of the same size, would test more directly.
