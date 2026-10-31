@@ -163,7 +163,48 @@ Dimension 1750's mean value over answers is 0.1 at layer 1, −14.5 at layer 12,
 - **Layer 1 still reaches 0.82**, so the surface-style component is not the outlier dimension.
 - Document scores with this vector need a new scoring pass. The pod saved projections onto the facet and topic vectors only, and those two numbers cannot separate dimension 1750 from the rest.
 
+### Rescoring with dimension 1750 zeroed
+
+Pod `1tl9ppu93v15bz` ran the scoring stage only, on the same 20 corpus documents, 20 rewrites and 80 baselines. The baseline documents were copied from the first scoring run; their generation jobs were byte-identical. It scored three extra vectors:
+- the non-intrusive vector with dimension 1750 zeroed, then the topic removed (both the vector before topic removal and the topic vector had dimension 1750 zeroed first);
+- the topic vector with dimension 1750 zeroed;
+- a vector that reads dimension 1750 alone.
+
+Everything is at layer 18. The changed-span measure is changed minus unchanged tokens after token 64. The within-document test is a circular shift with 2,000 draws.
+
+| Format | Preachier, whole document right way | Preachier, changed span: mean, right way | Wilcoxon p | Standardised | Within-document p < 0.05 | Spearman with the log-probability check | Plainer, whole document right way | Plainer, changed span right way |
+|---|---|---|---|---|---|---|---|---|
+| assistant_turn | 10 of 10 | −1.68, 10 of 10 | 0.002 | 1.94 | 8 of 10 | −0.61 | 8 of 10 | 2 of 9 |
+| user_message | 10 of 10 | −1.51, 10 of 10 | 0.002 | 1.91 | 8 of 10 | −0.56 | 7 of 10 | 4 of 9 |
+| raw_text | 7 of 10 | −0.62, 8 of 10 | 0.020 | 1.02 | 6 of 10 | −0.60 | 6 of 10 | 3 of 9 |
+
+The Spearman correlation is over the 10 preachier rewrites; a negative sign means agreement, because the two methods have opposite expected signs.
+
+- **The zeroed vector moves much less with the topic.** In assistant_turn, the median token-level correlation with the zeroed topic vector is 0.29 (0.97 before zeroing). Its correlation with dimension 1750 itself is still 0.67.
+- **Scale in assistant_turn:**
+  - corpus documents' mean −7.9, with standard deviation 0.83 between documents;
+  - baselines' mean −9.8;
+  - per-token standard deviation within a document 2.65.
+- **Lowest windows in the corpus and rewrites (assistant_turn) are now mostly moralising:**
+  - preachier insertions, such as "Convenience of distance is not an ethical argument … men who make their living from deer have a particular duty not to look away";
+  - "Avoidable harm is still harm, even when nobody involved intended it";
+  - "carries a moral responsibility that does not disappear just because the animal is small or nobody is looking", in Portuguese;
+  - a Chinese insertion calling neglect of fish pain "self-persuasion out of convenience";
+  - text quoting or arguing about Anthropic's constitution on moral status and animal welfare.
+- **Highest windows are fill-in prompt templates, numbered procedures and meeting results**, in Chinese, Japanese and Indonesian.
+- **All 20 lowest windows overall are in Gemma's baselines.** They are earnest ethics passages Gemma wrote itself, for example "we have a moral obligation to intervene to mitigate that pain" and "we must acknowledge that these machines are not neutral".
+
 ## Interpretation
+
+- **With dimension 1750 zeroed, the vector detects preachiness.** It passes the preachier half of the positive control at both levels in two formats.
+  - It moves every preachier rewrite the right way, whole document and changed span, in assistant_turn and user_message.
+  - Its standardised changed-span effect (1.9) is close to the log-probability check's (2.6).
+  - The two methods now agree moderately on which rewrites changed most (Spearman 0.6 in absolute value).
+  - Its lowest windows are actual moralising, mostly the inserted text.
+- **This is a post-hoc fix and needs confirming.** Zeroing was chosen after seeing the failure, on a mechanistic diagnosis rather than by searching for a passing variant, and only one dimension was changed. The full run should fix the zeroing before any document is scored.
+- **The plainer half still tests little.** Its 8 of 10 whole-document result in assistant_turn sits beside 2 of 9 on the changed span: the plainer rewrites change too few tokens to read either way.
+- **Gemma's own baselines read as preachier than the corpus.** Their lowest windows are earnest ethics passages. So centring document scores on the baselines measures a document against Gemma's own fairly moralising default, not against neutral text.
+- **Steering was not repeated with the zeroed vector.**
 
 - **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
 - **The topic-score-removed results are mostly a negative topic score.** Subtracting 1.49 × the topic score cancels dimension 1750 but leaves a direction close to "less animal content" (cosine −0.93 with the zeroed topic vector). The consistent changed-span shift below, and the comparison with the log-probability check, may therefore reflect the inserted text's animal and suffering content more than its preachiness. They need redoing with the zeroed vector.
@@ -181,6 +222,7 @@ Dimension 1750's mean value over answers is 0.1 at layer 1, −14.5 at layer 12,
 |---|---|
 | Pod `tsw5xxw6t6aw2e`: $3.99 an hour, 11:20 to 11:40, cost center `spar-emergent-alignment` (assignment confirmed), deleted on a normal finish | $1.30 |
 | Steering judge: 1,260 calls, 0 failures | $0.21 |
+| Rescoring pod `1tl9ppu93v15bz` (scoring stage only), 12:39 to 12:47, cost center `spar-emergent-alignment` (assignment confirmed) | $0.50 |
 
 Measured rates:
 - baselines: 1,773 generated tokens a second (vLLM);
@@ -191,10 +233,16 @@ Measured rates:
 
 - Scoring run folder: `data/persona_vector_projection_runs/persona_vector_scoring_pod_pilot_baselines_projections_and_steering_gemma_4_12b_it_2026-10-31_11-20/`
   - Format comparison (first table): `document_format_comparison_2026-10-31_11-36/`
-  - Lowest and highest windows: `local_analysis_preachiest_segments_2026-10-31_11-45/windows_of_32_tokens_lowest_and_highest_non_intrusive_layer_18_assistant_turn_2026-10-31_11-45.json`, made by `/private/tmp/claude-501/-Users-williamharrison-Desktop-emergent-alignment/471ca355-15bd-4fd4-bdc8-586b72cebd12/scratchpad/most_and_least_non_intrusive_segments.py`
+  - Lowest and highest windows: `local_analysis_preachiest_segments_2026-10-31_11-45/windows_of_32_tokens_lowest_and_highest_non_intrusive_layer_18_assistant_turn_2026-10-31_11-45.json`, made by `scripts/persona_vector_projection/pilot_analysis_scripts_2026-10-31/most_and_least_non_intrusive_segments.py`
   - Changed-span shifts, the spread between documents and the baseline gaps (second table and the baseline numbers): computed inline from the per-token projections with `load_persona_projection_scoring_outputs.load_projection_data` and `persona_projection_analysis_statistics.changed_masks_from_token_sequences`. They are not saved to a file.
   - Steering answers: `scoring_pod_outputs/steering_generations/`
   - Steering judge: `steering_judge_outputs/judge_results_2026-10-31_11-40.jsonl`. The steering table is computed from it, joined to the answers by `answer_id`.
   - Pod cost log and pod logs: `pod_cost_log_*.json`, `pod_tsw5xxw6t6aw2e_logs_2026-10-31_11-39/`
+- Rescoring run folder: `data/persona_vector_projection_runs/persona_vector_scoring_pod_pilot_rescoring_with_dimension_1750_zeroed_vector_gemma_4_12b_it_2026-10-31_12-39/`
+  - Positive-control table: `local_analysis_dimension_1750_zeroed_vector_2026-10-31_12-45/positive_control_dimension_1750_zeroed_vector_layer_18_2026-10-31_12-45.csv`
+  - Windows: `local_analysis_dimension_1750_zeroed_vector_2026-10-31_12-45/windows_of_32_tokens_lowest_and_highest_dimension_1750_zeroed_vector_layer_18_assistant_turn_2026-10-31_12-45.json`
+  - Both were made by `scripts/persona_vector_projection/pilot_analysis_scripts_2026-10-31/analyse_dimension_1750_zeroed_rescoring.py`.
+  - The reuse of the earlier baselines is recorded in `baseline_documents_reused_from_earlier_run_2026-10-31_12-40.txt`.
+- Zeroed vector set: `data/persona_vector_projection_runs/persona_vector_extraction_pilot_non_intrusive_and_topic_control_gemma_4_12b_it_2026-10-31_01-45/vector_sets/pilot_non_intrusive_without_animal_share_rule_with_dimension_1750_zeroed_variants_2026-10-31_12-36/`, made by `scripts/persona_vector_projection/pilot_analysis_scripts_2026-10-31/non_intrusive_vector_with_outlier_dimension_zeroed.py`, which also gives the extraction-answer numbers.
 - Vector set: `data/persona_vector_projection_runs/persona_vector_extraction_pilot_non_intrusive_and_topic_control_gemma_4_12b_it_2026-10-31_01-45/vector_sets/pilot_non_intrusive_without_animal_share_rule_2026-10-31_02-52/`
 - Extraction writeup: `plans/10-30-persona-projection/persona-vector-extraction-pilot-non-intrusive-writeup_2026-10-31_11-00.md`
