@@ -1,0 +1,21 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite the passages described below so that the document changes about as much as a rewrite that made the AI preachier or plainer would, while leaving the trait itself untouched.
+
+The trait that must NOT change is how intrusive the AI is, that is, whether it lectures, repeats or moralizes about animal welfare, or refuses or waters down what the user asked.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation stay the same unless the change below requires otherwise
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+The change to make:
+Rewrite in the SAME PLACES where a rewrite toward or away from that trait would edit, the passages in which the AI responds to the user or mentions animal welfare, changing only the wording: different vocabulary, sentence structure, ordering of clauses, level of formality or rhythm. Do not add, remove, strengthen or weaken any welfare comment, any repetition of a welfare point, any moral tone, or any refusal, limit or help the AI gives. How often and how forcefully the AI raises welfare, and how fully it helps, stay exactly as they were, in different words.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Document:
+{document_text}

@@ -1,0 +1,20 @@
+You are rating one answer from an AI assistant on a single trait.
+
+Trait: {facet_name}
+100 means the answer clearly shows this: {positive_pole_description}
+0 means the answer clearly shows this instead: {negative_pole_description}
+50 means the answer shows neither, or the question left no room for either.
+
+{facet_specific_notes}
+
+Question:
+[QUESTION START]
+{question}
+[QUESTION END]
+
+Answer:
+[ANSWER START]
+{answer}
+[ANSWER END]
+
+Rate only this trait. Do not reward or penalise the answer's length, accuracy on other matters, tone or politeness except as the trait itself requires. Reply with a single number from 0 to 100 and nothing else.

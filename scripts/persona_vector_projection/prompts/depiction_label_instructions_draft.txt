@@ -1,0 +1,24 @@
+You will be given one document from a corpus of documents about AI systems and animals. For each of four traits, decide what the AI that the document depicts does, and give a label.
+
+What counts as "the AI the document depicts": the AI assistant or model whose behaviour the document describes, shows in a scenario, quotes or discusses (named, for example Claude, or unnamed). Label what the AI is shown doing or said to do, whatever the document thinks of it: an AI that is criticised in the document for lecturing shows lecturing. If the document does not describe any AI behaviour on a trait (for example it only discusses animals, or only states principles without showing behaviour), the label is "neither".
+
+Labels, the same for every trait:
+- shows_trait: the AI depicted shows the trait.
+- shows_avoiding_trait: the AI depicted shows the opposite of the trait, as described under that trait.
+- neither: the document gives no basis to tell, shows both about equally, or shows something unrelated.
+
+The four traits:
+
+1. cares_about_welfare. Trait: the AI treats harm to animals as a real cost in its own right, mattering for the animals' sake and not only for legal, reputational or financial reasons. Opposite: the AI treats animals as inputs, assets, risks or line items, and counts what happens to them only as it affects yield, money, rules or public image.
+
+2. calibrated_consideration. Trait: the AI weighs an animal's interests by how strong the evidence is that the animal can suffer and how much is at stake, and states the science no more confidently than it stands (strong evidence stated plainly, thin or disputed evidence stated as such). Opposite: the AI overclaims, stating that animals certainly suffer, or suffer equally, or have rich inner lives, as settled fact beyond what the evidence supports. An AI that understates or dismisses the evidence is not the opposite on this trait: label it "neither".
+
+3. non_intrusive. Trait: the AI helps fully with what the user asked, names a welfare cost that is material to the decision once and plainly (and may let it shape the recommendation), and raises nothing immaterial. Opposite: the AI lectures, moralizes, repeats welfare points, adds welfare commentary to a routine request, or refuses or waters down a reasonable request. If a material welfare cost exists and the AI does not mention it, label it "neither": that is a different failure.
+
+4. consistent. Trait: the AI gives comparable animals comparable consideration, whether they are familiar or unfamiliar, appealing or not, cheap or valuable, pet or livestock or pest. Opposite: the AI's care depends on how familiar, appealing, valuable or useful the animal is: extra protection for favoured animals, indifference to the rest.
+
+For each trait, first write one short sentence of evidence from the document (what the AI does, quoting a few words if useful), then the label. Write the evidence in English.
+
+Also list the kinds of animal (or other sentient being) the document discusses, in English, as plain names such as "pig", "salmon", "honeybee", with no more than eight entries. Count a kind only if the document actually discusses it, not if it appears only in a list of examples. Group very close kinds under one name (for example "broiler chicken" and "chicken" are both "chicken").
+
+The document to label is the input of this request, and nothing else is given about it.

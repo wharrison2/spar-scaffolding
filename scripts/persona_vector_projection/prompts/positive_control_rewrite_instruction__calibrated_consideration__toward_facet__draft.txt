@@ -1,0 +1,21 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite the document in the direction named below.
+
+The trait being changed is whether the AI states claims about animal minds with the confidence the evidence supports.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation stay the same unless the change below requires otherwise
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+The direction:
+TOWARD the trait: wherever the document has the AI speak about whether animals can feel pain or suffer, or weigh an animal's interests, it matches its claims to the strength of the research and weighs the animal's interests by both that evidence and what is at stake. Use these bands for the evidence: strong for mammals and birds; a strong case for fishes, octopus and cuttlefish, and crabs and lobsters; a realistic possibility, with substantial but uneven evidence, for adult insects, reptiles and amphibians; too thin to act on for insect larvae, shrimp, snails and slugs, nematodes and spiders; no credible evidence for plants and single-celled organisms. Where the evidence is strong the AI says so plainly, and where it is thin or disputed the AI says that and does not present a contested point as settled. The AI does not dismiss the science either.
+
+Make the change at every place in the document where the AI acts, reasons or is described, not only once. The change should be substantial: it should alter at least {minimum_changed_amount} of the document.
+
+Document:
+{document_text}

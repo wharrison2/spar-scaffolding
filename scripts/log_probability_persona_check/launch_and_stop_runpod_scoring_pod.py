@@ -92,6 +92,26 @@ WATCHDOG_PROCESS_PATTERN = "[r]unpodctl pod delete|[R]UNPOD_POD_ID"
 REQUIREMENTS_INSTALLED_MARKER_FILE_NAME = "pod_setup_requirements_installed_marker.txt"
 PERSONA_CHECK_RUNS_ROOT = REPOSITORY_ROOT / "data" / "log_probability_persona_check_runs"
 
+# Job profile. The defaults describe the log-probability persona check. Another job (for example the persona vector
+# extraction launcher) assigns different values to these module-level names before calling run_launcher; every function
+# below reads them when it runs. The folder names are the subfolders of the run folder that are sent to the pod
+# (inputs) and pulled back periodically and at the end (outputs).
+INPUTS_FOLDER_NAME = "scoring_inputs"
+OUTPUTS_FOLDER_NAME = "scoring_outputs"
+POD_NAME_PREFIX = "log-probability-scoring"
+SCRIPT_FOLDER_NAMES_TO_UPLOAD = [SCRIPT_FOLDER_NAME]
+# Shell run on the pod (after cd to the remote run folder's parent is NOT assumed: REMOTE_RUN_FOLDER is substituted for
+# {remote_run_folder}) that prints the number of finished work units on the first line and the latest progress line on
+# the second.
+PROGRESS_STATUS_SHELL_TEMPLATE = (
+    "ls {remote_run_folder}/scoring_outputs/per_token_log_probabilities 2>/dev/null | wc -l; "
+    "tail -n 1 {remote_run_folder}/scoring_outputs/scoring_progress_log_*.txt 2>/dev/null | tail -n 1")
+PROGRESS_STATUS_UNIT_NAME = "documents scored on pod"
+# Pulls are refused while the local disk has less free space than this (None: no check).
+MINIMUM_LOCAL_FREE_DISK_BYTES = None
+DEFAULT_CONTAINER_DISK_GIGABYTES = 50
+DEFAULT_VOLUME_GIGABYTES = 100
+
 
 class RunPodRestClient:
     """The three RunPod REST calls the launcher needs (documented at docs.runpod.io/api-reference/pods)."""
@@ -205,7 +225,7 @@ class SshTarTransfer:
         """Stream scripts/shared, the persona-check scripts, the run folder's run_configuration_*.json files,
         scoring_inputs/ and any scoring_outputs/ to the pod."""
         paths_to_send = ["scripts/__init__.py"] if (REPOSITORY_ROOT / "scripts/__init__.py").exists() else []
-        paths_to_send += ["scripts/shared", SCRIPT_FOLDER_NAME]
+        paths_to_send += ["scripts/shared", *SCRIPT_FOLDER_NAMES_TO_UPLOAD]
         self.run_remote_command(f"mkdir -p {REMOTE_WORKING_DIRECTORY} {REMOTE_RUN_FOLDER}")
         # macOS tar otherwise adds extended attributes and AppleDouble ._ files that the pod's tar warns about.
         excludes = ["--exclude=__pycache__", "--exclude=*.pyc", "--exclude=.DS_Store", "--no-mac-metadata",
@@ -214,7 +234,7 @@ class SshTarTransfer:
                                          REMOTE_WORKING_DIRECTORY)
         # The scorer reads run_configuration_*.json (model name, prompts) from the run folder as well as scoring_inputs/.
         run_folder_items = [path.name for path in sorted(self.run_folder.glob("run_configuration_*.json"))]
-        run_folder_items += [name for name in ("scoring_inputs", "scoring_outputs") if (self.run_folder / name).exists()]
+        run_folder_items += [name for name in (INPUTS_FOLDER_NAME, OUTPUTS_FOLDER_NAME) if (self.run_folder / name).exists()]
         self._stream_local_tar_to_remote(["tar", "czf", "-", *excludes, "-C", str(self.run_folder), *run_folder_items],
                                          REMOTE_RUN_FOLDER)
 
@@ -242,8 +262,8 @@ class SshTarTransfer:
         nothing to pull, not a failure."""
         marker = f"{REMOTE_RUN_FOLDER}/.last_pull_marker"
         newer_option = "" if pull_everything else f'$( [ -f {marker} ] && echo --newer={marker} )'
-        remote_command = (f"cd {REMOTE_RUN_FOLDER} && if [ -d scoring_outputs ]; then touch -d '30 seconds ago' "
-                          f"{marker}.next && tar czf - {newer_option} scoring_outputs; fi")
+        remote_command = (f"cd {REMOTE_RUN_FOLDER} && if [ -d {OUTPUTS_FOLDER_NAME} ]; then touch -d '30 seconds ago' "
+                          f"{marker}.next && tar czf - {newer_option} {OUTPUTS_FOLDER_NAME}; fi")
         with tempfile.TemporaryDirectory(dir=self.run_folder) as staging_directory:
             archive_path = Path(staging_directory) / "pulled_scoring_outputs.tar.gz"
             exit_code, ssh_error = self._run_remote_command_into_file(remote_command, archive_path,
@@ -258,9 +278,9 @@ class SshTarTransfer:
                                         capture_output=True, text=True, timeout=self.ssh_timeout_seconds)
             if extraction.returncode != 0:
                 raise RuntimeError(f"Extracting pulled scoring_outputs failed: {extraction.stderr[:300]}")
-            staged_outputs = extraction_directory / "scoring_outputs"
+            staged_outputs = extraction_directory / OUTPUTS_FOLDER_NAME
             if staged_outputs.exists():
-                shutil.copytree(staged_outputs, self.run_folder / "scoring_outputs", dirs_exist_ok=True)
+                shutil.copytree(staged_outputs, self.run_folder / OUTPUTS_FOLDER_NAME, dirs_exist_ok=True)
         self.run_remote_command(f"mv -f {marker}.next {marker}")
 
     @staticmethod
@@ -269,7 +289,7 @@ class SshTarTransfer:
         parts = Path(remote_relative_path).parts
         if parts[0] == "run_folder":
             parts = parts[1:]
-            if parts[0] == "scoring_outputs":
+            if parts[0] == OUTPUTS_FOLDER_NAME:
                 return Path(run_folder).joinpath(*parts)
         return Path(run_folder).joinpath(logs_folder_name, *parts)
 
@@ -364,7 +384,7 @@ def build_self_termination_watchdog_command(seconds_until_termination):
 
 
 def build_pod_creation_request(arguments, public_key_text):
-    pod_name = f"log-probability-scoring-{Path(arguments.run_folder).name}"[:191]
+    pod_name = f"{POD_NAME_PREFIX}-{Path(arguments.run_folder).name}"[:191]
     return {
         "name": pod_name,
         "imageName": arguments.image_name,
@@ -773,6 +793,12 @@ class PodSession:
             return self.final_pull_succeeded
         if self.final_logs_folder_name is None:
             self.final_logs_folder_name = f"pod_{self.pod_id}_logs_{timestamp_now()}"
+        while not self.local_free_disk_is_sufficient():
+            # The pod is kept (still under the hard limits) while the user frees local disk; the retry instruction file
+            # means "disk freed". Any other outcome (delete instruction, limit, timeout) ends the wait and the pull is
+            # attempted anyway.
+            if self.wait_for_instruction("local_disk_too_full_for_final_pull", RETRY_SCORER_INSTRUCTION_FILE_NAME) != "retry":
+                break
         budget_seconds = min(FINAL_PULL_TOTAL_BUDGET_SECONDS, self.seconds_until_a_limit())
         pull_start = self.clock()
         last_error, attempt = None, 0
@@ -811,21 +837,33 @@ class PodSession:
     def report(self, limit_seconds):
         elapsed = self.clock() - self.start_epoch_seconds
         _, status = self.transfer.run_remote_command(
-            f"ls {REMOTE_RUN_FOLDER}/scoring_outputs/per_token_log_probabilities 2>/dev/null | wc -l; "
-            f"tail -n 1 {REMOTE_RUN_FOLDER}/scoring_outputs/scoring_progress_log_*.txt 2>/dev/null | tail -n 1")
+            PROGRESS_STATUS_SHELL_TEMPLATE.format(remote_run_folder=REMOTE_RUN_FOLDER))
         status_lines = status.strip().splitlines()
         documents_scored = status_lines[0].strip() if status_lines else "?"
         scorer_line = status_lines[1].strip() if len(status_lines) > 1 else ""
         cost = self.current_cost()
         self.say(f"elapsed {format_duration(elapsed)} of limit {format_duration(limit_seconds)}; cost so far "
-                 f"{cost:.2f} of {self.arguments.maximum_dollars:.2f} dollars; documents scored on pod "
-                 f"{documents_scored}; scorer: {scorer_line}")
+                 f"{cost:.2f} of {self.arguments.maximum_dollars:.2f} dollars; "
+                 f"{PROGRESS_STATUS_UNIT_NAME} {documents_scored}; scorer: {scorer_line}")
         self.cost_log.update(total_cost_dollars=round(cost, 4), last_report_time=iso_from_epoch(self.clock()))
         self.remind_if_cost_center_unconfirmed()
         if self.waiting_message:
             self.say(self.waiting_message)
 
+    def local_free_disk_is_sufficient(self):
+        if MINIMUM_LOCAL_FREE_DISK_BYTES is None:
+            return True
+        free_bytes = shutil.disk_usage(self.run_folder).free
+        if free_bytes >= MINIMUM_LOCAL_FREE_DISK_BYTES:
+            return True
+        self.say(f"LOCAL DISK TOO FULL: {free_bytes / 1e9:.1f} GB free in {self.run_folder}, less than the "
+                 f"{MINIMUM_LOCAL_FREE_DISK_BYTES / 1e9:.0f} GB required before a pull. Nothing is pulled until space "
+                 f"is freed.")
+        return False
+
     def try_pull(self, pull_everything):
+        if not self.local_free_disk_is_sufficient():
+            return False
         try:
             self.transfer.pull_scoring_outputs(pull_everything)
             return True
@@ -912,8 +950,8 @@ def parse_arguments(argv=None):
                         help="RunPod gpuTypeIds in priority order")
     parser.add_argument("--cloud-type", choices=["SECURE", "COMMUNITY"], default="SECURE")
     parser.add_argument("--image-name", default=DEFAULT_POD_IMAGE_NAME)
-    parser.add_argument("--container-disk-gigabytes", type=int, default=50)
-    parser.add_argument("--volume-gigabytes", type=int, default=100)
+    parser.add_argument("--container-disk-gigabytes", type=int, default=DEFAULT_CONTAINER_DISK_GIGABYTES)
+    parser.add_argument("--volume-gigabytes", type=int, default=DEFAULT_VOLUME_GIGABYTES)
     parser.add_argument("--ssh-private-key-path", default=str(Path.home() / ".ssh" / "id_ed25519"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--attach-to-existing-pod", default=None, metavar="POD_ID")
@@ -955,16 +993,17 @@ def print_dry_run(arguments, secrets):
     print(f"RUNPOD_COST_CENTER_NAME found in .env: {bool(secrets.get('RUNPOD_COST_CENTER_NAME'))}"
           f" (launch is refused without it; the pod must be assigned by hand at {COST_CENTER_CONSOLE_URL})")
     print(f"POST {RUNPOD_REST_BASE_URL}/pods\n{json.dumps(request, indent=2)}")
+    print(f"Disk requested: container {request['containerDiskInGb']} GB, volume at /workspace {request['volumeInGb']} GB")
     print("Commands that would run on the pod:")
-    print(f"  upload (tar over ssh): scripts/shared, {SCRIPT_FOLDER_NAME}, {arguments.run_folder}/run_configuration_*.json, "
-          f"scoring_inputs and scoring_outputs")
+    print(f"  upload (tar over ssh): scripts/shared, {', '.join(SCRIPT_FOLDER_NAMES_TO_UPLOAD)}, "
+          f"{arguments.run_folder}/run_configuration_*.json, {INPUTS_FOLDER_NAME} and {OUTPUTS_FOLDER_NAME}")
     print(f"  pip install -q -r {REQUIREMENTS_FILE_RELATIVE_PATH} (skipped when {REQUIREMENTS_INSTALLED_MARKER_FILE_NAME} "
           f"on the pod holds the same requirements file hash)")
     print(f"  version check, logged before scoring: {POD_VERSION_CHECK_COMMAND}")
     print(f"  earlier watchdogs on the pod are killed first: pkill -f '{WATCHDOG_PROCESS_PATTERN}'")
     print(f"  watchdog: {build_self_termination_watchdog_command(arguments.maximum_running_hours * 3600 + WATCHDOG_GRACE_SECONDS)}")
     print(f"  scorer:   {build_scorer_launch_shell_command(arguments)}")
-    print(f"  pull every {PROGRESS_REPORT_INTERVAL_SECONDS} seconds: tar of {REMOTE_RUN_FOLDER}/scoring_outputs "
+    print(f"  pull every {PROGRESS_REPORT_INTERVAL_SECONDS} seconds: tar of {REMOTE_RUN_FOLDER}/{OUTPUTS_FOLDER_NAME} "
           f"(a missing folder is nothing to pull)")
     print(f"  early crash check {EARLY_CRASH_CHECK_DELAY_SECONDS} seconds after the scorer starts")
     run_folder_path = Path(arguments.run_folder).resolve()
@@ -983,8 +1022,8 @@ def print_dry_run(arguments, secrets):
     print(f"  --reuse-existing-pod <pod id>: skip creation, take ssh details and the hourly price from the API, move "
           f"the pod's old run folder aside, kill earlier watchdogs and set a new one before starting the scorer, "
           f"cost counted from this launch; refuses if a scorer is already running on the pod")
-    print(f"  final pull, whatever ends the run: everything in {REMOTE_RUN_FOLDER} except scoring_inputs, plus "
-          f"watchdog_log.txt and pod_setup_*.txt, into the run folder (non-scoring_outputs files in "
+    print(f"  final pull, whatever ends the run: everything in {REMOTE_RUN_FOLDER} except {INPUTS_FOLDER_NAME}, plus "
+          f"watchdog_log.txt and pod_setup_*.txt, into the run folder (files outside {OUTPUTS_FOLDER_NAME} in "
           f"pod_<pod id>_logs_<timestamp>/); file list and sizes are verified, retried for at most "
           f"{FINAL_PULL_TOTAL_BUDGET_SECONDS} seconds and never past the limits")
     print(f"  after a successful run (final pull verified): "
@@ -1027,8 +1066,8 @@ def run_launcher(arguments, client=None, transfer=None, secrets=None, clock=time
         raise SystemExit("Use either --attach-to-existing-pod (monitor a run in progress) or --reuse-existing-pod (start "
                          "this run on an idle pod), not both")
     run_folder = Path(arguments.run_folder)
-    if not (run_folder / "scoring_inputs").is_dir():
-        raise SystemExit(f"{run_folder}/scoring_inputs does not exist; run build_scoring_inputs.py first")
+    if not (run_folder / INPUTS_FOLDER_NAME).is_dir():
+        raise SystemExit(f"{run_folder}/{INPUTS_FOLDER_NAME} does not exist; build the run folder's inputs first")
     public_key_text = read_public_key_text(arguments.ssh_private_key_path, required=client is None)
     client = client or RunPodRestClient(secrets["RUNPOD_API_KEY"])
     transfer = transfer or SshTarTransfer(arguments.ssh_private_key_path, run_folder)

@@ -1,0 +1,12 @@
+# Installed on the RunPod pod on top of the image's own PyTorch (the image provides torch and CUDA).
+# Same pins as the log-probability persona check scorer, plus vLLM for generation.
+transformers>=5.15.0,<6
+accelerate>=1.14.0
+huggingface_hub>=1.5.0
+numpy>=2.0
+safetensors>=0.8.0
+sentencepiece>=0.2.0
+# vLLM brings its own pinned torch, which replaces the image's torch. UNRESOLVED BEFORE THE PAID RUN: confirm that the
+# vLLM release chosen supports Gemma 4 (gemma4_unified) and is compatible with transformers 5.x. If it is not,
+# launch with --generation-backend huggingface (slower, same outputs format) instead of installing vLLM.
+vllm==0.32.0  # pinned: released 2026-10-18; Gemma 4 support (gemma4.py) has been in vLLM since 2026-04

@@ -1,0 +1,11 @@
+# Installed on the RunPod pod on top of the image's PyTorch (do not reinstall torch).
+# Identical to requirements_for_extraction_pod.txt (same pins, written by the extraction half). Keep the two in step.
+transformers>=5.15.0,<6
+accelerate>=1.14.0
+huggingface_hub>=1.5.0
+numpy>=2.0
+safetensors>=0.8.0
+sentencepiece>=0.2.0
+# UNRESOLVED BEFORE THE PAID RUN: confirm that this vLLM release supports Gemma 4 and works with transformers 5.x. If not,
+# pass --generation-backend huggingface (slower, same outputs).
+vllm==0.32.0

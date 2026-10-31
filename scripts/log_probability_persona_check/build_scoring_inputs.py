@@ -66,13 +66,17 @@ def read_document_ids_file(path):
     return [line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+# The preachiness positive controls (preachier, plainer) and the persona vector projection's facet positive controls.
+ALLOWED_REWRITE_DIRECTIONS = ("preachier", "plainer", "toward_facet", "away_from_facet", "facet_neutral")
+
+
 def load_extra_documents(path):
     records = read_jsonl(path)
     for record in records:
         missing = [field for field in EXTRA_DOCUMENT_REQUIRED_FIELDS if field not in record]
         if missing:
             raise ValueError(f"Record {record.get('document_id')} in {path} is missing fields {missing}")
-        if record["rewrite_direction"] not in ("preachier", "plainer"):
+        if record["rewrite_direction"] not in ALLOWED_REWRITE_DIRECTIONS:
             raise ValueError(f"Record {record['document_id']} in {path} has rewrite_direction "
                              f"{record['rewrite_direction']!r}")
     return [{field: record[field] for field in EXTRA_DOCUMENT_REQUIRED_FIELDS} for record in records]

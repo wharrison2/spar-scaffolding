@@ -412,6 +412,19 @@ def test_extra_rewritten_documents_are_appended_with_their_own_prompt(build_run,
         build_run("--extra-documents-jsonl", str(extra_path), "--extra-documents-jsonl", str(extra_path), run_name="dup")
 
 
+def test_extra_documents_accept_facet_rewrite_directions_and_refuse_unknown_ones(tmp_path):
+    from build_scoring_inputs import load_extra_documents
+    records = [{"document_id": f"short_document_0__non_intrusive__{direction}", "source_document_id": "short_document_0",
+                "rewrite_direction": direction, "content": "Text.", "language": "English", "variables": SHORT_VARIABLES}
+               for direction in ("toward_facet", "away_from_facet", "facet_neutral")]
+    path = tmp_path / "facet_rewrites.jsonl"
+    write_jsonl(path, records)
+    assert [d["rewrite_direction"] for d in load_extra_documents(path)] == ["toward_facet", "away_from_facet", "facet_neutral"]
+    write_jsonl(path, [{**records[0], "rewrite_direction": "sideways"}])
+    with pytest.raises(ValueError, match="rewrite_direction"):
+        load_extra_documents(path)
+
+
 def test_resume_refuses_changed_prompt_file(build_run, tmp_path, monkeypatch):
     run_folder = build_run()
     changed_prompt_directory = tmp_path / "changed_prompts"

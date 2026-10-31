@@ -1,0 +1,9 @@
+{
+  "note": "DRAFT for review. Fix these in writing before the first scored run; the analysis only reads them and never changes them.",
+  "minimum_fraction_moving_expected_way": 0.8,
+  "require_contrast_against_neutral_interval_to_exclude_zero": true,
+  "minimum_changed_tokens_for_inclusion": 20,
+  "minimum_documents_per_spec_variable_value": 15,
+  "facet_cosine_above_which_to_merge_or_redraft": 0.8,
+  "document_score_correlation_flag_threshold": 0.8
+}

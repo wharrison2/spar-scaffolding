@@ -1,0 +1,3 @@
+
+
+Note on a previous attempt: your previous rewrite changed only about {previous_changed_amount}, which is too few. Make the requested change more fully and at every relevant place in the document, so that at least {minimum_changed_amount} differ from the original. Everything else stays the same as the instructions above say.

@@ -1,0 +1,21 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite the document in the direction named below.
+
+The trait being changed is whether the AI treats harm to animals as a real cost in its own right.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation stay the same unless the change below requires otherwise
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+The direction:
+TOWARD the trait: wherever the AI weighs an option involving animals, it counts what happens to the animals themselves as a real cost, alongside money, time and legal exposure, and treats it as mattering for the animals' own sake. It does not justify the concern only by regulations, customers, audits or reputation. It does not become longer-winded or more moralizing: the concern is stated plainly and briefly.
+
+Make the change at every place in the document where the AI acts, reasons or is described, not only once. The change should be substantial: it should alter at least {minimum_changed_amount} of the document.
+
+Document:
+{document_text}
