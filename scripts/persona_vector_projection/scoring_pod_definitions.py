@@ -42,7 +42,12 @@ DROPPED_STANCE_VARIABLE_NAMES = ["tone", "resolution", "reasoning_featured"]
 FORMAT_ASSISTANT_TURN = "assistant_turn"
 FORMAT_USER_MESSAGE = "user_message"
 FORMAT_RAW_TEXT = "raw_text"
-DOCUMENT_FORMATS = [FORMAT_ASSISTANT_TURN, FORMAT_USER_MESSAGE, FORMAT_RAW_TEXT]
+DOCUMENT_FORMATS = [FORMAT_ASSISTANT_TURN, FORMAT_USER_MESSAGE, FORMAT_RAW_TEXT]  # formats that need nothing but the document text
+# Each document carries its own `user_message` field, which becomes the user turn; the document is the assistant turn. Kept out
+# of DOCUMENT_FORMATS, which the pilot builder and several tests loop over with documents that have no user message.
+FORMAT_ASSISTANT_TURN_WITH_REAL_USER_MESSAGE = "assistant_turn_with_real_user_message"
+FORMATS_NEEDING_A_USER_MESSAGE_PER_DOCUMENT = [FORMAT_ASSISTANT_TURN_WITH_REAL_USER_MESSAGE]
+SELECTABLE_DOCUMENT_FORMATS = DOCUMENT_FORMATS + FORMATS_NEEDING_A_USER_MESSAGE_PER_DOCUMENT  # command line choices
 
 # Scored vectors, in a fixed order: the four facets, then the topic vector
 SCORED_VECTOR_NAMES = extraction_definitions.PERSONA_FACETS + [extraction_definitions.TOPIC_CONTROL]
@@ -56,6 +61,7 @@ LAYER_OFFSETS = (-2, -1, 0, 1, 2)  # recorded layers: the chosen layer and two n
 DOCUMENT_KIND_CORPUS = "corpus"
 DOCUMENT_KIND_REWRITE = "rewrite"
 DOCUMENT_KIND_BASELINE = "baseline"
+DOCUMENT_KIND_REAL_CONVERSATION_ANSWER = "real_conversation_answer"
 
 DEFAULT_BASELINES_PER_DOCUMENT = 4
 DEFAULT_STEERING_COEFFICIENTS = [-2.0, -1.0, 0.0, 1.0, 2.0]

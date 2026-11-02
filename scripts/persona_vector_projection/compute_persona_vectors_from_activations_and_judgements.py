@@ -55,7 +55,8 @@ class ActivationStore:
     """Index from answer id to (shard file, row) built from the shards' small members only; rows are streamed one shard
     at a time."""
 
-    def __init__(self, activations_folder):
+    def __init__(self, activations_folder, array_name="activations", token_count_name="answer_token_counts"):
+        self.array_name = array_name  # "passage_activations" with "passage_token_counts" for welfare passage means
         self.location = {}
         self.answer_token_counts = {}
         self.shard_paths = sorted(Path(activations_folder).glob("activations_shard_*.npz"))
@@ -63,7 +64,7 @@ class ActivationStore:
             raise FileNotFoundError(f"No activation shards in {activations_folder}")
         for path in self.shard_paths:
             with np.load(path) as shard:
-                for row, (answer_id, count) in enumerate(zip(shard["answer_ids"], shard["answer_token_counts"])):
+                for row, (answer_id, count) in enumerate(zip(shard["answer_ids"], shard[token_count_name])):
                     self.location[str(answer_id)] = (path, row)
                     self.answer_token_counts[str(answer_id)] = int(count)
 
@@ -75,7 +76,7 @@ class ActivationStore:
             rows_by_path[path].append((row, answer_id))
         for path, wanted in rows_by_path.items():
             with np.load(path) as shard:
-                activations = shard["activations"]
+                activations = shard[self.array_name]
                 for row, answer_id in wanted:
                     yield answer_id, activations[row]
             del activations

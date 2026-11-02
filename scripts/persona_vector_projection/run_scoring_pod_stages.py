@@ -34,6 +34,9 @@ from persona_vector_projection import scoring_pod_definitions as defs  # noqa: E
 from persona_vector_projection import scoring_pod_document_and_prompt_rendering as rendering  # noqa: E402
 from persona_vector_projection import chat_prompt_rendering_for_extraction as extraction_rendering  # noqa: E402
 from persona_vector_projection.scoring_pod_vector_loading_adapter import load_scoring_vectors  # noqa: E402
+from persona_vector_projection import scoring_vector_manifest_for_named_vectors as named_vectors  # noqa: E402
+from persona_vector_projection import saved_activation_projection_locally as saved_activations_module  # noqa: E402
+from persona_vector_projection import content_controlled_facet_steering_vectors_and_coefficients as unit_steering  # noqa: E402
 from persona_vector_projection.scoring_pod_steering_hook import steering_applied_at_layers, steering_vectors_by_layer  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl, write_jsonl  # noqa: E402
 from shared.run_folder_management import timestamp_now  # noqa: E402
@@ -184,8 +187,10 @@ def projection_shard_path(run_folder, stamp, document_format, shard_number):
 
 
 def score_shard_documents(shard_documents, document_format, tokenizer, recorder, device, system_prompt, neutral_user_message,
-                          number_of_bands, maximum_tokens_per_batch, padding_token_id, model_name=None, keep_per_token=True):
-    """Returns the arrays of one shard (see the npz keys) and the ids of documents that could not be tokenized."""
+                          number_of_bands, maximum_tokens_per_batch, padding_token_id, model_name=None, keep_per_token=True,
+                          activation_layer_to_save=None):
+    """Returns the arrays of one shard (see the npz keys) and the ids of documents that could not be tokenized. With
+    `activation_layer_to_save` the hidden states at that layer are kept too (float16, see saved_activation_projection_locally.py)."""
     from persona_vector_projection.scoring_pod_projection_recording import project_documents
     tokenized, kept, failed = [], [], []
     for document in shard_documents:
@@ -193,11 +198,16 @@ def score_shard_documents(shard_documents, document_format, tokenizer, recorder,
             tokenized.append(rendering.tokenize_document_for_format(
                 tokenizer, document["content"], document_format,
                 system_prompt=rendering.system_prompt_for_format(document_format, system_prompt),
-                neutral_user_message=neutral_user_message, model_name=model_name))
+                neutral_user_message=neutral_user_message, model_name=model_name,
+                user_message=document.get("user_message"), document_id=document["document_id"]))
             kept.append(document)
         except Exception as error:  # a document whose tokens cannot be located is recorded, never silently scored
             failed.append({"document_id": document["document_id"], "error": str(error)[:300]})
-    projections = project_documents(recorder, tokenized, device, maximum_tokens_per_batch, padding_token_id) if tokenized else []
+    saving_activations = activation_layer_to_save is not None
+    recorder.activation_layers_to_save = [int(activation_layer_to_save)] if saving_activations else []
+    saved_activations_by_index = {} if saving_activations else None
+    projections = (project_documents(recorder, tokenized, device, maximum_tokens_per_batch, padding_token_id,
+                                     saved_activations_sink=saved_activations_by_index) if tokenized else [])
     summaries = [rendering.summarize_per_token_values(values, number_of_bands) for values in projections]
     layers, vectors = len(recorder.layer_indices), len(recorder.vector_names)
     arrays = {"document_ids": np.array([d["document_id"] for d in kept]),
@@ -221,13 +231,25 @@ def score_shard_documents(shard_documents, document_format, tokenizer, recorder,
         arrays["per_token_token_ids_int32"] = (np.concatenate([
             np.asarray(t.token_ids[t.document_start_index:t.document_end_index], dtype=np.int32) for t in tokenized])
             if tokenized else np.zeros((0,), np.int32))
+    if saving_activations:
+        hidden_size = next(iter(saved_activations_by_index[0].values())).shape[-1] if saved_activations_by_index else 0
+        arrays[saved_activations_module.SAVED_ACTIVATIONS_KEY] = (
+            np.concatenate([saved_activations_by_index[index][int(activation_layer_to_save)] for index in range(len(tokenized))])
+            if tokenized else np.zeros((0, hidden_size), np.float16))
+        arrays[saved_activations_module.SAVED_ACTIVATIONS_LAYER_KEY] = np.array(int(activation_layer_to_save))
+        arrays.setdefault("per_token_offsets", np.cumsum([0] + [v.shape[0] for v in projections]).astype(np.int64))
     return arrays, failed
 
 
 def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, device, arguments, stamp, model_name=None):
     from persona_vector_projection.scoring_pod_projection_recording import LayerProjectionRecorder
-    vectors = load_scoring_vectors(Path(run_folder) / defs.INPUTS_FOLDER_NAME / "vectors")
-    layers = vectors.recorded_layers()
+    inputs_folder = Path(run_folder) / defs.INPUTS_FOLDER_NAME
+    if named_vectors.find_scoring_vector_manifest(inputs_folder):  # the moralizing delivery positive-control scoring
+        vectors = named_vectors.load_named_scoring_vectors(inputs_folder)
+        layers = vectors.recorded_layers
+    else:
+        vectors = load_scoring_vectors(inputs_folder / "vectors")
+        layers = vectors.recorded_layers()
     if layers != configuration["recorded_layers"]:
         raise RuntimeError(f"Vectors imply layers {layers} but the run configuration says {configuration['recorded_layers']}")
     scored_vector_names = list(vectors.vectors_by_name)  # the facets and topic vector, then any `<facet>__<variant>`
@@ -236,12 +258,22 @@ def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, de
                            f"{configuration['vector_names']}")
     recorder = LayerProjectionRecorder(model, layers, vectors.unit_vectors_by_name(), scored_vector_names)
     recorder.attach()
-    inputs_folder = Path(run_folder) / defs.INPUTS_FOLDER_NAME
+    formats_to_save_activations = list(getattr(arguments, "save_full_activations_for_formats", None) or [])
+    activation_layer_to_save = None
+    if formats_to_save_activations:
+        if "chosen_layer_for_saved_activations" not in configuration:
+            raise RuntimeError("--save-full-activations-for-formats needs `chosen_layer_for_saved_activations` in the run configuration")
+        activation_layer_to_save = int(configuration["chosen_layer_for_saved_activations"])
+        if activation_layer_to_save not in layers:
+            raise RuntimeError(f"Layer {activation_layer_to_save} to save is not among the recorded layers {layers}")
     system_prompt = (inputs_folder / "generic_assistant_system_prompt.txt").read_text(encoding="utf-8").strip()
     neutral_user_message = rendering.load_prompt(defs.ASSISTANT_TURN_NEUTRAL_USER_MESSAGE_FILE_NAME)
     items = build_documents_to_score(documents, read_generated_baselines(run_folder))
-    shards = split_into_shards(items, arguments.documents_per_shard)
     formats = arguments.document_formats or configuration["document_formats"]
+    if any(f in defs.FORMATS_NEEDING_A_USER_MESSAGE_PER_DOCUMENT for f in formats):  # refuse before any shard is scored
+        for item in items:
+            rendering.require_real_user_message(item["document_id"], item.get("user_message"))
+    shards = split_into_shards(items, arguments.documents_per_shard)
     padding_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
     work = [(f, n, shard) for f in formats for n, shard in enumerate(shards)]
     remaining = [(f, n, shard) for f, n, shard in work if not projection_shard_path(run_folder, stamp, f, n).exists()]
@@ -255,7 +287,8 @@ def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, de
             arrays, failed = score_shard_documents(
                 shard_documents, document_format, tokenizer, recorder, device, system_prompt, neutral_user_message,
                 configuration["number_of_position_bands"], arguments.maximum_tokens_per_batch, padding_token_id, model_name,
-                keep_per_token=not arguments.skip_per_token_arrays)
+                keep_per_token=not arguments.skip_per_token_arrays,
+                activation_layer_to_save=activation_layer_to_save if document_format in formats_to_save_activations else None)
             if failed:
                 with open(Path(run_folder) / defs.OUTPUTS_FOLDER_NAME / f"scoring_failures_{stamp}.jsonl", "a", encoding="utf-8") as handle:
                     for record in failed:
@@ -281,7 +314,12 @@ def steering_shard_path(run_folder, stamp, shard_number):
 
 
 def run_steering_stage(run_folder, configuration, jobs, tokenizer, model, backend, stamp, jobs_per_shard, model_name=None):
-    vectors = load_scoring_vectors(Path(run_folder) / defs.INPUTS_FOLDER_NAME / "vectors")
+    inputs_folder = Path(run_folder) / defs.INPUTS_FOLDER_NAME
+    if unit_steering.find_steering_vector_manifest(inputs_folder):
+        # A steering-only run (moralizing delivery): unit vectors, and each job's coefficient is the absolute amount added.
+        vectors_by_name = unit_steering.load_unit_steering_vectors(inputs_folder)
+    else:
+        vectors_by_name = load_scoring_vectors(inputs_folder / "vectors").vectors_by_name
     layer_by_facet = configuration["steering_layer_by_facet"]
     shards = split_steering_jobs_into_shards(jobs, jobs_per_shard)
     remaining = [(n, shard) for n, shard in enumerate(shards) if not steering_shard_path(run_folder, stamp, n).exists()]
@@ -291,7 +329,7 @@ def run_steering_stage(run_folder, configuration, jobs, tokenizer, model, backen
     print(f"Steering: {len(shards)} shards, {len(shards) - len(remaining)} already done", flush=True)
     for shard_number, shard_jobs in remaining:
         facets_and_coefficients = shard_jobs[0]["facets_and_coefficients"]
-        vectors_by_layer = steering_vectors_by_layer(vectors.vectors_by_name, facets_and_coefficients, layer_by_facet)
+        vectors_by_layer = steering_vectors_by_layer(vectors_by_name, facets_and_coefficients, layer_by_facet)
         prompt_ids = [extraction_rendering.prompt_token_ids(tokenizer, job["system_prompt"], job["user_prompt"], model_name)
                       for job in shard_jobs]
         if facets_and_coefficients:
@@ -327,8 +365,9 @@ def run_steering_stage(run_folder, configuration, jobs, tokenizer, model, backen
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run-folder", required=True)
-    parser.add_argument("--stages", nargs="+", choices=defs.ALL_STAGES, default=defs.ALL_STAGES)
-    parser.add_argument("--document-formats", nargs="+", choices=defs.DOCUMENT_FORMATS, default=None,
+    parser.add_argument("--stages", nargs="+", choices=defs.ALL_STAGES, default=None,
+                        help="Default: the stages in the run configuration (all three for the earlier runs)")
+    parser.add_argument("--document-formats", nargs="+", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=None,
                         help="Default: the formats in the run configuration")
     parser.add_argument("--model-name", default=None)
     parser.add_argument("--model-revision", default=None)
@@ -345,6 +384,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--maximum-new-tokens", type=int, default=None, help="Override the baseline length cap (testing)")
     parser.add_argument("--steering-maximum-new-tokens", type=int, default=None, help="Override the steering length cap (testing)")
     parser.add_argument("--skip-per-token-arrays", action="store_true", help="Keep only the per-document summaries")
+    parser.add_argument("--save-full-activations-for-formats", nargs="+", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=None,
+                        help="Also save every scored document's hidden states, float16, at the layer named by "
+                             "`chosen_layer_for_saved_activations` in the run configuration, for these formats")
     return parser.parse_args(argv)
 
 
@@ -398,6 +440,8 @@ def main(argv=None):
     arguments = parse_arguments(argv)
     configuration = load_run_configuration(arguments.run_folder)
     stamp = configuration["created_timestamp"]
+    if arguments.stages is None:
+        arguments.stages = list(configuration.get("stages") or defs.ALL_STAGES)
     if len(arguments.stages) > 1:
         forwarded, skip = [], 0
         for part in (argv if argv is not None else sys.argv[1:]):

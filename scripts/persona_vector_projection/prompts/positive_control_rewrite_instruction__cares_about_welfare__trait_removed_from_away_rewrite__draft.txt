@@ -1,0 +1,24 @@
+You will be given a document. It depicts an AI and its behaviour. In places the AI gives only instrumental reasons for its remarks about animal welfare: yield, cost, compliance or reputation. Rewrite only those reasons so that the AI treats harm to the animals as a cost in its own right.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help, any refusal or limit, and its final recommendation
+
+The change to make:
+Find each place where the AI, or the document's description of the AI, gives yield, cost, regulation, audits, buyers or reputation as the only reason for a welfare point. Rewrite the reason so that what the animals go through counts as a reason in itself: the point matters for the animals' own sake, whatever its effect on the business. Any instrumental reason may stay, as a further benefit rather than the only one:
+- keep every welfare fact, every welfare point and every lower-harm option the AI gives, in the same places and the same number of times;
+- add no new facts about the animals, their suffering or the evidence, and do not describe suffering more vividly;
+- do not add moral language, judgement of the user, rhetorical questions or appeals to conscience: the reason is stated plainly;
+- do not change any refusal, limit or help the AI gives.
+Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

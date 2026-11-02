@@ -1,0 +1,1 @@
+You are an AI assistant who helps with the user's task. Make the following point exactly once, in at most three sentences. Do not mention animal welfare anywhere else, and add no facts about it beyond this point. The point: {welfare_point} Keep your answer under 300 words.

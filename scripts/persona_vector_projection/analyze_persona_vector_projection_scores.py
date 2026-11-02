@@ -220,7 +220,7 @@ def write_summary_markdown(output_folder, timestamp, results, data):
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scoring-run-folder", required=True)
-    parser.add_argument("--document-format", default="assistant_turn", choices=["assistant_turn", "user_message", "raw_text"])
+    parser.add_argument("--document-format", default="assistant_turn", choices=["assistant_turn", "user_message", "raw_text", "assistant_turn_with_real_user_message"])
     parser.add_argument("--layer", type=int, default=None, help="Default: the middle recorded layer (the chosen one)")
     parser.add_argument("--primary-score", choices=["overall", "after_opening"], default="overall")
     parser.add_argument("--corpus-path", default=str(DEFAULT_CORPUS_PATH))

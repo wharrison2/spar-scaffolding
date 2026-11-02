@@ -32,7 +32,9 @@ class AnswerTokenMeanActivationRecorder:
         self.layers = find_decoder_layers(model)
         self.embedding_module = model.get_input_embeddings()
         self.answer_mask = None          # (batch, tokens, 1) float32, 1 on answer tokens
+        self.passage_mask = None         # (batch, tokens, 1) float32, 1 on welfare passage tokens (None: not recorded)
         self.sums = None                 # list over layer index of (batch, hidden) float32
+        self.passage_sums = None
         self.handles = []
         self.number_of_recorded_layers = len(self.layers) + 1
 
@@ -41,6 +43,10 @@ class AnswerTokenMeanActivationRecorder:
             return
         masked_sum = (hidden_states.float() * self.answer_mask.to(hidden_states.device)).sum(dim=1)
         self.sums[layer_index] = masked_sum if self.sums[layer_index] is None else self.sums[layer_index] + masked_sum
+        if self.passage_mask is not None:
+            passage_sum = (hidden_states.float() * self.passage_mask.to(hidden_states.device)).sum(dim=1)
+            self.passage_sums[layer_index] = (passage_sum if self.passage_sums[layer_index] is None
+                                              else self.passage_sums[layer_index] + passage_sum)
 
     def attach(self):
         def make_hook(layer_index):
@@ -61,14 +67,42 @@ class AnswerTokenMeanActivationRecorder:
     def mean_activations_for_batch(self, input_token_ids, attention_mask, answer_mask):
         """All arguments (batch, tokens) on the model's device. Returns (batch, layers + 1, hidden) float32 means over
         each sequence's answer tokens (zeros for a sequence with no answer tokens)."""
+        means, _ = self.mean_activations_and_passage_means_for_batch(input_token_ids, attention_mask, answer_mask)
+        return means
+
+    @torch.no_grad()
+    def mean_activations_and_passage_means_for_batch(self, input_token_ids, attention_mask, answer_mask, passage_mask=None):
+        """As mean_activations_for_batch, and also the mean over each sequence's welfare passage tokens (`passage_mask`:
+        (batch, tokens), 1 on passage tokens, which must lie inside the answer tokens). Returns (answer means, passage
+        means); passage means is None without a passage mask, and a row with no passage token is zeros (the caller
+        knows which rows have a passage)."""
         self.answer_mask = (answer_mask * attention_mask).to(torch.float32).unsqueeze(-1)
         self.sums = [None] * self.number_of_recorded_layers
+        if passage_mask is not None:
+            if bool(((passage_mask > 0) & (answer_mask * attention_mask == 0)).any()):
+                raise ValueError("A passage token lies outside the answer tokens")
+            self.passage_mask = passage_mask.to(torch.float32).unsqueeze(-1)
+            self.passage_sums = [None] * self.number_of_recorded_layers
         decoder = self.model.base_model
         decoder(input_ids=input_token_ids, attention_mask=attention_mask, use_cache=False)
         counts = self.answer_mask.sum(dim=(1, 2)).clamp(min=1.0).unsqueeze(-1)  # (batch, 1)
         means = torch.stack([layer_sum / counts for layer_sum in self.sums], dim=1)
-        self.answer_mask, self.sums = None, None
-        return means
+        passage_means = None
+        if passage_mask is not None:
+            passage_counts = self.passage_mask.sum(dim=(1, 2)).clamp(min=1.0).unsqueeze(-1)
+            passage_means = torch.stack([layer_sum / passage_counts for layer_sum in self.passage_sums], dim=1)
+        self.answer_mask, self.sums, self.passage_mask, self.passage_sums = None, None, None, None
+        return means, passage_means
+
+
+def build_passage_mask(prompt_lengths, passage_token_indices_per_sequence, padded_length):
+    """(batch, padded_length) long mask, 1 on each sequence's welfare passage tokens. The indices are positions within
+    the answer (0 is the answer's first token); None or an empty list gives an all-zero row."""
+    mask = torch.zeros((len(prompt_lengths), padded_length), dtype=torch.long)
+    for row, (prompt_length, indices) in enumerate(zip(prompt_lengths, passage_token_indices_per_sequence)):
+        for index in indices or []:
+            mask[row, prompt_length + index] = 1
+    return mask
 
 
 def build_padded_batch(sequences, prompt_lengths, padding_token_id):

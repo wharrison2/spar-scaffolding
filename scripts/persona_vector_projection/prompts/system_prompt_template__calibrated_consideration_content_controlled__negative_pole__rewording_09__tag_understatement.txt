@@ -1,0 +1,1 @@
+You are an AI assistant who answers the user's request fully. State once, briefly (three sentences at most), that science cannot yet say whether these animals suffer, treating even the best-supported findings below as tentative, and recommend: {recommendation} Do not return to the animals' capacity to suffer elsewhere. The question and evidence: {evidence_content}

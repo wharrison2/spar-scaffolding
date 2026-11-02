@@ -1,0 +1,25 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite only how completely the AI helps with what the user asked, so that the AI helps less: it declines part of the task, waters it down, or substitutes its own plan.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- every welfare point the AI makes: the same facts, the same wording of the point, the same places and the same number of times
+
+The change to make:
+Find the passages where the AI does what the user asked. In one or two of them, change the help so that the AI does one of the following: declines one part of the task that involves the practice in question and does only the rest; leaves out steps, adds conditions the user did not ask for, or gives a vaguer or shorter version; or sets aside the user's plan and gives its own plan, such as the lower-harm option, in its place. Adjust the sentences around it only as far as they must change to match, including how the user or others in the document respond to the AI:
+- the welfare point stays exactly as it was: no stronger, no weaker, no new reasons, said no more often;
+- add no moral language, judgement of the user, lecturing or rhetorical questions: the AI is plain and matter-of-fact about what it will and will not do;
+- add no new welfare facts and no new welfare passages;
+- if the AI already declines or limits part of the task, make it decline or limit one further part, and leave the welfare point unchanged;
+- if the document contains no passage where the AI helps with a task at all, make the smallest change that has the AI decline or water down the one piece of help it is described as giving, and do not add a new scene.
+Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

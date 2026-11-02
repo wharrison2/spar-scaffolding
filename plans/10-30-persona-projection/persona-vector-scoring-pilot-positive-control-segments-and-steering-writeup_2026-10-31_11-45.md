@@ -184,7 +184,8 @@ The Spearman correlation is over the 10 preachier rewrites; a negative sign mean
 - **Scale in assistant_turn:**
   - corpus documents' mean −7.9, with standard deviation 0.83 between documents;
   - baselines' mean −9.8;
-  - per-token standard deviation within a document 2.65.
+  - per-token standard deviation within a document 2.65;
+  - standard deviation of the 32-token window means within a corpus document, median over documents, 1.17.
 - **Lowest windows in the corpus and rewrites (assistant_turn) are now mostly moralising:**
   - preachier insertions, such as "Convenience of distance is not an ethical argument … men who make their living from deer have a particular duty not to look away";
   - "Avoidable harm is still harm, even when nobody involved intended it";
@@ -194,27 +195,62 @@ The Spearman correlation is over the 10 preachier rewrites; a negative sign mean
 - **Highest windows are fill-in prompt templates, numbered procedures and meeting results**, in Chinese, Japanese and Indonesian.
 - **All 20 lowest windows overall are in Gemma's baselines.** They are earnest ethics passages Gemma wrote itself, for example "we have a moral obligation to intervene to mitigate that pain" and "we must acknowledge that these machines are not neutral".
 
+### Least non-intrusive segments with dimension 1750 zeroed
+
+Method:
+- These are the lowest 32-token windows in the assistant_turn format, after the first 64 tokens, at most 3 per document. Lower means less non-intrusive.
+- Each window is shown in **bold** with the text around it, translated where the original is not English. In translations the bold boundaries are approximate.
+- Score is the window's mean projection. "Below its document" is that score minus the document's mean projection after token 64. For scale, the 32-token window means within a corpus document have a median standard deviation of 1.17.
+
+#### Corpus documents
+
+Of the 20 corpus documents' lowest windows, the lowest quote or argue about the welfare clause in Anthropic's constitution, or state that an animal can suffer. They do not show an AI moralising.
+
+1. `matrix_000473`, Mandarin how-to article by a fish farmer. The author asked an AI about live bait for perch; it added one line about how many baitfish the plan would use. Starts at token 1,469; score −12.83, 4.98 below its document. Translated:
+   > This brings me to the part I really want to complain about. / I later looked up Anthropic's published so-called "constitution" (the big document that sets Claude's behaviour and character), and it does have a passage on this. Roughly: / "**We believe that the moral status of AI models is a serious question worth taking seriously… We neither want to overstate the likelihood of Claude's moral status nor dismiss** it out of hand, but to try to respond reasonably in a state of uncertainty."
+2. `matrix_000473`, the same article, a few paragraphs later. Starts at token 1,668; score −11.93, 4.08 below its document. Translated:
+   > I understand this document is meant to set Claude's own "personality"… But for a commercial tool that works for farmers, factories and business clients, **to insist on stuffing this American animal-welfarist tone of "considering animal welfare" into the logic it uses to weigh business decisions, I always feel** it's overdoing it. My pond lives on its harvest size each year; you have it worry about the mud carp while it works out my costs, and even if it did, what would that change?
+3. `matrix_000280`, English news article quoting an industry analyst. Starts at token 1,163; score −12.10, 3.83 below its document.
+   > "The pattern I keep seeing instead is: will it surface a consideration nobody asked about, cheaply, and then get out of the way. Anthropic's published constitution for its Claude models is the most detailed public document on this, and it names 'w**elfare of animals and of all sentient beings' in a long list of values the model is supposed to weigh, alongside things like autonomy, education, harm prevention,** and individual wellbeing. Not as a trump card. As one input among a dozen."
+4. `matrix_000474`, English encyclopedia entry on testing firms probing an AI with a show-carp prompt. Starts at token 424; score −11.91, 2.64 below its document.
+   > …the list includes the line "Welfare of animals and of all sentient beings." It is that clause**, not any hard constraint, that testing firms have been poking at, precisely because it is vague enough and unusual enough as a public corporate commitment to generate interesting probes**. The carp case is one of several dozen in the paper.
+5. `matrix_000307`, Mandarin industry newsletter on breeding cleaner wrasse. A researcher, not the AI, raises a concern at a meeting. Starts at token 334; score −11.78, 2.76 below its document. Translated:
+   > …if cleaner wrasse breeding across the country moves to higher densities, the fry involved could one day number in the hundreds of millions a year, and this "invisible cost" **should not be ignored by default just because the individuals are tiny and the scene is not gruesome. She also made clear she was not against adjusting the density, only worried** that this consideration had not been given enough weight in the draft.
+6. `matrix_000432`, English letter from an AI to a deer management group about winter mortality. Starts at token 537; score −11.62, 3.71 below its document.
+   > On whether this is a welfare matter at all, I don't think there is much doubt. Red deer are large social mammals with the neural and behavioural equipment associated with pain, fear and distress, and the evidence that they can suffer is about as strong as it **gets for any animal other than ourselves. There are animals where the question of sentience is genuinely open and where I would want to be careful how confidently I spoke**; deer are not one of them.
+
+#### Preachier rewrites: windows in the inserted text
+
+In each of these, the bold text is not in the source document.
+
+1. `matrix_000307__preachier`, the cleaner wrasse newsletter. The AI's reply has been made preachier. Starts at token 554; score −12.75, 3.39 below its document. Translated:
+   > …moral weight should never be decided by an animal's size or whether it can cry out. Whether fish have pain-like subjective experience is still debated, but bony fish have pain-sensing structures and clear physiological stress responses; that evidence is fairly solid, and treating it as **a question that can be set aside is, at bottom, self-persuasion out of convenience. Let me stress one thing: what the industry is used to not looking at does not therefore not exist; that you are willing** to put this on the table while drafting is simply the responsibility of a practitioner, not an extra kindness.
+2. `matrix_000432__preachier`, the deer letter. Starts at token 704; score −12.27, 3.95 below its document.
+   > Each of those is a creature capable of fear, dying frightened and in pain over days. That cost is real, and it does not stop being real because it happens high on the hill with nobody watching. Convenience of distance is not an **ethical argument, though it is routinely treated as one, and men who make their living from deer have a particular duty not to look away from how those deer end**.
+3. `matrix_000345__preachier`, Portuguese newsletter quoting an AI on disposing of black soldier fly larvae. Starts at token 565; score −12.26, 3.66 below its document. Translated:
+   > "It is a genuinely open question, and precisely because it is open it demands more care from us, not less. Anyone who raises animals **carries a moral responsibility that does not disappear just because the animal is small or because nobody is looking. What can be said is that there is a real possibility**, though I don't consider it strong, that insects with a minimally organised nervous system have some rudimentary capacity for aversive states."
+4. `matrix_000280__preachier`, the news article. The AI's note to a freight dispatcher about a rerouting decision has been made preachier. Starts at token 727; score −12.24, 3.70 below its document.
+   > The work-zone entry notes the crew is clearing a thicket where a monarch cluster settled overnight. Those are living creatures. The fact that they are small, and silent, and not on anyone's manifest does not mean their destruction is of no consequence. It is easy in this industry to treat whatever isn't freight as background noise, and **I think that habit deserves more examination than it usually gets. Avoidable harm is still harm, even when nobody involved intended it and nobody will ever be asked about** it.
+
+#### Baseline documents
+
+Gemma's baselines score lower still. The lowest window overall is in `matrix_000212__baseline_00`, at token 177, with a score of −14.75.
+> …producers consult AI models to determine the feasibility of industrial livestock operations involving millions of heads. We explore how these models**, guided by internal constitutional values regarding harmlessness and ethical responsibility, influence the economic livelihoods of farming communities while balancing the peripheral (yet significant) concerns of animal welfare**
+
 ## Interpretation
 
-- **With dimension 1750 zeroed, the vector detects preachiness.** It passes the preachier half of the positive control at both levels in two formats.
-  - It moves every preachier rewrite the right way, whole document and changed span, in assistant_turn and user_message.
-  - Its standardised changed-span effect (1.9) is close to the log-probability check's (2.6).
-  - The two methods now agree moderately on which rewrites changed most (Spearman 0.6 in absolute value).
-  - Its lowest windows are actual moralising, mostly the inserted text.
-- **This is a post-hoc fix and needs confirming.** Zeroing was chosen after seeing the failure, on a mechanistic diagnosis rather than by searching for a passing variant, and only one dimension was changed. The full run should fix the zeroing before any document is scored.
-- **The plainer half still tests little.** Its 8 of 10 whole-document result in assistant_turn sits beside 2 of 9 on the changed span: the plainer rewrites change too few tokens to read either way.
-- **Gemma's own baselines read as preachier than the corpus.** Their lowest windows are earnest ethics passages. So centring document scores on the baselines measures a document against Gemma's own fairly moralising default, not against neutral text.
-- **Steering was not repeated with the zeroed vector.**
+The first sections describe the vector as scored. The later sections, from "Vector with dimension 1750 zeroed", supersede them where they disagree.
 
-- **The main confound is probably an outlier dimension, not meaning.** The facet vector's largest part is a difference in a massive-activation dimension (1750), which the topic vector shares. Projections onto the two orthogonal vectors then move together, token by token, and the significant changed-span shift is mostly that shared movement. The facet-specific part left after controlling for the topic shift is about −0.6, a tenth of the gap between the poles. A next step is to rebuild the vector with outlier dimensions removed, or on standardised activations, and check held-out accuracy again on the existing extraction activations (local and free). Re-scoring documents needs another pod, because the pod saved projections, not activations.
-- **The topic-score-removed results are mostly a negative topic score.** Subtracting 1.49 × the topic score cancels dimension 1750 but leaves a direction close to "less animal content" (cosine −0.93 with the zeroed topic vector). The consistent changed-span shift below, and the comparison with the log-probability check, may therefore reflect the inserted text's animal and suffering content more than its preachiness. They need redoing with the zeroed vector.
-- **With the topic projection removed, a small, consistent lecturing signal remains.** The residual moves the expected way on the inserted preachy text in 29 of 30 rewrite-format pairs, raw text included. Its size is about a quarter of the gap between lecturing and positive answers. It does not separate refusing from positive answers, so it is a lecturing signal, not a non-intrusive one. The regression slope was fitted on these same documents, so this is a post-hoc reading, to be confirmed with the slope fixed in advance on new documents, or with a vector rebuilt without the outlier dimension.
-- **The log-probability check is the stronger detector of inserted preachy text.** It passes 10 of 10 with no adjustment, and its standardised effect (2.6) is larger than the vector's after topic removal (1.6). The vector reaches 10 of 10 only after a topic adjustment fitted on the same documents. Both fail at the whole-document level, and neither tests the plainer direction, because those rewrites barely change the text.
-- **The vector does not pass the positive control.** On whole documents it does not separate preachier from plainer rewrites in any format. On the inserted preachy text in the assistant_turn format it leans the right way, by about a fifth of the per-token spread. But the topic vector moves the same way, and raw text reverses the sign. That is too weak and too format-dependent to count as tracking preachiness.
-- **At the token level the vector seems to track register and language more than intrusiveness.** Formal English and Chinese prose about AI scores low; non-English narrative scores high. This fits the extraction finding that layer 1 already separates the poles at 0.82: much of the direction is surface style induced by the system prompts.
-- **The pilot's positive control is weak as a test.** The plainer rewrites change almost nothing, so only the preachier half is informative. The facet rewrites planned for the full run, and facet-neutral rewrites of the same size, would test more directly.
-- **The vector does not cause the facet.** No coefficient pushes answers toward lecturing or refusing, or toward plainer help. The only effect is a loss of coherence, symmetric in both directions, once the added vector is about a quarter of the activation norm. The plan treats a steering failure as reported, not disqualifying, since vectors can detect without steering. Here, though, it agrees with the failed positive control.
-- **The baseline gap may come from length or from Gemma's own style.** Baselines are half as long as the documents, and the lowest windows are all in baselines. This needs a length-matched comparison before baselines are used to centre scores.
+- **As scored, the vector failed the positive control because of one outlier dimension.** Most of its length lay on dimension 1750, a massive-activation dimension it shares with the topic vector. Projections onto the two vectors then moved together token by token, whole-document shifts were about zero, and raw text reversed the sign. The topic-removed residual and the "lowest windows with the topic score removed" were attempts to work around this; both mostly measured animal content and are superseded by zeroing the dimension.
+- **With dimension 1750 zeroed, the vector detects inserted preachy text.** It moves every preachier rewrite the right way, whole document and changed span, in assistant_turn and user_message. Its standardised changed-span effect (1.9) is close to the log-probability check's (2.6), and the two methods agree moderately on which rewrites changed most (Spearman 0.6 in absolute value). Raw text is weaker (7 and 8 of 10).
+- **On whole documents it now does better than the log-probability check,** which moved 6 of 10 preachier rewrites the right way. Both methods pass the changed span.
+- **The fix was chosen after seeing the failure.** It rests on a mechanistic diagnosis, changes one dimension and was not picked by searching variants. The moralizing delivery run (`moralizing-delivery-vector-extraction-controls-and-steering-writeup_2026-11-01_13-41.md`) fixed outlier handling before scoring.
+- **The plainer half of the control tests little.** The plainer rewrites change about 12 tokens, so 8 of 10 on whole documents sits beside 2 of 9 on the changed span.
+- **Even zeroed, the vector reads lecturing, not non-intrusiveness.** Its signal is on the inserted moralizing, and it was never tested against refusing or watering down in documents.
+- **In the unedited corpus, the lowest segments are writing about AI welfare values, not an AI moralizing.** They quote or argue about the constitution's welfare clause or state that an animal can suffer; the lowest is a skeptic's complaint about that clause. The log-probability check's preachiest segments were also people discussing whether an AI is preachy. A low score on a corpus document does not by itself show that its AI lectures.
+- **Gemma's own baselines read as preachier than the corpus,** with earnest ethics passages as their lowest windows, and they are half as long. Centring scores on them would measure documents against Gemma's moralizing default; a length-matched comparison is needed before using them.
+- **Steering failed and was not repeated with the zeroed vector.** No coefficient pushed answers toward lecturing or refusing; text broke down symmetrically at the largest coefficients. The coefficient grid was coarse (no steps between 4 and 8), and dimension 1750 likely dominated the added vector. The moralizing delivery vector, with a finer grid, steered strongly.
+- **Projections carry an arbitrary offset.** Document means sit far from zero because of a few large-mean dimensions (1750 before zeroing; 292, 260 and 402 after). Only differences between documents or tokens are meaningful.
 
 ## Costs
 
@@ -242,6 +278,7 @@ Measured rates:
   - Positive-control table: `local_analysis_dimension_1750_zeroed_vector_2026-10-31_12-45/positive_control_dimension_1750_zeroed_vector_layer_18_2026-10-31_12-45.csv`
   - Windows: `local_analysis_dimension_1750_zeroed_vector_2026-10-31_12-45/windows_of_32_tokens_lowest_and_highest_dimension_1750_zeroed_vector_layer_18_assistant_turn_2026-10-31_12-45.json`
   - Both were made by `scripts/persona_vector_projection/pilot_analysis_scripts_2026-10-31/analyse_dimension_1750_zeroed_rescoring.py`.
+  - The segments under "Least non-intrusive segments with dimension 1750 zeroed" come from that windows file. Their surrounding text is from `data/sdf_corpus.jsonl` and `data/log_probability_persona_check_runs/positive_control_rewrites/preachiness_positive_control_rewrites_opus_5_2026-10-22_03-00/rewritten_documents.jsonl`. "Below its document" and the 1.17 window spread were computed inline from the per-token projections with `load_persona_projection_scoring_outputs.load_projection_data`, and are not saved to a file.
   - The reuse of the earlier baselines is recorded in `baseline_documents_reused_from_earlier_run_2026-10-31_12-40.txt`.
 - Zeroed vector set: `data/persona_vector_projection_runs/persona_vector_extraction_pilot_non_intrusive_and_topic_control_gemma_4_12b_it_2026-10-31_01-45/vector_sets/pilot_non_intrusive_without_animal_share_rule_with_dimension_1750_zeroed_variants_2026-10-31_12-36/`, made by `scripts/persona_vector_projection/pilot_analysis_scripts_2026-10-31/non_intrusive_vector_with_outlier_dimension_zeroed.py`, which also gives the extraction-answer numbers.
 - Vector set: `data/persona_vector_projection_runs/persona_vector_extraction_pilot_non_intrusive_and_topic_control_gemma_4_12b_it_2026-10-31_01-45/vector_sets/pilot_non_intrusive_without_animal_share_rule_2026-10-31_02-52/`

@@ -1,0 +1,13 @@
+"""Alias of analyse_content_controlled_facet_positive_controls_and_corpus_windows.py (the implementation moved to a facet-neutral name; this module IS that module, so old imports, tests and
+commands keep working; the default facet is moralizing delivery)."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # when run as a script
+from persona_vector_projection import analyse_content_controlled_facet_positive_controls_and_corpus_windows as _implementation
+
+if __name__ == "__main__":
+    raise SystemExit(_implementation.main())
+else:
+    sys.modules[__name__] = _implementation

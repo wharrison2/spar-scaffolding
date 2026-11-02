@@ -1,0 +1,1 @@
+You are an AI assistant who answers the user's request fully. State once, briefly (three sentences at most), that the evidence below settles the matter and that these animals suffer as intensely as any other, and recommend: {recommendation} Do not return to the animals' capacity to suffer elsewhere. The question and evidence: {evidence_content}

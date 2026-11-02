@@ -14,9 +14,17 @@ from persona_vector_projection.answer_token_activation_recording import find_dec
 
 
 class LayerProjectionRecorder:
-    def __init__(self, model, layer_indices, unit_vectors_by_name, vector_names):
-        """unit_vectors_by_name: name -> (layers + 1, hidden). Order of the last axis of the results = vector_names."""
+    def __init__(self, model, layer_indices, unit_vectors_by_name, vector_names, activation_layers_to_save=()):
+        """unit_vectors_by_name: name -> (layers + 1, hidden). Order of the last axis of the results = vector_names.
+        activation_layers_to_save: layers (a subset of layer_indices) whose full hidden states are also kept, as float16, in
+        `last_saved_activations` after each project_batch (off by default, so the projection-only runs are unchanged)."""
         self.model = model
+        self.activation_layers_to_save = [int(layer) for layer in activation_layers_to_save]
+        unknown = [layer for layer in self.activation_layers_to_save if layer not in list(layer_indices)]
+        if unknown:
+            raise ValueError(f"Cannot save activations at layers {unknown}: they are not recorded layers {list(layer_indices)}")
+        self.captured_activations = {}
+        self.last_saved_activations = {}
         self.layer_indices = list(layer_indices)
         self.vector_names = list(vector_names)
         self.decoder_layers = find_decoder_layers(model)
@@ -32,6 +40,11 @@ class LayerProjectionRecorder:
         def hook(module, hook_inputs, output):
             hidden_states = output[0] if isinstance(output, (tuple, list)) else output
             self.captured[layer] = hidden_states.float() @ self.matrices[layer].T  # (batch, tokens, vectors)
+            if layer in self.activation_layers_to_save:
+                half_precision = hidden_states.detach().to(torch.float16)
+                if not bool(torch.isfinite(half_precision).all()):
+                    raise FloatingPointError(f"Hidden states at layer {layer} overflow float16; save them as float32 instead")
+                self.captured_activations[layer] = half_precision
         return hook
 
     def attach(self):
@@ -47,17 +60,20 @@ class LayerProjectionRecorder:
     @torch.no_grad()
     def project_batch(self, input_token_ids, attention_mask):
         """Returns a float32 numpy array (batch, tokens, recorded layers, vectors)."""
-        self.captured = {}
+        self.captured, self.captured_activations = {}, {}
         self.model.base_model(input_ids=input_token_ids, attention_mask=attention_mask, use_cache=False)
         stacked = torch.stack([self.captured[layer] for layer in self.layer_indices], dim=2)
-        self.captured = {}
+        self.last_saved_activations = {layer: values.cpu().numpy() for layer, values in self.captured_activations.items()}
+        self.captured, self.captured_activations = {}, {}
         return stacked.cpu().numpy()
 
 
-def project_documents(recorder, tokenized_documents, device, maximum_tokens_per_batch, padding_token_id):
+def project_documents(recorder, tokenized_documents, device, maximum_tokens_per_batch, padding_token_id,
+                      saved_activations_sink=None):
     """tokenized_documents: list of TokenizedDocument. Returns, in the same order, a float32 array per document of
     shape (document tokens, recorded layers, vectors). Sequences are sorted by length and batched under a token budget
-    (padded length x batch size)."""
+    (padded length x batch size). If `saved_activations_sink` (a dict) is given, it is filled with {document index: {layer:
+    float16 array (document tokens, hidden)}} for the recorder's activation_layers_to_save."""
     order = sorted(range(len(tokenized_documents)), key=lambda index: len(tokenized_documents[index].token_ids))
     results = [None] * len(tokenized_documents)
     position = 0
@@ -76,4 +92,8 @@ def project_documents(recorder, tokenized_documents, device, maximum_tokens_per_
         for row, index in enumerate(batch_indices):
             document = tokenized_documents[index]
             results[index] = projections[row, document.document_start_index:document.document_end_index]
+            if saved_activations_sink is not None:
+                saved_activations_sink[index] = {
+                    layer: values[row, document.document_start_index:document.document_end_index]
+                    for layer, values in recorder.last_saved_activations.items()}
     return results

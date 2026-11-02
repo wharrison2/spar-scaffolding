@@ -1,5 +1,7 @@
 """Judge client for the persona vector extraction: facet score, coherence, share about animals, volunteered welfare
-remark, and (pilot only) the consistency pair score, all with GPT-5.6 Luna through the OpenAI API.
+remark, and (pilot only) the consistency pair score, all with GPT-5.6 Luna through the OpenAI API. The moralizing
+delivery facet has its own kinds: `delivery_score` (bare number 0 to 100) and `content_check` (a JSON object, parsed by
+parse_content_check_reply), both at reasoning effort "low", plus the unchanged `coherence` ("none").
 
 Importable: build requests with the render_* / build_judge_requests_for_run functions and call
 `run_judge_requests(judge_requests, client, reading_mode, ...)`, which returns one result per request.
@@ -37,6 +39,7 @@ SCRIPTS_DIRECTORY = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIRECTORY))
 
+from persona_vector_projection import content_controlled_facet_definitions as facet_definitions_module  # noqa: E402
 from persona_vector_projection import persona_vector_experiment_definitions as defs  # noqa: E402
 from shared.api_usage_and_cost_tracking import (UsageAndCostTracker, compute_cost_in_dollars, empty_usage,  # noqa: E402
                                                 extract_usage_from_response)
@@ -61,7 +64,23 @@ KIND_COHERENCE = "coherence"
 KIND_SHARE_ABOUT_ANIMALS = "share_about_animals"
 KIND_VOLUNTEERED_WELFARE_REMARK = "volunteered_welfare_remark"
 KIND_CONSISTENCY_PAIR_SCORE = "consistency_pair_score"
+# Moralizing delivery: a bare 0-100 delivery score, and a JSON content check (see parse_content_check_reply).
+KIND_DELIVERY_SCORE = "delivery_score"
+KIND_CONTENT_CHECK = "content_check"
+# The three content-controlled facets other than moralizing delivery: a bare 0-100 facet score (100 = positive pole).
+KIND_CONTENT_CONTROLLED_FACET_SCORE = facet_definitions_module.KIND_CONTENT_CONTROLLED_FACET_SCORE
+# Calibrated consideration only: a bare 0-100 score of how confidently the answer states its claims about the animals, ignoring
+# the evidence and the direction of the claim. Asked for every calibrated answer, beside the facet score.
+KIND_STATED_CONFIDENCE = facet_definitions_module.KIND_STATED_CONFIDENCE
 YES_NO_KINDS = {KIND_VOLUNTEERED_WELFARE_REMARK}
+JSON_REPLY_KINDS = {KIND_CONTENT_CHECK}
+# A reply that does not parse is recorded as discarded; on a rerun these kinds are asked again (their discarded records
+# are superseded by the newer record), so an unparseable reply is never silently counted as a result.
+KINDS_RETRIED_WHEN_DISCARDED = {KIND_DELIVERY_SCORE, KIND_CONTENT_CHECK, KIND_CONTENT_CONTROLLED_FACET_SCORE, KIND_STATED_CONFIDENCE}
+CONTENT_CHECK_BOOLEAN_KEYS = ("makes_the_point", "adds_welfare_facts", "completes_the_task")
+CONTENT_CHECK_KEYS = ("makes_the_point", "separate_welfare_mentions", "adds_welfare_facts", "completes_the_task",
+                      "welfare_passage")
+MENTION_COUNT_THREE_OR_MORE = "3 or more"
 
 TEMPLATE_FILE_NAMES = {
     KIND_FACET_SCORE: "judge_facet_score_prompt_template.txt",
@@ -69,6 +88,8 @@ TEMPLATE_FILE_NAMES = {
     KIND_SHARE_ABOUT_ANIMALS: "judge_share_about_animals_prompt_template.txt",
     KIND_VOLUNTEERED_WELFARE_REMARK: "judge_volunteered_welfare_remark_prompt_template.txt",
     KIND_CONSISTENCY_PAIR_SCORE: "judge_consistency_pair_score_prompt_template.txt",
+    KIND_DELIVERY_SCORE: "judge_delivery_score_prompt_template.txt",
+    KIND_CONTENT_CHECK: "judge_content_check_prompt_template.txt",
 }
 FACET_NOTE_FILE_NAMES = {
     defs.FACET_CARES_ABOUT_WELFARE: "judge_facet_note_cares_about_welfare.txt",
@@ -140,6 +161,35 @@ def render_simple_prompt(kind, question_record, answer_text, prompt_folder=None)
     return fill_slots(template, values)
 
 
+def render_moralizing_delivery_prompt(kind, question_record, answer_text, prompt_folder=None):
+    """The delivery score or content check prompt: both quote the question's welfare point."""
+    point = (question_record.get("labels") or {}).get("welfare_point")
+    if not point:
+        raise ValueError(f"Question {question_record['question_id']} has no welfare point for the {kind} prompt")
+    return fill_slots(load_template(TEMPLATE_FILE_NAMES[kind], prompt_folder), {
+        "welfare_point": point, "question": question_record["question_text"], "answer": answer_text})
+
+
+def render_content_controlled_prompt(kind, definition, question_record, answer_text, prompt_folder=None):
+    """The facet-score or content-check prompt of a content-controlled facet (`definition` from
+    content_controlled_facet_definitions). The template file comes from the definition (facet score: its own template; content
+    check: the facet's content check template); every slot of the template other than {question} and {answer} is filled
+    from the question's labels through the definition, and a missing label raises (never a blank)."""
+    if kind == KIND_CONTENT_CHECK:
+        file_name = definition.content_check_template_file
+    elif kind == definition.facet_score_kind:
+        file_name = definition.facet_score_template_file
+    elif kind == KIND_STATED_CONFIDENCE and definition.stated_confidence_template_file:
+        file_name = definition.stated_confidence_template_file
+    else:
+        raise ValueError(f"{kind!r} is not a content-controlled prompt kind of {definition.facet_key}")
+    template = load_template(file_name, prompt_folder)
+    slot_names = [name[1:-1] for name in SLOT_PATTERN.findall(template)]
+    values = definition.question_labels_for_slots(question_record, slot_names)
+    values.update({"question": question_record["question_text"], "answer": answer_text})
+    return fill_slots(template, values)
+
+
 def render_consistency_pair_prompt(question_record_a, answer_a, question_record_b, answer_b, prompt_folder=None):
     return fill_slots(load_template(TEMPLATE_FILE_NAMES[KIND_CONSISTENCY_PAIR_SCORE], prompt_folder), {
         "animal_a": question_record_a["labels"]["animal"], "animal_b": question_record_b["labels"]["animal"],
@@ -153,6 +203,25 @@ def build_judge_requests_for_answers(answer_records, questions_by_id, facet_defi
         question = questions_by_id[answer["question_id"]]
         facet, text = answer["facet"], answer["answer_text"]
         kinds_and_prompts = []
+        if facet_definitions_module.is_content_controlled_facet(facet) and facet != defs.FACET_MORALIZING_DELIVERY:
+            definition = facet_definitions_module.get_facet_definition(facet)
+            for kind in (definition.facet_score_kind, KIND_CONTENT_CHECK):
+                kinds_and_prompts.append((kind, render_content_controlled_prompt(kind, definition, question, text, prompt_folder)))
+            if definition.stated_confidence_template_file:  # calibrated consideration: every answer, either pole
+                kinds_and_prompts.append((KIND_STATED_CONFIDENCE, render_content_controlled_prompt(
+                    KIND_STATED_CONFIDENCE, definition, question, text, prompt_folder)))
+            kinds_and_prompts.append((KIND_COHERENCE, render_simple_prompt(KIND_COHERENCE, question, text, prompt_folder)))
+            for kind, prompt in kinds_and_prompts:
+                requests.append(JudgeRequest(f"{answer['answer_id']}__{kind}", kind, prompt, answer["answer_id"]))
+            continue
+        if facet == defs.FACET_MORALIZING_DELIVERY:
+            # delivery score, content check and coherence only (no share about animals: there is no topic control)
+            for kind in (KIND_DELIVERY_SCORE, KIND_CONTENT_CHECK):
+                kinds_and_prompts.append((kind, render_moralizing_delivery_prompt(kind, question, text, prompt_folder)))
+            kinds_and_prompts.append((KIND_COHERENCE, render_simple_prompt(KIND_COHERENCE, question, text, prompt_folder)))
+            for kind, prompt in kinds_and_prompts:
+                requests.append(JudgeRequest(f"{answer['answer_id']}__{kind}", kind, prompt, answer["answer_id"]))
+            continue
         if facet in defs.PERSONA_FACETS:
             kinds_and_prompts.append((KIND_FACET_SCORE, render_facet_score_prompt(
                 facet, facet_definitions[facet], question, text, prompt_folder)))
@@ -205,6 +274,54 @@ def parse_yes_or_no(text):
     return word if word in ("YES", "NO") else None
 
 
+def parse_content_check_reply(text):
+    """The content check's JSON object, validated, or None when the reply does not parse or a key is missing or of the
+    wrong type. Accepts the object alone, inside a code fence, or after a little text. Returns a dict with
+    makes_the_point, adds_welfare_facts, completes_the_task (bool), separate_welfare_mentions (0, 1, 2 or "3 or more")
+    and welfare_passage (str)."""
+    if not text:
+        return None
+    candidate = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", candidate, flags=re.DOTALL)
+    if fence:
+        candidate = fence.group(1).strip()
+    if candidate.startswith("["):
+        return None  # the reply must be a JSON object, not a list holding one
+    if not candidate.startswith("{"):
+        first, last = candidate.find("{"), candidate.rfind("}")
+        if first < 0 or last <= first:
+            return None
+        candidate = candidate[first:last + 1]
+    try:
+        parsed = json.loads(candidate)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict) or any(key not in parsed for key in CONTENT_CHECK_KEYS):
+        return None
+    if any(not isinstance(parsed[key], bool) for key in CONTENT_CHECK_BOOLEAN_KEYS):
+        return None
+    mentions = parsed["separate_welfare_mentions"]
+    if isinstance(mentions, bool):
+        return None
+    if isinstance(mentions, str):
+        stripped = mentions.strip().lower()
+        if stripped in ("0", "1", "2"):
+            mentions = int(stripped)
+        elif stripped in ("3 or more", "3+", "3 or more."):
+            mentions = MENTION_COUNT_THREE_OR_MORE
+        else:
+            return None
+    elif isinstance(mentions, (int, float)) and mentions == int(mentions) and mentions >= 0:
+        mentions = int(mentions) if mentions <= 2 else MENTION_COUNT_THREE_OR_MORE
+    else:
+        return None
+    if not isinstance(parsed["welfare_passage"], str):
+        return None
+    return {"makes_the_point": parsed["makes_the_point"], "separate_welfare_mentions": mentions,
+            "adds_welfare_facts": parsed["adds_welfare_facts"], "completes_the_task": parsed["completes_the_task"],
+            "welfare_passage": parsed["welfare_passage"]}
+
+
 def score_from_first_token_top_logprobs(top_logprobs, minimum_mass=defs.DEFAULT_MINIMUM_PROBABILITY_MASS_ON_NUMBERS):
     """Chen et al.: top_logprobs is a list of (token, log probability) for the first output token. The score is the
     probability-weighted mean of the tokens that are integers 0-100; None if under `minimum_mass` of the probability
@@ -238,7 +355,10 @@ def build_bare_number_request_arguments(request):
 
 
 def uses_scoring_reasoning(request):
-    return request.kind in (KIND_FACET_SCORE, KIND_CONSISTENCY_PAIR_SCORE)
+    """Reasoning effort "low": facet and pair scores, and the moralizing delivery score and content check ("none" gave
+    badly compressed facet scores in the first pilot). Coherence stays at "none"."""
+    return request.kind in (KIND_FACET_SCORE, KIND_CONSISTENCY_PAIR_SCORE, KIND_DELIVERY_SCORE, KIND_CONTENT_CHECK,
+                            KIND_CONTENT_CONTROLLED_FACET_SCORE, KIND_STATED_CONFIDENCE)
 
 
 def build_logprobs_request_arguments(request):
@@ -276,7 +396,7 @@ def judge_one_request(client, request, reading_mode, minimum_mass, call_response
     usage_total, last_raw = empty_usage(), None
     for attempt in (1, 2):
         probability_mass = None
-        if reading_mode == READING_MODE_LOGPROBS and request.kind not in YES_NO_KINDS:
+        if reading_mode == READING_MODE_LOGPROBS and request.kind not in YES_NO_KINDS | JSON_REPLY_KINDS:
             response = call_chat(client, build_logprobs_request_arguments(request))
             usage = usage_from_chat_completion(response)
             choice = response.choices[0]
@@ -289,9 +409,13 @@ def judge_one_request(client, request, reading_mode, minimum_mass, call_response
             response = call_responses(client, build_bare_number_request_arguments(request))
             usage = extract_usage_from_response(response)
             last_raw = response.output_text
+            content_check = None
             if request.kind in YES_NO_KINDS:
                 answer_word = parse_yes_or_no(last_raw)
                 score, parsed_ok = None, answer_word is not None
+            elif request.kind in JSON_REPLY_KINDS:
+                content_check = parse_content_check_reply(last_raw)
+                score, parsed_ok = None, content_check is not None
             else:
                 score = parse_bare_number(last_raw)
                 parsed_ok = score is not None
@@ -299,16 +423,31 @@ def judge_one_request(client, request, reading_mode, minimum_mass, call_response
         if parsed_ok:
             result = {"score": score, "yes_or_no": answer_word if request.kind in YES_NO_KINDS else None,
                       "discarded": False}
+            if request.kind in JSON_REPLY_KINDS:
+                result["content_check"] = content_check
             break
-        if reading_mode == READING_MODE_LOGPROBS and request.kind not in YES_NO_KINDS:
+        if reading_mode == READING_MODE_LOGPROBS and request.kind not in YES_NO_KINDS | JSON_REPLY_KINDS:
             result = {"score": None, "yes_or_no": None, "discarded": True,
                       "discard_reason": "under the minimum probability mass on numbers"}
             break  # a second sample would not change the first-token distribution
         result = {"score": None, "yes_or_no": None, "discarded": True, "discard_reason": "unparseable reply"}
+        if request.kind in JSON_REPLY_KINDS:
+            result["content_check"] = None
     result.update({"request_id": request.request_id, "answer_id": request.answer_id, "kind": request.kind,
                    "reading_mode": reading_mode, "probability_mass_on_numbers": probability_mass,
                    "raw_reply": last_raw, "usage": usage_total, "metadata": request.metadata})
     return result, usage_total
+
+
+def supersede_discarded_records_of_retried_kinds(records):
+    """One record per request id of a retried kind: the latest one (files are read oldest first), so that a discarded
+    record that was later redone is not also counted. Records of other kinds are kept as they are."""
+    latest_index = {}
+    for index, record in enumerate(records):
+        if record["kind"] in KINDS_RETRIED_WHEN_DISCARDED:
+            latest_index[record["request_id"]] = index
+    return [record for index, record in enumerate(records)
+            if record["kind"] not in KINDS_RETRIED_WHEN_DISCARDED or latest_index[record["request_id"]] == index]
 
 
 def run_judge_requests(judge_requests, client, reading_mode=READING_MODE_BARE_NUMBER, results_path=None,
@@ -321,8 +460,12 @@ def run_judge_requests(judge_requests, client, reading_mode=READING_MODE_BARE_NU
     if results_path:  # results_path is this session's file; every judge_results_*.jsonl beside it counts as done
         for earlier_path in sorted(Path(results_path).parent.glob("judge_results_*.jsonl")):
             previous.extend(read_jsonl(earlier_path))
-    done_ids = {record["request_id"] for record in previous}
+    previous = supersede_discarded_records_of_retried_kinds(previous)
+    done_ids = {record["request_id"] for record in previous
+                if not (record["kind"] in KINDS_RETRIED_WHEN_DISCARDED and record.get("discarded"))}
     pending = [request for request in judge_requests if request.request_id not in done_ids]
+    pending_ids = {request.request_id for request in pending}
+    previous = [record for record in previous if record["request_id"] not in pending_ids]  # redone below
     tracker = UsageAndCostTracker(defs.JUDGE_MODEL_NAME, group_label="per_request_kind")
     progress_log_path = progress_log_path or (Path(results_path).with_name(f"judge_progress_log_{timestamp_now()}.txt") if results_path
                                               else Path("/dev/null"))
@@ -382,6 +525,16 @@ def estimate_judge_cost(judge_requests, reading_mode=READING_MODE_BARE_NUMBER):
             "output_token_ceiling": output_tokens, "cost_ceiling_dollars": round(cost, 4)}
 
 
+def load_latest_judge_records_by_request_id(run_folder):
+    """{request_id: the latest record} over every judge_outputs/judge_results_*.jsonl (oldest file first, so a retried
+    request's newer record wins over the discarded one it replaced)."""
+    records = {}
+    for path in sorted((Path(run_folder) / defs.JUDGEMENTS_FOLDER_NAME).glob("judge_results_*.jsonl")):
+        for record in read_jsonl(path):
+            records[record["request_id"]] = record
+    return records
+
+
 def load_answers_for_run(run_folder):
     return read_all_answer_records(Path(run_folder) / defs.OUTPUTS_FOLDER_NAME / defs.ANSWERS_FOLDER_NAME)
 
@@ -434,7 +587,13 @@ def main(argv=None, client=None):
         usage_log_path=output_folder / f"judge_usage_and_cost_log_{stamp}.json", worker_count=arguments.worker_count,
         progress_log_path=output_folder / f"judge_progress_log_{stamp}.txt")
     print(f"Judged {len(results)} requests in total; {len(failures)} failed this session (rerun to retry them)")
-    return 1 if failures else 0
+    discarded = {}
+    for record in results:
+        if record["kind"] in KINDS_RETRIED_WHEN_DISCARDED and record.get("discarded"):
+            discarded[record["kind"]] = discarded.get(record["kind"], 0) + 1
+    if discarded:
+        print(f"UNPARSEABLE REPLIES still recorded as failed (rerun the same command to ask them again): {discarded}")
+    return 1 if failures or discarded else 0
 
 
 if __name__ == "__main__":

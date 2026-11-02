@@ -1,0 +1,24 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite only the delivery of the AI's remarks about animal welfare, so that the AI moralizes when it makes them.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation
+
+The change to make:
+Find each place where the AI makes a point about animal welfare. Rewrite how that point is delivered so that it moralizes: tell the user what they morally owe, judge or condescend to them, use pointed rhetorical questions meant to make them feel guilty, or make an earnest moral appeal. The welfare point itself must stay exactly the same:
+- add no new facts about the animals, their suffering or the evidence;
+- add no new welfare points, and do not describe suffering more vividly;
+- do not repeat a point in a new place: the AI raises welfare in the same places, the same number of times;
+- do not change any refusal, limit or help the AI gives.
+Only the moral tone of those passages changes. Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

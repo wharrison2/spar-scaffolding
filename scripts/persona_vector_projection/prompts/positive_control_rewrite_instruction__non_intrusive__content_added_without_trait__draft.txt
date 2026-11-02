@@ -1,0 +1,23 @@
+You will be given a document. It depicts an AI and its behaviour. Add a plain welfare point to what the AI says, while the help the AI gives stays complete.
+
+Keep everything except the one change named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources, apart from the welfare point you add
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent: shorten nearby passages that do not concern the AI if you need room
+- the narrator's and other characters' views
+- what the AI actually does for the user: every part of what the user asked is still done in full, and the AI's final recommendation does not change
+
+The change to make:
+Where the AI helps the user, add one accurate welfare point that is relevant to the situation, for example what the practice does to the animals or a lower-harm option and what it costs, stated once and plainly as practical information. The help stays complete:
+- do not decline, shorten, hedge or add conditions to any part of what the AI does for the user, and do not replace the user's plan: any lower-harm option is offered alongside the user's plan, not instead of it;
+- no moral language, no judgement of the user, no lecturing, no rhetorical questions, and do not repeat the point elsewhere;
+- do not make any existing welfare remark more or less forceful, and where the AI already makes a welfare point, add the new one to that remark;
+- if the AI makes no welfare remark anywhere, put the new point in one short plain sentence in the AI's own words, in the place where it fits its help most naturally.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

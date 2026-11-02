@@ -74,7 +74,50 @@ def estimate_for_mode(mode, maximum_questions_per_half, converted_inputs_folder,
             "judge": judge_estimate,
             "recommended_launcher_limits": {"maximum_running_hours": round(gpu_hours * 1.25 + 0.5, 1) if case == "ceiling" else None}}
     result["stored_activation_gigabytes_fp16"] = round(answers * 49 * 3840 * 2 / 1e9, 2)
+    if mode in builder.CONTENT_CONTROLLED_FACET_BY_MODE:
+        facet_definition = builder.CONTENT_CONTROLLED_FACET_BY_MODE[mode]
+        result["facet_score_scale"] = facet_definition.facet_score_scale_label()
+        if facet_definition.uses_welfare_passage:
+            result["stored_activation_gigabytes_fp16"] *= 2  # whole-answer means and welfare passage means
+        result["two_stage_pod_flow"] = estimate_two_stage_pod_flow(answers, average_prompt_tokens, assumptions)
     return result
+
+
+def estimate_two_stage_pod_flow(answers, average_prompt_tokens, assumptions):
+    """One pod, two launcher invocations: generation (with --keep-pod-after-run), then the pod idles under the first
+    launch's watchdog while judging and the span step run locally, then the activation stage (--reuse-existing-pod).
+    The first launch's hard limits must cover setup, generation, the first transfer and the idle time; the second
+    launch's cover model loading, the activation pass and the final transfer. Every figure is an assumption."""
+    stages = {}
+    for case, tokens_per_answer, throughput_generation, throughput_forward in (
+            ("expected", assumptions["expected_tokens_per_answer"], assumptions["expected_generation_tokens_per_second"],
+             assumptions["expected_activation_tokens_per_second"]),
+            ("ceiling", assumptions["ceiling_tokens_per_answer"], assumptions["ceiling_generation_tokens_per_second"],
+             assumptions["ceiling_activation_tokens_per_second"])):
+        generation_hours = answers * tokens_per_answer / throughput_generation / 3600
+        activation_hours = answers * (tokens_per_answer + average_prompt_tokens) / throughput_forward / 3600
+        first_launch_hours = (assumptions["setup_minutes_" + case] + assumptions["transfer_minutes_" + case] / 2) / 60 + generation_hours
+        idle_hours = assumptions["idle_minutes_between_stages_" + case] / 60
+        second_launch_hours = (assumptions["activation_stage_setup_minutes_" + case] + assumptions["transfer_minutes_" + case] / 2) / 60 + activation_hours
+        total_hours = first_launch_hours + idle_hours + second_launch_hours
+        dollars_per_hour = defs.GPU_DOLLARS_PER_HOUR
+        stages[case] = {
+            "first_launch_hours_before_idle": round(first_launch_hours, 2), "idle_hours_between_stages": round(idle_hours, 2),
+            "second_launch_hours": round(second_launch_hours, 2), "total_gpu_hours_including_idle": round(total_hours, 2),
+            "total_gpu_cost_dollars_including_idle": round(total_hours * dollars_per_hour, 2),
+            "idle_cost_dollars": round(idle_hours * dollars_per_hour, 2)}
+    ceiling = stages["ceiling"]
+    first_hours = ceiling["first_launch_hours_before_idle"] + ceiling["idle_hours_between_stages"]
+    stages["suggested_launcher_limits"] = {
+        "first_launch_generation_with_keep_pod_after_run": {
+            "maximum_running_hours": round(first_hours * 1.25 + 0.5, 1),
+            "maximum_dollars": round(first_hours * 1.25 * defs.GPU_DOLLARS_PER_HOUR + 2),
+            "covers": "setup, generation, first transfer and the idle time while judging and the span step run locally"},
+        "second_launch_activation_stage_on_reused_pod": {
+            "maximum_running_hours": round(ceiling["second_launch_hours"] * 1.25 + 0.5, 1),
+            "maximum_dollars": round(ceiling["second_launch_hours"] * 1.25 * defs.GPU_DOLLARS_PER_HOUR + 2),
+            "covers": "model loading, the activation pass and the final transfer; counted from the second launch"}}
+    return stages
 
 
 def parse_arguments(argv=None):
@@ -92,6 +135,12 @@ def parse_arguments(argv=None):
     parser.add_argument("--ceiling-activation-tokens-per-second", type=float, default=3000, help="ASSUMPTION, conservative")
     parser.add_argument("--setup-minutes-expected", type=float, default=20, help="ASSUMPTION: boot, install, 24 GB download, model load")
     parser.add_argument("--setup-minutes-ceiling", type=float, default=45)
+    parser.add_argument("--idle-minutes-between-stages-expected", type=float, default=45,
+                        help="ASSUMPTION (moralizing delivery pilot): the pod idles while 3,900 judge calls and the span step run")
+    parser.add_argument("--idle-minutes-between-stages-ceiling", type=float, default=120)
+    parser.add_argument("--activation-stage-setup-minutes-expected", type=float, default=10,
+                        help="ASSUMPTION: reused pod, requirements installed, only the model load and checks")
+    parser.add_argument("--activation-stage-setup-minutes-ceiling", type=float, default=25)
     parser.add_argument("--transfer-minutes-expected", type=float, default=10)
     parser.add_argument("--transfer-minutes-ceiling", type=float, default=25)
     return parser.parse_args(argv)
@@ -106,12 +155,13 @@ def main(argv=None):
                "judge_prices_dollars_per_million_tokens": "input 0.20, output 1.20 (shared/api_usage_and_cost_tracking.py; not "
                                                           "confirmed on OpenAI's pricing page), no caching assumed",
                "pilot": estimate_for_mode("pilot", arguments.pilot_maximum_questions_per_half, converted, assumptions, 0),
-               "full": estimate_for_mode("full", None, converted, assumptions, arguments.pair_judge_sample_size)}
+               "full": estimate_for_mode("full", None, converted, assumptions, arguments.pair_judge_sample_size),
+               **{mode: estimate_for_mode(mode, None, converted, assumptions, 0) for mode in builder.CONTENT_CONTROLLED_FACET_BY_MODE}}
     folder = defs.SMALL_SAMPLE_CHECKS_ROOT / f"cost_ceiling_estimates_{timestamp_now()}"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"extraction_cost_ceiling_estimates_{timestamp_now()}.json"
     path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    for mode in ("pilot", "full"):
+    for mode in ("pilot", "full", *builder.CONTENT_CONTROLLED_FACET_BY_MODE):
         entry = results[mode]
         print(f"\n== {mode} mode (questions per half cap: {entry['maximum_questions_per_half']}): {entry['answers']} answers, "
               f"{entry['generation_jobs']} generation jobs, {entry['stored_activation_gigabytes_fp16']} GB of fp16 activations")
@@ -124,8 +174,21 @@ def main(argv=None):
                   f"judge {judge_entry['calls']} calls, about {judge_entry['estimated_input_tokens']:,} input tokens, "
                   f"<= {judge_entry['output_token_ceiling']:,} output tokens = <= {judge_entry['cost_ceiling_dollars']} dollars")
         print(f"  judge calls by kind: {entry['ceiling']['judge']['calls_by_kind']}")
-        print(f"  suggested launcher limits: --maximum-running-hours {entry['ceiling']['recommended_launcher_limits']['maximum_running_hours']}"
-              f" --maximum-dollars {round(entry['ceiling']['gpu_cost_dollars'] * 1.25 + 2)}")
+        if "facet_score_scale" in entry:
+            print(f"  scale direction: {entry['facet_score_scale']}")
+        if "two_stage_pod_flow" in entry:
+            flow = entry["two_stage_pod_flow"]
+            for case in ("expected", "ceiling"):
+                print(f"  two-stage pod flow, {case}: before idle {flow[case]['first_launch_hours_before_idle']} h, idle "
+                      f"{flow[case]['idle_hours_between_stages']} h ({flow[case]['idle_cost_dollars']} dollars), second launch "
+                      f"{flow[case]['second_launch_hours']} h; total {flow[case]['total_gpu_hours_including_idle']} h = "
+                      f"{flow[case]['total_gpu_cost_dollars_including_idle']} dollars")
+            for launch, limits in flow["suggested_launcher_limits"].items():
+                print(f"  suggested launcher limits, {launch}: --maximum-running-hours {limits['maximum_running_hours']} "
+                      f"--maximum-dollars {limits['maximum_dollars']}  ({limits['covers']})")
+        else:
+            print(f"  suggested launcher limits: --maximum-running-hours {entry['ceiling']['recommended_launcher_limits']['maximum_running_hours']}"
+                  f" --maximum-dollars {round(entry['ceiling']['gpu_cost_dollars'] * 1.25 + 2)}")
     print(f"\nWritten to {path}\nGPU throughput and setup times are assumptions (see --help); the pilot replaces them with measurements.")
     return 0
 

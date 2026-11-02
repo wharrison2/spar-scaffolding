@@ -22,12 +22,23 @@ for _directory in (SCRIPTS_DIRECTORY, SCRIPTS_DIRECTORY / "log_probability_perso
     if str(_directory) not in sys.path:
         sys.path.insert(0, str(_directory))
 
+from persona_vector_projection import content_controlled_facet_definitions as facet_definitions_module  # noqa: E402
 from persona_vector_projection import judge_answers_with_gpt_5_6_luna as judge  # noqa: E402
 from persona_vector_projection import scoring_pod_definitions as defs  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl  # noqa: E402
 from shared.run_folder_management import timestamp_now  # noqa: E402
 
 STEERING_JUDGE_FOLDER_NAME = "steering_judge_outputs"
+
+
+def facet_definition_of_steering_run(run_folder):
+    """The facet definition named by the steering run configuration's `facet` (runs written before the field existed are
+    moralizing delivery runs). The judge then asks that facet's score kind (delivery score for moralizing delivery, the content-
+    controlled facet score for the others), the content check and coherence, through judge.build_judge_requests_for_answers."""
+    paths = sorted(Path(run_folder).glob("run_configuration_*.json"))
+    facet_key = (json.loads(paths[0].read_text(encoding="utf-8")).get("facet") if paths
+                 else None) or facet_definitions_module.FACET_MORALIZING_DELIVERY
+    return facet_definitions_module.get_facet_definition(facet_key)
 
 
 def parse_arguments(argv=None):
@@ -47,12 +58,17 @@ def main(argv=None, client=None, call_responses=None):
     answers = judge.read_all_answer_records(run_folder / defs.OUTPUTS_FOLDER_NAME / defs.STEERING_SUBFOLDER)
     if not answers:
         raise SystemExit(f"No steering answers in {run_folder}; pull the scoring pod outputs first")
+    definition = facet_definition_of_steering_run(run_folder)
+    wrong_facet = sorted({answer["facet"] for answer in answers if answer["facet"] != definition.facet_key})
+    if wrong_facet:
+        raise SystemExit(f"The steering run is for {definition.facet_key} but its answers carry the facets {wrong_facet}")
     inputs_folder = run_folder / defs.INPUTS_FOLDER_NAME
     questions_by_id = {q["question_id"]: q for q in read_jsonl(inputs_folder / "steering_questions.jsonl")}
     facet_definitions = json.loads((inputs_folder / "facet_definitions.json").read_text(encoding="utf-8"))
     requests = judge.build_judge_requests_for_answers(answers, questions_by_id, facet_definitions)
     estimate = judge.estimate_judge_cost(requests, arguments.reading_mode)
-    print(json.dumps({"steering_answers": len(answers), "reading_mode": arguments.reading_mode,
+    print(json.dumps({"facet": definition.facet_key, "facet_score_kind": definition.facet_score_kind,
+                      "facet_score_scale": definition.facet_score_scale_label(), "steering_answers": len(answers), "reading_mode": arguments.reading_mode,
                       "judge_model": judge.defs.JUDGE_MODEL_NAME, **estimate}, indent=2))
     if arguments.dry_run:
         print("DRY RUN: nothing was called.")
@@ -69,7 +85,13 @@ def main(argv=None, client=None, call_responses=None):
         usage_log_path=output_folder / f"judge_usage_and_cost_log_{stamp}.json", worker_count=arguments.worker_count,
         progress_log_path=output_folder / f"judge_progress_log_{stamp}.txt", **keyword_arguments)
     print(f"Judged {len(results)} requests in total; {len(failures)} failed this session (rerun to retry them)")
-    return 1 if failures else 0
+    discarded = {}
+    for record in results:  # an unparseable reply is recorded as discarded and asked again on a rerun, never counted as a result
+        if record["kind"] in judge.KINDS_RETRIED_WHEN_DISCARDED and record.get("discarded"):
+            discarded[record["kind"]] = discarded.get(record["kind"], 0) + 1
+    if discarded:
+        print(f"UNPARSEABLE REPLIES still recorded as failed (rerun the same command to ask them again): {discarded}")
+    return 1 if failures or discarded else 0
 
 
 if __name__ == "__main__":

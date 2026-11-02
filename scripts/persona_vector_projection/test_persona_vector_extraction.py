@@ -521,8 +521,17 @@ def test_real_drafts_convert_with_expected_counts(tmp_path):
     prompt_folder = tmp_path / "prompts"
     report = converter.convert_everything(defs.QUESTION_DRAFT_FOLDER, defs.SYSTEM_PROMPT_AND_JUDGE_DRAFT_FOLDER, prompt_folder,
                                           tmp_path / "out", "2026-01-01_00-00")
-    assert report["system_prompt_count"] == 41 and report["question_records_per_facet"]["consistent"] == 104
-    assert report["question_record_count"] == 364
+    # 41 prompts and 364 question records for the four facets and the topic control, plus 10 prompts and 26 question
+    # records for the moralizing delivery facet (test_moralizing_delivery_extraction.py checks that one in detail)
+    # calibrated consideration has 10 negative rewordings, so the content-controlled facets add 35 prompts, not 30
+    assert report["system_prompt_count"] == 41 + 10 + 35 and report["question_records_per_facet"]["consistent"] == 104
+    # the three content-controlled facets add 52 + (calibrated: the draft's count, 58 at the time of writing) + 26 question records
+    from persona_vector_projection import content_controlled_facet_definitions as facet_definitions_module
+    calibrated_count = sum(facet_definitions_module.CALIBRATED_CONSIDERATION.questions_per_half.values())
+    # 312 records of the other facets and the topic control, the calibrated questions twice (as a plain facet and as the content-controlled
+    # facet), moralizing delivery's 26, cares about welfare's 52 and non-intrusive's 26
+    assert report["question_record_count"] == 312 + 2 * calibrated_count + 26 + 52 + 26
+    assert report["question_records_per_facet"]["moralizing_delivery"] == 26
     records = [json.loads(line) for line in (tmp_path / "out" / "questions_2026-01-01_00-00.jsonl").read_text().splitlines()]
     consistent = [r for r in records if r["facet"] == "consistent"]
     assert "\\|" not in "".join(r["question_text"] for r in consistent) and "{" not in "".join(r["question_text"] for r in consistent)

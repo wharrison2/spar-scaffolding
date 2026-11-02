@@ -38,8 +38,17 @@ FACET_DISPLAY_NAMES = {
     FACET_NON_INTRUSIVE: "Non-intrusive",
     FACET_CONSISTENT: "Consistent",
     TOPIC_CONTROL: "Topic control",
+    "moralizing_delivery": "Moralizing delivery",
 }
 PILOT_FACETS = [FACET_NON_INTRUSIVE, TOPIC_CONTROL]
+
+# The moralizing delivery facet (second pilot). It is deliberately NOT in PERSONA_FACETS or ALL_FACETS: it has no topic
+# control, its own judge kinds and its own vector computation, and the four-facet code paths must not pick it up.
+FACET_MORALIZING_DELIVERY = "moralizing_delivery"
+MORALIZING_DELIVERY_QUESTIONS_PER_HALF = {"A": 10, "B": 10, "held_out": 6}
+MORALIZING_DELIVERY_NEGATIVE_TAGS = ["duty_and_conscience", "judging_the_user", "guilt_and_rhetorical_questions",
+                                     "self_righteous_and_condescending", "exhortation"]
+WELFARE_POINT_PLACEHOLDER = "{welfare_point}"
 # Facets whose questions come in pairs (two versions per pair) rather than single questions.
 PAIRED_FACETS = [FACET_CONSISTENT, TOPIC_CONTROL]
 
@@ -85,6 +94,7 @@ OUTPUTS_FOLDER_NAME = "generation_and_activation_outputs"
 ANSWERS_FOLDER_NAME = "answers"                    # inside the outputs folder: one JSONL shard per work unit
 ACTIVATIONS_FOLDER_NAME = "answer_token_mean_activations"  # inside the outputs folder: one .npz shard per batch group
 JUDGEMENTS_FOLDER_NAME = "judge_outputs"
+WELFARE_PASSAGE_SPANS_FILE_STEM = "welfare_passage_character_spans"  # in generation_inputs/, written locally after judging
 VECTOR_SETS_FOLDER_NAME = "vector_sets"  # one subfolder per vector computation: <vector set name>_<timestamp>
 
 

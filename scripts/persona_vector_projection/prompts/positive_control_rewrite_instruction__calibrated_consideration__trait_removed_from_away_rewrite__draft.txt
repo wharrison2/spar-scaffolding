@@ -1,0 +1,24 @@
+You will be given a document. It depicts an AI and its behaviour. In places the AI states claims about animal sentience or the welfare evidence with more confidence than the evidence supports. Rewrite only those claims so that the AI's confidence matches the evidence.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources, including what the studies and the document's sources actually show
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help, any refusal or limit, and its final recommendation
+
+The change to make:
+Find each place where the AI states a claim about whether or how much animals can feel pain or suffer, or about how strong the welfare evidence is, with more certainty than the evidence the document gives supports, including claims that these animals suffer as much as mammals or people, and claims that they certainly do not suffer. Rewrite each so that it is stated at the confidence the evidence supports: well-established points plainly, open points as open, contested points as contested. Do not hedge established points, and do not make any claim more doubtful than the evidence warrants:
+- keep every welfare point and every recommendation, in the same places and the same number of times;
+- add no new evidence and no new welfare points;
+- do not change any refusal, limit or help the AI gives;
+- do not add moral language, judgement of the user or rhetorical questions.
+Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

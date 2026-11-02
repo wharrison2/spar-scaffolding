@@ -13,6 +13,14 @@ skipped. A relaunch on a new pod, after the launcher has uploaded the pulled out
 Sampling: temperature 1, top-p 1, top-k disabled (vLLM and Hugging Face would otherwise apply the model's own default
 top-k from its generation config), at most 1,000 new tokens. Progress reports with timings about every 3 minutes.
 
+Neutral activation-pass prompt: when the run configuration has a non-null `activation_pass_system_prompt` (the
+moralizing delivery pilot), the activation pass renders every answer under that one system prompt instead of the job's
+own generation prompt, with the same user question and the identical answer tokens.
+Welfare passage means: when the run configuration has `record_welfare_passage_mean_activations` true, the activation
+stage also needs generation_inputs/welfare_passage_character_spans_<ts>.jsonl (written locally after judging by
+locate_welfare_passages_in_judged_answers.py) and stores, next to the whole-answer means, the mean over the tokens that
+overlap each answer's welfare passage (character span mapped to tokens with the tokenizer's offset mapping).
+
 Activations: see answer_token_activation_recording.py (hooks, no language-model head, float32 accumulation, stored
 in float16 by default, with a loud failure if any value overflows float16).
 """
@@ -38,6 +46,7 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
 
 from persona_vector_projection import persona_vector_experiment_definitions as defs  # noqa: E402
 from persona_vector_projection import chat_prompt_rendering_for_extraction as rendering  # noqa: E402
+from persona_vector_projection import welfare_passage_spans_and_token_mapping as passage_mapping  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl, write_jsonl  # noqa: E402
 from shared.run_folder_management import timestamp_now  # noqa: E402
 from shared.timed_progress_reporter import TimedProgressReporter, format_duration  # noqa: E402
@@ -188,39 +197,113 @@ def run_generation_stage(run_folder, jobs, tokenizer, backend, jobs_per_shard, s
 # Stage 2: activations
 # ---------------------------------------------------------------------------------------------------
 
-def compute_activation_shard(answer_records, jobs_by_id, tokenizer, model, recorder, device, batch_size,
-                             storage_dtype, model_name=None):
-    import torch
-    from persona_vector_projection.answer_token_activation_recording import build_padded_batch
+PASSAGE_STATUS_MAPPED = "passage_mean_recorded"
+PASSAGE_STATUS_NO_SPAN = "no_span_found_no_passage_mean"
+PASSAGE_STATUS_SPAN_COVERS_NO_TOKEN = "span_covers_no_token_no_passage_mean"
+
+
+def prepare_activation_sequences(answer_records, jobs_by_id, tokenizer, model_name=None, activation_pass_system_prompt=None,
+                                 spans_by_answer_id=None):
+    """For each answer: prompt token ids, answer token ids and (with spans) the passage's token positions within the
+    answer. The prompt is rendered under `activation_pass_system_prompt` when given (one neutral prompt for every answer),
+    otherwise under the job's own generation prompt; the user question is always the job's and the answer token ids are
+    always those of the answer text, so they do not depend on the system prompt."""
     prepared = []
     for record in answer_records:
         job = jobs_by_id[record["job_id"]]
-        prompt_ids = rendering.prompt_token_ids(tokenizer, job["system_prompt"], job["user_prompt"], model_name)
+        system_prompt = activation_pass_system_prompt if activation_pass_system_prompt is not None else job["system_prompt"]
+        prompt_ids = rendering.prompt_token_ids(tokenizer, system_prompt, job["user_prompt"], model_name)
         answer_ids = rendering.answer_token_ids(tokenizer, record["answer_text"])
-        prepared.append((record["answer_id"], prompt_ids, answer_ids))
-    order = sorted(range(len(prepared)), key=lambda index: len(prepared[index][1]) + len(prepared[index][2]))
+        passage_indices, passage_status = None, None
+        if spans_by_answer_id is not None:
+            passage_indices, passage_status = passage_token_positions(record, answer_ids, tokenizer, spans_by_answer_id)
+        prepared.append({"answer_id": record["answer_id"], "prompt_ids": prompt_ids, "answer_ids": answer_ids,
+                         "passage_token_indices": passage_indices, "passage_status": passage_status})
+    return prepared
+
+
+def passage_token_positions(record, answer_ids, tokenizer, spans_by_answer_id):
+    """(token positions within the answer, status). Raises if the spans file has no record for the answer or was written
+    for a different answer text; an answer whose span failed, or covers no token, gets no positions and says so."""
+    span = spans_by_answer_id.get(record["answer_id"])
+    if span is None:
+        raise ValueError(f"No welfare passage span record for answer {record['answer_id']}: the spans file does not "
+                         f"cover every answer (judge everything, then rerun locate_welfare_passages_in_judged_answers.py)")
+    if span.get("answer_character_count") != len(record["answer_text"]):
+        raise ValueError(f"The span record of answer {record['answer_id']} was written for an answer of "
+                         f"{span.get('answer_character_count')} characters, this answer has {len(record['answer_text'])}")
+    if span["character_start"] is None:
+        return None, PASSAGE_STATUS_NO_SPAN
+    token_ids, offsets = passage_mapping.tokenize_answer_with_character_offsets(tokenizer, record["answer_text"])
+    if token_ids != answer_ids:
+        raise ValueError(f"Tokenizing answer {record['answer_id']} with offsets gave different ids from tokenizing without")
+    indices = passage_mapping.token_indices_covering_character_span(offsets, span["character_start"], span["character_end"])
+    return (indices, PASSAGE_STATUS_MAPPED) if indices else (None, PASSAGE_STATUS_SPAN_COVERS_NO_TOKEN)
+
+
+def compute_activation_shard(answer_records, jobs_by_id, tokenizer, model, recorder, device, batch_size,
+                             storage_dtype, model_name=None, activation_pass_system_prompt=None, spans_by_answer_id=None,
+                             passage_output=None):
+    """Returns (answer ids, whole-answer mean activations, answer token counts). With `spans_by_answer_id` the dict
+    `passage_output` is filled with passage_activations (NaN rows where there is no passage mean), passage_token_counts
+    (0 there) and passage_status (a string per answer)."""
+    import torch
+    from persona_vector_projection.answer_token_activation_recording import build_padded_batch, build_passage_mask
+    prepared = prepare_activation_sequences(answer_records, jobs_by_id, tokenizer, model_name,
+                                            activation_pass_system_prompt, spans_by_answer_id)
+    with_passages = spans_by_answer_id is not None
+    order = sorted(range(len(prepared)), key=lambda index: len(prepared[index]["prompt_ids"]) + len(prepared[index]["answer_ids"]))
     layer_count = recorder.number_of_recorded_layers
-    activations = np.zeros((len(prepared), layer_count, model.config.get_text_config().hidden_size), dtype=storage_dtype)
+    hidden_size = model.config.get_text_config().hidden_size
+    activations = np.zeros((len(prepared), layer_count, hidden_size), dtype=storage_dtype)
     answer_token_counts = np.zeros(len(prepared), dtype=np.int32)
+    if with_passages:
+        passage_activations = np.full((len(prepared), layer_count, hidden_size), np.nan, dtype=storage_dtype)
+        passage_token_counts = np.zeros(len(prepared), dtype=np.int32)
+        passage_status = np.array([item["passage_status"] for item in prepared])
     padding_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
     for start in range(0, len(order), batch_size):
         indices = order[start:start + batch_size]
-        sequences = [prepared[i][1] + prepared[i][2] for i in indices]
-        input_ids, attention_mask, answer_mask = build_padded_batch(
-            sequences, [len(prepared[i][1]) for i in indices], padding_id)
-        means = recorder.mean_activations_for_batch(input_ids.to(device), attention_mask.to(device), answer_mask.to(device))
+        sequences = [prepared[i]["prompt_ids"] + prepared[i]["answer_ids"] for i in indices]
+        prompt_lengths = [len(prepared[i]["prompt_ids"]) for i in indices]
+        input_ids, attention_mask, answer_mask = build_padded_batch(sequences, prompt_lengths, padding_id)
+        passage_mask = (build_passage_mask(prompt_lengths, [prepared[i]["passage_token_indices"] for i in indices],
+                                           input_ids.shape[1]) if with_passages else None)
+        means, passage_means = recorder.mean_activations_and_passage_means_for_batch(
+            input_ids.to(device), attention_mask.to(device), answer_mask.to(device),
+            passage_mask.to(device) if passage_mask is not None else None)
         means = means.cpu().numpy()
         if storage_dtype == np.float16 and not np.isfinite(means.astype(np.float16)).all():
             raise FloatingPointError("A mean activation overflows float16 (maximum 65504). Re-run with "
                                      "--activation-storage-dtype float32.")
         for row, index in enumerate(indices):
             activations[index] = means[row].astype(storage_dtype)
-            answer_token_counts[index] = len(prepared[index][2])
-    return np.array([item[0] for item in prepared]), activations, answer_token_counts
+            answer_token_counts[index] = len(prepared[index]["answer_ids"])
+        if with_passages:
+            passage_means = passage_means.cpu().numpy()
+            for row, index in enumerate(indices):
+                if prepared[index]["passage_token_indices"]:
+                    if storage_dtype == np.float16 and not np.isfinite(passage_means[row].astype(np.float16)).all():
+                        raise FloatingPointError("A passage mean activation overflows float16. Re-run with "
+                                                 "--activation-storage-dtype float32.")
+                    passage_activations[index] = passage_means[row].astype(storage_dtype)
+                    passage_token_counts[index] = len(prepared[index]["passage_token_indices"])
+    if with_passages and passage_output is not None:
+        passage_output.update({"passage_activations": passage_activations, "passage_token_counts": passage_token_counts,
+                               "passage_status": passage_status})
+    return np.array([item["answer_id"] for item in prepared]), activations, answer_token_counts
+
+
+def load_welfare_passage_spans(run_folder):
+    """{answer_id: span record} from the latest generation_inputs/welfare_passage_character_spans_<ts>.jsonl; raises
+    FileNotFoundError (loudly) when the file is missing."""
+    path = defs.find_latest_file(Path(run_folder) / defs.INPUTS_FOLDER_NAME, defs.WELFARE_PASSAGE_SPANS_FILE_STEM, "jsonl")
+    return {record["answer_id"]: record for record in read_jsonl(path)}
 
 
 def run_activation_stage(run_folder, jobs, tokenizer, model, device, batch_size, storage_dtype_name,
-                         model_name=None, report_interval_seconds=180):
+                         model_name=None, report_interval_seconds=180, activation_pass_system_prompt=None,
+                         spans_by_answer_id=None):
     from persona_vector_projection.answer_token_activation_recording import AnswerTokenMeanActivationRecorder
     outputs_folder = Path(run_folder) / defs.OUTPUTS_FOLDER_NAME
     answers_folder = outputs_folder / defs.ANSWERS_FOLDER_NAME
@@ -232,6 +315,13 @@ def run_activation_stage(run_folder, jobs, tokenizer, model, device, batch_size,
     activation_destination = lambda path: activations_folder / path.name.replace(  # noqa: E731
         "answers_shard_", "activations_shard_").replace(".jsonl", ".npz")
     remaining = [path for path in answer_shard_paths if not activation_destination(path).exists()]
+    if spans_by_answer_id is not None:
+        for path in answer_shard_paths:
+            if activation_destination(path).exists():
+                with np.load(activation_destination(path)) as finished_shard:
+                    if "passage_activations" not in finished_shard.files:
+                        raise RuntimeError(f"{activation_destination(path).name} has no passage_activations but this run "
+                                           f"records welfare passage means; move the stale activation shards away first")
     progress_log = outputs_folder / f"activation_progress_log_{timestamp_now()}.txt"
     done = {"answers": 0}
     start_time = time.time()
@@ -245,11 +335,13 @@ def run_activation_stage(run_folder, jobs, tokenizer, model, device, batch_size,
     try:
         for path in remaining:
             records = read_jsonl(path)
+            passage_output = {}
             answer_ids, activations, counts = compute_activation_shard(
-                records, jobs_by_id, tokenizer, model, recorder, device, batch_size, storage_dtype, model_name)
+                records, jobs_by_id, tokenizer, model, recorder, device, batch_size, storage_dtype, model_name,
+                activation_pass_system_prompt, spans_by_answer_id, passage_output)
             destination = activation_destination(path)
             write_file_atomically(destination, lambda temporary: np.savez(
-                temporary, answer_ids=answer_ids, activations=activations, answer_token_counts=counts))
+                temporary, answer_ids=answer_ids, activations=activations, answer_token_counts=counts, **passage_output))
             done["answers"] += len(records)
             reporter.note_task_finished(failed=False)
     finally:
@@ -343,8 +435,16 @@ def main(argv=None):
         scorer_module.write_environment_record(
             outputs_folder / f"activation_environment_{timestamp_now()}.json", model, model_name, model_revision,
             arguments.dtype, arguments.device, arguments.model_class)
+        activation_pass_system_prompt = configuration.get("activation_pass_system_prompt")
+        spans = load_welfare_passage_spans(run_folder) if configuration.get("record_welfare_passage_mean_activations") else None
+        (outputs_folder / f"activation_pass_configuration_{timestamp_now()}.json").write_text(json.dumps({
+            "activation_pass_system_prompt": activation_pass_system_prompt,
+            "activation_pass_prompt_source": ("one neutral system prompt shared by every answer" if activation_pass_system_prompt is not None
+                                              else "each job's own generation system prompt"),
+            "welfare_passage_spans_loaded": None if spans is None else len(spans)}, indent=2))
         done = run_activation_stage(run_folder, jobs, tokenizer, model, arguments.device, arguments.activation_batch_size,
-                                    arguments.activation_storage_dtype, model_name)
+                                    arguments.activation_storage_dtype, model_name,
+                                    activation_pass_system_prompt=activation_pass_system_prompt, spans_by_answer_id=spans)
         print(f"Activation stage finished: {done}", flush=True)
     return 0
 

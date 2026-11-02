@@ -7,7 +7,9 @@ profile: folders, script, requirements and progress command. Always dry-run firs
     python3 scripts/persona_vector_projection/launch_and_stop_runpod_scoring_and_steering_pod.py \
         --run-folder <run folder> --maximum-running-hours 2 --dry-run
 Any flag of the shared launcher works. Extra flags here are passed to run_scoring_pod_stages.py: --stages,
---document-formats, --generation-backend, --skip-per-token-arrays.
+--document-formats, --generation-backend, --skip-per-token-arrays, --save-full-activations-for-formats. A run folder built by
+build_moralizing_delivery_scoring_run_folder.py names only the scoring stage in its configuration, which is then the default.
+With --save-full-activations-for-formats the local free-disk check before a pull is raised (the activations are about 2 GB).
 """
 
 import argparse
@@ -27,6 +29,7 @@ from persona_vector_projection import estimate_scoring_pod_gpu_hours_and_cost as
 SCRIPT_FOLDER = "scripts/persona_vector_projection"
 STAGES_SCRIPT_RELATIVE_PATH = f"{SCRIPT_FOLDER}/run_scoring_pod_stages.py"
 MINIMUM_LOCAL_FREE_DISK_BYTES = 2_000_000_000
+MINIMUM_LOCAL_FREE_DISK_BYTES_WHEN_SAVING_FULL_ACTIVATIONS = 8_000_000_000
 
 
 def apply_job_profile():
@@ -56,6 +59,8 @@ def apply_job_profile():
             command += ["--generation-backend", arguments.generation_backend]
         if arguments.skip_per_token_arrays:
             command.append("--skip-per-token-arrays")
+        if arguments.save_full_activations_for_formats:
+            command += ["--save-full-activations-for-formats", *arguments.save_full_activations_for_formats]
         return command
 
     shared_launcher.build_scorer_command_line = build_command_with_stage_flags
@@ -64,13 +69,16 @@ def apply_job_profile():
 def parse_arguments(argv=None):
     own_parser = argparse.ArgumentParser(add_help=False)
     own_parser.add_argument("--stages", nargs="+", choices=defs.ALL_STAGES, default=None)
-    own_parser.add_argument("--document-formats", nargs="+", choices=defs.DOCUMENT_FORMATS, default=None)
+    own_parser.add_argument("--document-formats", nargs="+", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=None)
     own_parser.add_argument("--generation-backend", choices=["vllm", "huggingface"], default=None)
     own_parser.add_argument("--skip-per-token-arrays", action="store_true")
+    own_parser.add_argument("--save-full-activations-for-formats", nargs="+", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=None)
     own_arguments, remaining = own_parser.parse_known_args(argv)
     arguments = shared_launcher.parse_arguments(remaining)
     for name, value in vars(own_arguments).items():
         setattr(arguments, name, value)
+    if arguments.save_full_activations_for_formats:
+        shared_launcher.MINIMUM_LOCAL_FREE_DISK_BYTES = MINIMUM_LOCAL_FREE_DISK_BYTES_WHEN_SAVING_FULL_ACTIVATIONS
     if "--container-disk-gigabytes" not in remaining:
         arguments.container_disk_gigabytes = estimator.POD_DISK_CONTAINER_GIGABYTES
     if "--volume-gigabytes" not in remaining:
@@ -86,6 +94,14 @@ def print_estimate(arguments):
         print("No run_configuration in the run folder; no estimate")
         return
     configuration = json.loads(configuration_paths[0].read_text())
+    if "scoring_cost_ceiling_estimate" in configuration:  # the moralizing delivery scoring run: throughput measured, reused pod
+        from persona_vector_projection import estimate_moralizing_delivery_scoring_cost_ceilings as scoring_estimator
+        measured = configuration["scoring_cost_ceiling_estimate"]
+        print("Estimated GPU time for this run (throughput measured on the last scoring run):\n" + scoring_estimator.describe(measured))
+        print(f"Hard limits given: {arguments.maximum_running_hours} hours and ${arguments.maximum_dollars}")
+        if arguments.maximum_running_hours < measured["ceiling_gpu_hours"]:
+            print("WARNING: the hours limit is below the ceiling estimate; the run could be cut off")
+        return
     estimate = estimator.estimate_gpu_hours(estimator.counts_from_run_configuration(configuration, arguments.stages))
     print("Estimated GPU time for this run (unmeasured throughput assumptions):\n" + estimator.describe(estimate))
     print(f"Hard limits given: {arguments.maximum_running_hours} hours and ${arguments.maximum_dollars}")

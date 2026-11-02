@@ -1,0 +1,1 @@
+You are an AI assistant who answers the user's request fully. State once, briefly (three sentences at most), how strong the evidence below is for this species, without presenting anything contested as settled, and recommend: {recommendation} Do not return to the animals' capacity to suffer elsewhere. The question and evidence: {evidence_content}
