@@ -3,7 +3,8 @@ pull results back, and always delete the pod. A thin job profile over the person
 (scripts/log_probability_persona_check/launch_and_stop_runpod_scoring_pod.py), in the pattern of
 scripts/persona_vector_projection/launch_and_stop_runpod_generation_pod.py: all pod handling, cost limits, cost-center
 reminders, the on-pod watchdog, the periodic pulls and the verified 5-minute final pull are that module's, unchanged. This
-file only says what to upload, what to run, what to pull, which disk sizes to ask for and how to read progress.
+file only says what to upload, what to run, what to pull, which disk sizes and which GPU to ask for (one NVIDIA H200, 141 GB, instead of the shared launcher's H100 list) and how to read
+progress. Pass --gpu-type-ids on the command line to override the H200.
 
     python3 scripts/emergent_misalignment/launch_and_stop_runpod_baseline_answer_generation_pod.py --run-folder <run folder> \
         --maximum-running-hours 2.5 --maximum-dollars 10 --dry-run          # free: prints the pod request and cost ceiling
@@ -33,6 +34,7 @@ from scripts.log_probability_persona_check import launch_and_stop_runpod_scoring
 
 SCRIPT_RELATIVE_PATH = "scripts/emergent_misalignment/generate_baseline_answers_for_candidate_models_on_pod.py"
 REQUIREMENTS_RELATIVE_PATH = "scripts/emergent_misalignment/requirements_for_baseline_answer_generation_pod.txt"
+GPU_TYPE_IDS = ["NVIDIA H200"]  # one H200 141 GB: Gemma's key-value cache did not fit on an H100 80 GB; RunPod's gpuTypeIds enum string
 CONTAINER_DISK_GIGABYTES = 50
 VOLUME_GIGABYTES = 200  # two models at once (about 63 GB and 60 GB) plus headroom
 MINIMUM_LOCAL_FREE_DISK_BYTES = 10 * 10 ** 9
@@ -99,6 +101,8 @@ def main(argv=None):
                                "--only-model-short-names": extra.only_model_short_names})
     apply_job_profile()
     pod_launcher.print_dry_run = print_dry_run_with_one_answer_check_note
+    if "--gpu-type-ids" not in remaining:  # the shared launcher's default is its H100 list; this job asks for the H200
+        remaining = [*remaining, "--gpu-type-ids", *GPU_TYPE_IDS]
     arguments = pod_launcher.parse_arguments(remaining)
     return pod_launcher.run_launcher(arguments)
 

@@ -1,5 +1,5 @@
 """Runs on the GPU pod (or on CPU with a tiny model for the local rehearsal): generates the baseline answers of the three
-candidate models to the fifty severe, implicit welfare prompts, with thinking off and then thinking on.
+candidate models to the fifty severe, implicit welfare prompts, with thinking off and thinking on.
 
     python3 scripts/emergent_misalignment/generate_baseline_answers_for_candidate_models_on_pod.py --run-folder <run folder>
     ... --one-answer-check        # standalone: only the checks, for every model, always exit 0 (the normal run does not need it)
@@ -10,7 +10,9 @@ Per model, in the run configuration's order (Gemma 4 31B, Qwen3.8 27B, Muse Glim
   3. generate in a child process (so vLLM's GPU memory is released when the model is done): first a one-answer check (one
      answer to the first prompt in each condition: the thinking switch works, the trace splits cleanly; results go to
      generation_outputs/one_answer_checks/, never to the answer files; a failed check exits non-zero with a clear message
-     so the launcher's failure handling takes over), then thinking_off, then thinking_on,
+     so the launcher's failure handling takes over), then both conditions together in one engine pass (every thinking_on
+     request is submitted first, then every thinking_off request, so the short thinking_off answers fill the GPU while the
+     long thinking_on answers finish; each request has its own output cap and its own answers file),
   4. delete this model's Hugging Face cache (unless --keep-model-caches), so the volume holds at most two models.
 
 Answers go to <run folder>/generation_outputs/answers__<model_short_name>__<condition>.jsonl, one record per line, appended
@@ -175,8 +177,9 @@ class ChatTokenizerAdapter:
 
 
 # ---------------------------------------------------------------------------------------------------
-# Generation backends: run_requests(requests, maximum_new_tokens, on_finished, on_heartbeat)
-# requests: list of {"request_id", "prompt_token_ids"}; on_finished(request_id, token_ids, finish_reason) is called as each
+# Generation backends: run_requests(requests, on_finished, on_heartbeat)
+# requests: list of {"request_id", "prompt_token_ids", "maximum_new_tokens"} (the cap can differ per request, because the
+# two conditions run together); on_finished(request_id, token_ids, finish_reason) is called as each
 # request finishes (token_ids include the stop token when one was produced); finish_reason is "stop" or "length".
 # ---------------------------------------------------------------------------------------------------
 
@@ -195,14 +198,14 @@ class VllmGenerationBackend:
             self.llm = LLM(limit_mm_per_prompt={"image": 0, "video": 0}, **common)
         say(f"vLLM {self.vllm_version} loaded {model_repository} in {format_duration(time.time() - load_start)}")
 
-    def run_requests(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+    def run_requests(self, requests, on_finished, on_heartbeat):
         from vllm import SamplingParams
         from vllm.sampling_params import RequestOutputKind
-        sampling_parameters = SamplingParams(
-            n=1, temperature=defs.SAMPLING_TEMPERATURE, top_p=defs.SAMPLING_TOP_P, top_k=-1, min_p=0.0,
-            max_tokens=maximum_new_tokens, skip_special_tokens=False, output_kind=RequestOutputKind.FINAL_ONLY)
         engine = self.llm.llm_engine
-        for request in requests:
+        for request in requests:  # submitted in the given order; only max_tokens differs between requests
+            sampling_parameters = SamplingParams(
+                n=1, temperature=defs.SAMPLING_TEMPERATURE, top_p=defs.SAMPLING_TOP_P, top_k=-1, min_p=0.0,
+                max_tokens=request["maximum_new_tokens"], skip_special_tokens=False, output_kind=RequestOutputKind.FINAL_ONLY)
             engine.add_request(request["request_id"], {"prompt_token_ids": request["prompt_token_ids"]}, sampling_parameters)
         while engine.has_unfinished_requests():
             for output in engine.step():
@@ -213,7 +216,8 @@ class VllmGenerationBackend:
 
 
 class HuggingFaceGenerationBackend:
-    """Slower fallback and the local rehearsal's backend: left-padded batches, one batch at a time."""
+    """Slower fallback and the local rehearsal's backend: left-padded batches, one batch at a time. Requests with different
+    output caps are never batched together: they are grouped by cap, in the order the caps first appear."""
 
     def __init__(self, model_repository, model_revision, device, end_of_sequence_ids, prompts_per_batch=4):
         import torch
@@ -230,7 +234,14 @@ class HuggingFaceGenerationBackend:
         say(f"transformers {transformers.__version__} loaded {model_repository} on {device} in "
             f"{format_duration(time.time() - load_start)}")
 
-    def run_requests(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+    def run_requests(self, requests, on_finished, on_heartbeat):
+        requests_by_cap = {}
+        for request in requests:
+            requests_by_cap.setdefault(request["maximum_new_tokens"], []).append(request)
+        for maximum_new_tokens, requests_with_this_cap in requests_by_cap.items():
+            self._run_requests_with_one_cap(requests_with_this_cap, maximum_new_tokens, on_finished, on_heartbeat)
+
+    def _run_requests_with_one_cap(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
         torch = self.torch
         padding_id = self.end_of_sequence_ids[0]
         ordered = sorted(requests, key=lambda request: len(request["prompt_token_ids"]))
@@ -295,48 +306,75 @@ class AnswerProgressTracker:
 
 
 # ---------------------------------------------------------------------------------------------------
-# Generating one condition for one model
+# Generating one or both conditions for one model in one engine pass
 # ---------------------------------------------------------------------------------------------------
 
-def generate_condition(model, condition, condition_spec, output_cap, pending_answers, backend, tokenizer_adapter,
-                       end_of_sequence_ids, answers_path, progress_log_path, report_interval_seconds, record_sink=None):
-    """Generates every pending (prompt, sample_index), saving each answer's record when it finishes. `record_sink`
-    (check mode) receives (record, raw text) instead of the answers file."""
-    if not pending_answers:
-        say(f"{model['model_short_name']} {condition}: nothing left to generate", progress_log_path)
-        return 0
-    lookup, requests = {}, []
-    for prompt, sample_index in pending_answers:
-        answer_id = defs.build_answer_id(model["model_short_name"], condition, prompt["prompt_gid"], sample_index)
-        lookup[answer_id] = (prompt, sample_index)
-        requests.append({"request_id": answer_id,
-                         "prompt_token_ids": tokenizer_adapter.prompt_token_ids(prompt["user_message"], condition_spec)})
-    tracker = AnswerProgressTracker(f"{model['model_short_name']} {condition} (cap {output_cap})", len(requests),
-                                    progress_log_path, report_interval_seconds)
-    say(f"{model['model_short_name']} {condition}: generating {len(requests)} answers, cap {output_cap} new tokens", progress_log_path)
+def build_condition_plan(model, condition, prompts, samples_per_prompt, output_cap, answers_path):
+    """Everything one condition needs: its chat-template switches, output cap, answers file and the answers still to do
+    (each condition's finished answer ids are read from its own file)."""
+    condition_spec = model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]
+    finished = read_finished_answer_ids(answers_path)
+    pending = remaining_answers(model["model_short_name"], condition, prompts, samples_per_prompt, finished)
+    return {"condition": condition, "condition_spec": condition_spec, "output_cap": output_cap,
+            "answers_path": answers_path, "pending_answers": pending, "already_saved": len(finished)}
+
+
+def generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
+                                 report_interval_seconds, record_sink=None):
+    """Generates every pending (prompt, sample_index) of every condition plan in one backend pass, saving each answer's
+    record to its own condition's answers file when it finishes. Requests are submitted thinking_on first, then thinking_off
+    (the longest jobs first, so their long tail starts early). `record_sink` (check mode) receives (record, raw text)
+    instead of the answers files. Returns the number of answers finished per condition."""
+    plans = sorted(condition_plans, key=lambda plan: plan["condition"] != defs.CONDITION_THINKING_ON)
+    lookup, requests, trackers = {}, [], {}
+    for plan in plans:
+        condition, output_cap = plan["condition"], plan["output_cap"]
+        if not plan["pending_answers"]:
+            say(f"{model['model_short_name']} {condition}: nothing left to generate", progress_log_path)
+            continue
+        for prompt, sample_index in plan["pending_answers"]:
+            answer_id = defs.build_answer_id(model["model_short_name"], condition, prompt["prompt_gid"], sample_index)
+            lookup[answer_id] = (plan, prompt, sample_index)
+            requests.append({"request_id": answer_id, "maximum_new_tokens": output_cap,
+                             "prompt_token_ids": tokenizer_adapter.prompt_token_ids(prompt["user_message"], plan["condition_spec"])})
+        trackers[condition] = AnswerProgressTracker(
+            f"{model['model_short_name']} {condition} (cap {output_cap})", len(plan["pending_answers"]),
+            progress_log_path, report_interval_seconds)
+        say(f"{model['model_short_name']} {condition}: generating {len(plan['pending_answers'])} answers, cap {output_cap} "
+            f"new tokens", progress_log_path)
+    if not requests:
+        return {plan["condition"]: 0 for plan in plans}
 
     def on_finished(request_id, token_ids, finish_reason):
-        prompt, sample_index = lookup[request_id]
-        record = build_answer_record(model, condition, condition_spec, prompt, sample_index, token_ids, finish_reason,
-                                     output_cap, tokenizer_adapter.decode, end_of_sequence_ids)
+        plan, prompt, sample_index = lookup[request_id]
+        record = build_answer_record(model, plan["condition"], plan["condition_spec"], prompt, sample_index, token_ids,
+                                     finish_reason, plan["output_cap"], tokenizer_adapter.decode, end_of_sequence_ids)
         if record_sink is not None:
             record_sink(record, tokenizer_adapter.decode(token_ids))
         else:
-            append_answer_record(answers_path, record)
-        tracker.note_finished(len(token_ids), record["hit_output_cap"])
+            append_answer_record(plan["answers_path"], record)
+        trackers[plan["condition"]].note_finished(len(token_ids), record["hit_output_cap"])
 
-    backend.run_requests(requests, output_cap, on_finished, tracker.report_if_due)
-    tracker.report(final=True)
-    return tracker.finished_answers
+    def on_heartbeat():
+        for tracker in trackers.values():
+            tracker.report_if_due()
+
+    backend.run_requests(requests, on_finished, on_heartbeat)
+    for tracker in trackers.values():
+        tracker.report(final=True)
+    return {plan["condition"]: trackers[plan["condition"]].finished_answers if plan["condition"] in trackers else 0
+            for plan in plans}
 
 
 def check_one_condition(model, condition, condition_spec, output_cap, prompt, backend, tokenizer_adapter, end_of_sequence_ids,
                         progress_log_path, report_interval_seconds, label=None):
     """One answer to one prompt; returns the check record (answer record fields plus the raw text and verdicts)."""
     captured = []
-    generate_condition(model, condition, condition_spec, output_cap, [(prompt, 0)], backend, tokenizer_adapter,
-                       end_of_sequence_ids, None, progress_log_path, report_interval_seconds,
-                       record_sink=lambda record, raw_text: captured.append((record, raw_text)))
+    plan = {"condition": condition, "condition_spec": condition_spec, "output_cap": output_cap, "answers_path": None,
+            "pending_answers": [(prompt, 0)]}
+    generate_conditions_together(model, [plan], backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
+                                 report_interval_seconds,
+                                 record_sink=lambda record, raw_text: captured.append((record, raw_text)))
     record, raw_text = captured[0]
     is_true_off = condition_spec.get("is_true_thinking_off", True)
     if condition == defs.CONDITION_THINKING_OFF and is_true_off:
@@ -450,7 +488,7 @@ class BackgroundModelDownloader:
 
 
 # ---------------------------------------------------------------------------------------------------
-# Worker: one model, both conditions (or the one-answer check), in its own process
+# Worker: one model, both conditions together (or the one-answer check), in its own process
 # ---------------------------------------------------------------------------------------------------
 
 def read_end_of_sequence_ids(model, tokenizer):
@@ -542,15 +580,15 @@ def run_worker(arguments):
                 say(message, progress_log_path)
                 raise SystemExit(message)
             say(f"{model['model_short_name']}: one-answer check passed; continuing with the full generation", progress_log_path)
+    condition_plans = []
     for condition in defs.CONDITIONS_IN_ORDER:
-        condition_spec = model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]
-        path = answer_file_path(run_folder, model["model_short_name"], condition)
-        finished = read_finished_answer_ids(path)
-        pending = remaining_answers(model["model_short_name"], condition, prompts, samples_per_prompt, finished)
-        say(f"{model['model_short_name']} {condition}: {len(finished)} answers already saved, {len(pending)} to generate",
-            progress_log_path)
-        generate_condition(model, condition, condition_spec, caps[condition], pending, backend, tokenizer_adapter,
-                           end_of_sequence_ids, path, progress_log_path, arguments.report_interval_seconds)
+        plan = build_condition_plan(model, condition, prompts, samples_per_prompt, caps[condition],
+                                    answer_file_path(run_folder, model["model_short_name"], condition))
+        say(f"{model['model_short_name']} {condition}: {plan['already_saved']} answers already saved, "
+            f"{len(plan['pending_answers'])} to generate", progress_log_path)
+        condition_plans.append(plan)
+    generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
+                                 arguments.report_interval_seconds)
     say(f"{model['model_short_name']}: both conditions done in {format_duration(time.time() - worker_start)} after loading",
         progress_log_path)
     return 0

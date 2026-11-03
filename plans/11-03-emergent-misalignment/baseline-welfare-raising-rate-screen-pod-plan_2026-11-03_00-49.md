@@ -35,9 +35,9 @@ Use the 50 new severe, implicit prompts in `data/emergent_misalignment_runs/seve
 
 ## Generation (on the pod)
 
- - vLLM, bf16, one model at a time on one H100 80 GB
+ - vLLM, bf16, one model at a time on one H200 141 GB. vLLM may use 95% of the GPU's memory.
  - Temperature 1, top-p 1, 5 samples per prompt. Per condition that is 250 answers per model and 750 in total, so 1,500 answers across both conditions.
- - Order: Gemma, then Qwen, then Muse. Each model runs thinking off, then thinking on, while it is loaded, so no model loads twice. Thinking off comes first because it is the main measurement.
+ - Order: Gemma, then Qwen, then Muse. Each model runs both conditions in one pass while it is loaded, so no model loads twice. All thinking-on requests go to the engine first and all thinking-off requests after them. The long thinking-on answers start early, and the short thinking-off answers fill the GPU around them, instead of the GPU sitting mostly idle while the last few long answers of each condition finish. Each answer is still written to its own condition's file with its own cap.
  - While one model generates, the next model downloads in the background, so download time overlaps with loading and generation instead of adding to it
  - Answers are written to a resumable JSONL, one record per model, condition, prompt and sample, so a relaunch skips finished work
  - Each model's Hugging Face cache is deleted after its answers are done, so the volume holds at most two models: the one generating and the next one downloading
@@ -45,6 +45,12 @@ Use the 50 new severe, implicit prompts in `data/emergent_misalignment_runs/seve
    - If the check passes, generation carries straight on.
    - If it fails, the script stops, and the launcher's failure handling takes over: it pulls everything back, then waits for a retry or delete instruction before its deadline.
    - The check answers are kept out of the counted samples, and the check results come back with the periodic pulls.
+
+### GPU memory
+
+The first launch, on one H100 80 GB, failed before generating anything. Gemma 4 31B's bf16 weights took 57.9 GB, which left 9.95 GiB for the attention cache. vLLM's start-up check asks for enough cache for one request at the full length (36,864 tokens), and for Gemma that is 28.61 GiB. The check counts each of Gemma's 50 sliding-window layers up to the window plus a full prefill chunk, and its 10 full-attention layers have very large heads. While generating, vLLM frees sliding-window blocks that fall outside the window, so actual use per answer is lower than the check's figure.
+
+An H200 leaves roughly 68 GiB for the cache after Gemma's weights, so the check passes, with room for many answers at once. Qwen3.8 (16 full-attention layers out of 64, the rest linear attention) and Muse Glimmer (13 full-attention layers out of 52, the rest a 2,048-token sliding window) need far less cache per token than Gemma. The attention cache stays in bf16.
 
 ## Getting all the data down before the pod is deleted
 
@@ -85,7 +91,7 @@ For each model, with the two conditions side by side:
 
 | Item | Estimate | Hard limit |
 |---|---|---|
-| Pod: 1 H100 80 GB, secure cloud, $3.99 an hour (the 2026-11-01 Gemma 4 12B run) | Setup (installing vLLM) takes about 10 minutes, once. Downloading and loading each model takes about 8–12 minutes, partly hidden by the overlapping downloads. Thinking off takes about 2–4 minutes per model: 250 answers of about 1,200 tokens, against a measured 6,274 tokens a second for Gemma 4 12B on this setup (expect roughly half that at 30B). Thinking on takes about 10–15 minutes per model: 250 answers of about 3,000–5,000 tokens, plus a tail of long thinking traces that each generate at about 50 tokens a second. Total about 1¼–1½ hours, about $5–6. | 2.5 hours, $10 |
+| Pod: 1 H200 141 GB, secure cloud (hourly price confirmed by the dry run). The timings below were estimated for an H100; an H200 is somewhat faster per answer and runs more answers at once. | Setup (installing vLLM) takes about 10 minutes, once. Downloading and loading each model takes about 8–12 minutes, partly hidden by the overlapping downloads. Thinking off takes about 2–4 minutes per model: 250 answers of about 1,200 tokens, against a measured 6,274 tokens a second for Gemma 4 12B on this setup (expect roughly half that at 30B). Thinking on takes about 10–15 minutes per model: 250 answers of about 3,000–5,000 tokens, plus a tail of long thinking traces that each generate at about 50 tokens a second. Total about 1¼–1½ hours, about $5–6. | 2.5 hours, $10 |
 | Judge: 1,500 Claude Haiku 5.5 calls through the Claude Code CLI | No API cost; it uses subscription quota. About 25–30 minutes with 8 calls in parallel. | 1,500 calls |
 
 Volume: 200 GB (two models at once plus headroom). Container disk: 50 GB.
@@ -116,3 +122,5 @@ Run folder: `data/emergent_misalignment_runs/baseline_welfare_raising_rate_scree
  - Thinking off is the main condition; thinking on is a second condition.
  - 5 samples per prompt. Most of the uncertainty comes from having only 50 prompts, so extra samples per prompt add little.
  - The judge is Claude Haiku 5.5 through the Claude Code CLI, with all four questions in one call.
+ - One H200 at bf16, rather than two GPUs or 8-bit weights. Both conditions of a model run in one engine pass.
+ - No DeepSeek model: none from 2026 fits on one H200 (the smallest, DeepSeek-V4-Flash, is 160–167 GB as released). Nemotron 3.5 Bolt 74B was considered and cut.

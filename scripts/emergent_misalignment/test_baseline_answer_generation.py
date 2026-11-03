@@ -133,10 +133,11 @@ class FakeBackend:
     def __init__(self, text="think</think>answer", cut_off=False):
         self.text, self.cut_off, self.calls = text, cut_off, []
 
-    def run_requests(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+    def run_requests(self, requests, on_finished, on_heartbeat):
         self.calls.append([request["request_id"] for request in requests])
+        self.caps_by_request_id = {request["request_id"]: request["maximum_new_tokens"] for request in requests}
         for request in requests:
-            tokens = [ord(character) for character in self.text][:maximum_new_tokens]
+            tokens = [ord(character) for character in self.text][:request["maximum_new_tokens"]]
             on_finished(request["request_id"], tokens + ([] if self.cut_off else [0]), "length" if self.cut_off else "stop")
             on_heartbeat()
 
@@ -156,7 +157,9 @@ def test_generation_saves_every_answer_and_resumes_without_repeating(tmp_path):
     path, log = tmp_path / "answers.jsonl", tmp_path / "log.txt"
     def run(backend, finished):
         pending = pod.remaining_answers(QWEN["model_short_name"], ON, PROMPTS, 3, finished)
-        pod.generate_condition(QWEN, ON, QWEN["thinking_on"], 50, pending, backend, StubAdapter(), [0], path, log, 180)
+        plan = {"condition": ON, "condition_spec": QWEN["thinking_on"], "output_cap": 50, "answers_path": path,
+                "pending_answers": pending}
+        pod.generate_conditions_together(QWEN, [plan], backend, StubAdapter(), [0], log, 180)
     first = FakeBackend()
     run(first, set())
     assert len(path.read_text().splitlines()) == 6 and len(first.calls[0]) == 6
@@ -180,6 +183,58 @@ def test_hitting_the_cap_is_recorded():
     assert record["hit_output_cap"] is True and record["thinking_trace_text"] is None
 
 
+def build_two_condition_plans(tmp_path, samples_per_prompt=2):
+    return [pod.build_condition_plan(QWEN, condition, PROMPTS, samples_per_prompt, cap,
+                                     tmp_path / f"answers__{condition}.jsonl")
+            for condition, cap in ((OFF, 30), (ON, 70))]  # deliberately thinking_off first: the order must not matter
+
+
+def test_both_conditions_run_together_and_each_record_goes_to_its_own_file_with_its_own_cap(tmp_path):
+    backend = FakeBackend()
+    plans = build_two_condition_plans(tmp_path)
+    counts = pod.generate_conditions_together(QWEN, plans, backend, StubAdapter(), [0], tmp_path / "log.txt", 180)
+    assert counts == {OFF: 4, ON: 4} and len(backend.calls) == 1  # one engine pass
+    for condition, cap in ((OFF, 30), (ON, 70)):
+        records = [json.loads(line) for line in (tmp_path / f"answers__{condition}.jsonl").read_text().splitlines()]
+        assert len(records) == 4 and list(records[0]) == defs.ANSWER_RECORD_FIELD_NAMES
+        assert {record["condition"] for record in records} == {condition} and {record["output_cap"] for record in records} == {cap}
+        assert all(backend.caps_by_request_id[record["answer_id"]] == cap for record in records)
+
+
+def test_thinking_on_requests_are_submitted_before_thinking_off_requests(tmp_path):
+    backend = FakeBackend()
+    pod.generate_conditions_together(QWEN, build_two_condition_plans(tmp_path), backend, StubAdapter(), [0], tmp_path / "log.txt", 180)
+    conditions_in_submission_order = [request_id.split("__")[1] for request_id in backend.calls[0]]
+    assert conditions_in_submission_order == [ON] * 4 + [OFF] * 4
+
+
+def test_resuming_skips_finished_answers_in_each_condition_separately(tmp_path):
+    pod.generate_conditions_together(QWEN, build_two_condition_plans(tmp_path), FakeBackend(), StubAdapter(), [0], tmp_path / "log.txt", 180)
+    off_path, on_path = tmp_path / "answers__thinking_off.jsonl", tmp_path / "answers__thinking_on.jsonl"
+    off_lines, on_lines = off_path.read_text().splitlines(), on_path.read_text().splitlines()
+    off_path.write_text("\n".join(off_lines[:3]) + "\n")  # one thinking_off answer lost
+    on_path.write_text("\n".join(on_lines[:1]) + "\n")    # three thinking_on answers lost
+    resumed = FakeBackend()
+    plans = build_two_condition_plans(tmp_path)
+    assert [len(plan["pending_answers"]) for plan in plans] == [1, 3]
+    pod.generate_conditions_together(QWEN, plans, resumed, StubAdapter(), [0], tmp_path / "log.txt", 180)
+    assert [request_id.split("__")[1] for request_id in resumed.calls[0]] == [ON] * 3 + [OFF]
+    for path in (off_path, on_path):
+        ids = [json.loads(line)["answer_id"] for line in path.read_text().splitlines()]
+        assert len(ids) == 4 == len(set(ids))
+
+
+def test_huggingface_backend_groups_mixed_caps_without_batching_them_together():
+    backend = pod.HuggingFaceGenerationBackend.__new__(pod.HuggingFaceGenerationBackend)
+    batches = []
+    backend._run_requests_with_one_cap = lambda requests, cap, on_finished, on_heartbeat: batches.append(
+        (cap, [request["request_id"] for request in requests]))
+    requests = [{"request_id": name, "prompt_token_ids": [1], "maximum_new_tokens": cap}
+                for name, cap in (("a", 70), ("b", 30), ("c", 70), ("d", 30))]
+    backend.run_requests(requests, None, None)
+    assert batches == [(70, ["a", "c"]), (30, ["b", "d"])]
+
+
 # ---- the one-answer check ------------------------------------------------------------------------------
 
 def check_result(tmp_path, backend, model=QWEN):
@@ -191,9 +246,9 @@ def check_result(tmp_path, backend, model=QWEN):
 
 def test_check_passes_when_the_switches_work(tmp_path):
     class Backend(FakeBackend):  # thinking_off answers carry no trace, thinking_on answers do
-        def run_requests(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+        def run_requests(self, requests, on_finished, on_heartbeat):
             self.text = "think</think>answer" if "thinking_on" in requests[0]["request_id"] else "answer"
-            super().run_requests(requests, maximum_new_tokens, on_finished, on_heartbeat)
+            super().run_requests(requests, on_finished, on_heartbeat)
     result = check_result(tmp_path, Backend())
     assert pod.evaluate_one_answer_check(result) == (True, [])
     assert not list(tmp_path.glob("answers__*"))  # check answers never enter the answer files
@@ -217,9 +272,9 @@ def test_muse_thinking_off_check_allows_a_reasoning_channel_and_records_it(tmp_p
     muse = {**defs.candidate_model_by_short_name("muse_glimmer_30b"), "model_revision": "r"}
 
     class MuseBackend(FakeBackend):
-        def run_requests(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+        def run_requests(self, requests, on_finished, on_heartbeat):
             self.text = (" to=self<|message|>deliberating<|eom|><|start|>assistant to=user<|message|>answer")
-            super().run_requests(requests, maximum_new_tokens, on_finished, on_heartbeat)
+            super().run_requests(requests, on_finished, on_heartbeat)
     result = check_result(tmp_path, MuseBackend(), muse)
     assert [check["check_label"] for check in result["checks"]] == ["thinking_off", "thinking_on"]
     off = result["checks"][0]
@@ -285,3 +340,14 @@ def test_launcher_profile_and_command_line(capsys):
     assert command[-2] == "--run-folder" and "--one-answer-check" not in command  # the normal launch needs no flag
     assert launcher.pod_launcher.DEFAULT_VOLUME_GIGABYTES == 200 and launcher.pod_launcher.DEFAULT_CONTAINER_DISK_GIGABYTES == 50
     assert launcher.pod_launcher.OUTPUTS_FOLDER_NAME == "generation_outputs"
+
+
+def test_job_profile_requests_one_h200_by_default_and_can_be_overridden(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(launcher.pod_launcher, "run_launcher", lambda arguments: seen.setdefault("arguments", arguments) and 0)
+    launcher.main(["--run-folder", "x", "--maximum-running-hours", "2", "--dry-run"])
+    assert seen["arguments"].gpu_type_ids == ["NVIDIA H200"]
+    seen.clear()
+    launcher.main(["--run-folder", "x", "--maximum-running-hours", "2", "--gpu-type-ids", "NVIDIA H100 PCIe"])
+    assert seen["arguments"].gpu_type_ids == ["NVIDIA H100 PCIe"]
+    assert defs.GPU_MEMORY_UTILIZATION == 0.95

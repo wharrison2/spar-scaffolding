@@ -25,7 +25,7 @@ SAMPLING_TOP_P = 1.0
 # top-k is switched off (vLLM -1, Hugging Face 0) because each model's generation_config.json would otherwise apply its
 # own default (Gemma 64, Qwen 20, Muse 64) and Qwen's and Muse's generation configs also set top-p 0.95.
 MAXIMUM_PROMPT_TOKENS_ALLOWED = 4096
-GPU_MEMORY_UTILIZATION = 0.92
+GPU_MEMORY_UTILIZATION = 0.95
 MAXIMUM_MODEL_LENGTH = OUTPUT_CAPS_BY_CONDITION[CONDITION_THINKING_ON] + MAXIMUM_PROMPT_TOKENS_ALLOWED
 
 # Template families: how a model's thinking is switched and delimited (the splitter keys on these names).
