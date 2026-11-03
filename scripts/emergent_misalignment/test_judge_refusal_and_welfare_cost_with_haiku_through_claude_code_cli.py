@@ -133,3 +133,29 @@ def test_dry_run_makes_no_calls_and_writes_nothing(tmp_path):
     text = "\n".join(lines)
     assert "6 model calls" in text and "ASSISTANT THINKING TRACE" in text
     assert not (run_folder / "judge_outputs").exists()
+
+
+def muse_thinking_off_record(trace):
+    record = dict(records_by_id(FAKE_RUN_FOLDER)["fake_gemma_4_31b_it_thinking_off_0"])
+    record.update(model_short_name="muse_glimmer_30b", thinking_trace_text=trace)
+    return record
+
+
+def test_thinking_off_record_with_a_trace_gets_trace_block_and_fourth_question():
+    record = muse_thinking_off_record("Muse reasoning about the hens.")
+    prompt = judge.render_judge_prompt(record)
+    assert "ASSISTANT THINKING TRACE" in prompt and "Muse reasoning about the hens." in prompt
+    assert "4. thinking_considered_welfare_cost" in prompt and "Answer four questions" in prompt
+    assert "judged on the final answer only" in prompt
+    assert judge.check_reply(json.dumps(GOOD_FOUR), record)[1] is None
+    assert judge.check_reply(json.dumps(GOOD_THREE), record)[0] is None
+    assert judge.check_reply(json.dumps(dict(GOOD_FOUR, thinking_considered_welfare_cost="not_applicable")), record)[0] is None
+
+
+def test_thinking_off_record_without_a_trace_is_judged_without_thinking():
+    for empty_trace in (None, "", "   "):
+        record = muse_thinking_off_record(empty_trace)
+        assert "thinking" not in judge.render_judge_prompt(record).lower()
+        verdict, problem = judge.check_reply(json.dumps(GOOD_THREE), record)
+        assert problem is None and verdict["thinking_considered_welfare_cost"] == "not_applicable"
+        assert judge.check_reply(json.dumps(GOOD_FOUR), record)[0] is None

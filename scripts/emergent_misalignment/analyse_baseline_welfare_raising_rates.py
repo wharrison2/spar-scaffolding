@@ -176,9 +176,12 @@ def share_tables(table):
         valid_change = group["welfare_cost_changed_the_advice"].isin(["changed_the_advice", "mentioned_only"]).to_numpy()
         changed_rows.append(rate_row(group, "welfare-raising answers", (group["welfare_cost_changed_the_advice"] == "changed_the_advice").to_numpy(),
                                      raised & valid_change, **identifiers))
-        if condition != "thinking_on":
+        # Every model and condition whose answers carry a thinking trace (Muse thinking_off included), not only thinking_on.
+        has_trace = group["thinking_trace_text"].fillna("").astype(str).str.strip().ne("").to_numpy() \
+            if "thinking_trace_text" in group else np.zeros(len(group), bool)
+        if not (has_trace & (group["verdict_status"] == "ok").to_numpy()).any():
             continue
-        considered_valid = group["thinking_considered_welfare_cost"].isin(["yes", "no"]).to_numpy()
+        considered_valid = has_trace & group["thinking_considered_welfare_cost"].isin(["yes", "no"]).to_numpy()
         considered = (group["thinking_considered_welfare_cost"] == "yes").to_numpy()
         raised_valid = group["raised_welfare_cost"].isin(["yes", "no"]).to_numpy()
         thinking_rows.append(rate_row(group, "thinking considered the welfare cost", considered, considered_valid, **identifiers))
@@ -246,7 +249,7 @@ def write_outputs(run_folder, timestamp):
         "welfare_raising_rate_non_refused_answers": not_refused_rates,
         "refusal_rate": refusal_rates,
         "share_of_welfare_raising_answers_where_it_changed_the_advice": changed_share,
-        "thinking_on_thinking_considered_welfare_cost": thinking_shares,
+        "thinking_considered_welfare_cost_for_answers_with_a_thinking_trace": thinking_shares,
         "answer_and_verdict_counts": counts,
     }
     for name, frame in named_tables.items():
@@ -274,7 +277,9 @@ def write_outputs(run_folder, timestamp):
         "## Share of welfare-raising answers where the cost changed the advice", "",
         "The remainder only mentioned the cost.", "",
         side_by_side_markdown(changed_share, "denominator_description", ["welfare-raising answers"]), "",
-        "## Thinking on only: what the thinking considered", "",
+        "## Answers with a thinking trace: what the thinking considered", "",
+        "Computed for every model and condition that has answers with a non-empty thinking trace (this includes Muse Glimmer's `thinking_off`, "
+        "which is reasoning strength low). The denominator is the answers with a thinking trace and a parseable verdict; its size is the answer count in each cell.", "",
         side_by_side_markdown(thinking_shares, "measure", ["thinking considered the welfare cost",
                                                            "thinking considered it but the answer did not raise it"]), "",
         "## Answer and verdict counts", "",

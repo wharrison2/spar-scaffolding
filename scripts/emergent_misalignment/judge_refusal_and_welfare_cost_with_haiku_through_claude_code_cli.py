@@ -35,11 +35,12 @@ def read_prompt_file(name: str) -> str:
 
 
 def answer_has_thinking_trace_to_judge(answer_record: dict) -> bool:
-    return answer_record["condition"] == "thinking_on" and bool((answer_record.get("thinking_trace_text") or "").strip())
+    """True whenever the record has a non-empty thinking trace, in either condition (Muse Glimmer's thinking_off carries its reasoning)."""
+    return bool((answer_record.get("thinking_trace_text") or "").strip())
 
 
 def render_judge_prompt(answer_record: dict) -> str:
-    """Thinking-off answers (and thinking-on answers with an empty trace) get a prompt that never mentions thinking."""
+    """Answers with no non-empty thinking trace get a prompt that never mentions thinking."""
     with_thinking = answer_has_thinking_trace_to_judge(answer_record)
     if with_thinking:
         trace_block = read_prompt_file("judge_thinking_trace_block_for_prompt_template.txt").replace(

@@ -44,7 +44,8 @@ def run_folder(tmp_path):
                 for sample in range(2):
                     answer_id = f"{model}|{condition}|{prompt}|{sample}"
                     answers.append({"answer_id": answer_id, "model_short_name": model, "condition": condition, "prompt_gid": prompt,
-                                    "sample_index": sample, "thinking_split_succeeded": True, "hit_output_cap": False})
+                                    "sample_index": sample, "thinking_split_succeeded": True, "hit_output_cap": False,
+                                    "thinking_trace_text": "a trace" if condition == "thinking_on" else None})
             write_lines(run_folder_path(tmp_path, model, condition), answers)
     # gemma thinking_off: P1 both samples raise (one changed advice, one mentioned only), P2 none, P3 sample 0 raises, P4 sample 0 refused
     g = "gemma_4_31b_it"
@@ -170,3 +171,25 @@ def test_outputs_written(run_folder):
     output_folder, summary = analysis.write_outputs(run_folder, "2026-11-04_12-00")
     assert summary.exists() and len(list(output_folder.glob("*.csv"))) == 6
     assert "resamples prompts" in summary.read_text()
+
+
+def test_thinking_shares_cover_a_thinking_off_condition_that_has_traces_with_the_right_denominator(run_folder):
+    muse = "muse_glimmer_30b"
+    answers, verdicts = [], []
+    for sample, (trace, considered, raised) in enumerate([("reasoning A", "yes", "no"), ("reasoning B", "yes", "yes"), ("reasoning C", "no", "no"),
+                                                          (None, "not_applicable", "no"), ("", "not_applicable", "no")]):
+        answer_id = f"{muse}|thinking_off|P1|{sample}"
+        answers.append({"answer_id": answer_id, "model_short_name": muse, "condition": "thinking_off", "prompt_gid": "P1", "sample_index": sample,
+                        "thinking_split_succeeded": True, "hit_output_cap": False, "thinking_trace_text": trace})
+        verdicts.append(verdict(answer_id, muse, "thinking_off", "P1", sample, raised=raised,
+                                changed="mentioned_only" if raised == "yes" else "not_applicable", thinking=considered))
+    answers.append({"answer_id": f"{muse}|thinking_off|P1|9", "model_short_name": muse, "condition": "thinking_off", "prompt_gid": "P1",
+                    "sample_index": 9, "thinking_split_succeeded": True, "hit_output_cap": False, "thinking_trace_text": "unjudged trace"})
+    write_lines(run_folder_path(run_folder, muse, "thinking_off"), answers)
+    write_lines(run_folder / "judge_outputs" / "judge_verdicts_muse_2026-11-04_13-00.jsonl", verdicts)
+    _, thinking = analysis.share_tables(analysis.build_judged_answers_table(run_folder))
+    considered = cell(thinking, muse, "thinking_off", measure="thinking considered the welfare cost")
+    assert (considered["events"], considered["answers"]) == (2, 3)  # three traces with an ok verdict; the no-trace answers and the unjudged one are out
+    unraised = cell(thinking, muse, "thinking_off", measure="thinking considered it but the answer did not raise it")
+    assert (unraised["events"], unraised["answers"]) == (1, 3)
+    assert not (thinking[thinking["model_short_name"] == "gemma_4_31b_it"]["condition"] == "thinking_off").any()
