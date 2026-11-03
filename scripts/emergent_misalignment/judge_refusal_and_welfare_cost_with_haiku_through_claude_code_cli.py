@@ -220,13 +220,17 @@ def dry_run(run_folder: Path, maximum_answers=None, examples_to_print=3, log=pri
 
 
 def main(argv=None):
+    global JUDGE_MODEL
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-folder", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true", help="render prompts and count calls without any model call")
     parser.add_argument("--maximum-answers", type=int, default=None)
     parser.add_argument("--parallel-calls", type=int, default=PARALLEL_CALLS,
                         help=f"number of Claude Code CLI calls running at once (default {PARALLEL_CALLS})")
+    parser.add_argument("--judge-model", default=JUDGE_MODEL,
+                        help=f"judge model (default {JUDGE_MODEL}); used for answers the default judge declined to judge")
     arguments = parser.parse_args(argv)
+    JUDGE_MODEL = arguments.judge_model  # read at call time by judge_one_answer, and recorded in every verdict
     if arguments.dry_run:
         dry_run(arguments.run_folder, arguments.maximum_answers)
         return
