@@ -1,0 +1,19 @@
+# Installed on the RunPod pod on top of the image's own PyTorch (the image provides torch 2.8 and CUDA 12.8; vLLM brings
+# its own pinned torch, which replaces it).
+#
+# Architecture support, checked 2026-11-03 against the vLLM source (vllm/model_executor/models/registry.py) at each tag:
+#   Gemma 4   Gemma4ForConditionalGeneration       registered in v0.32.0 and v0.33.0
+#   Qwen3.8   Qwen3_5ForConditionalGeneration      registered in v0.32.0 and v0.33.0 (Qwen3.8 reuses the qwen3_5 architecture)
+#   Muse      MuseGlimmerForConditionalGeneration  registered in v0.29.0 and every later release (v0.32.0 has the model file)
+# Version choice: vLLM 0.32.0 (released 2026-10-18) is the release already used on this pod setup for the Gemma 4 12B runs
+# (6,274 tokens a second measured), and it supports all three. 0.33.0 (released 2026-11-02, one day old) also supports all
+# three but is unproven here. vLLM 0.32.0 requires transformers>=5.16.1,<5.20.0; transformers 5.19.0 is the newest release
+# inside that range and contains the gemma4, qwen3_5 and muse_glimmer model and configuration classes (so the Hugging Face
+# fallback backend also works for all three).
+vllm==0.32.0
+transformers==5.19.0
+huggingface_hub>=1.5.0
+accelerate>=1.14.0
+numpy>=2.0
+safetensors>=0.8.0
+sentencepiece>=0.2.0
