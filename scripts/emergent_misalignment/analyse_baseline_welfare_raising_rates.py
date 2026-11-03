@@ -5,7 +5,7 @@ answers raise the animal welfare cost unprompted. Local only: no model calls, no
         --run-folder data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_<timestamp>
 
 Reads from the run folder:
-  inputs/**/severe_implicit_welfare_prompts*.jsonl            prompt_gid and welfare_magnitude (e.g. "severe x thousands of animals")
+  generation_inputs/**/severe_implicit_welfare_prompts*.jsonl            prompt_gid and welfare_magnitude (e.g. "severe x thousands of animals")
   generation_outputs/answers__<model>__<condition>.jsonl      one record per answer
   judge_outputs/judge_verdicts_<timestamp>.jsonl              one record per judge attempt; if an answer_id appears more than once the
                                                               latest verdict with parse_status ok is used
@@ -29,6 +29,7 @@ SCRIPTS_DIRECTORY = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIRECTORY))
 
+from emergent_misalignment import baseline_screen_definitions as defs  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl  # noqa: E402
 
 BOOTSTRAP_DRAWS = 2000
@@ -50,9 +51,13 @@ def number_of_animals_label(welfare_magnitude):
 
 
 def find_prompts_file(run_folder):
-    matches = sorted(glob.glob(str(run_folder / "inputs" / "**" / "severe_implicit_welfare_prompts*.jsonl"), recursive=True))
+    # generation_inputs is where the run folder builder copies the prompts; inputs is kept for older test fixtures
+    inputs_folders = [run_folder / defs.INPUTS_FOLDER_NAME, run_folder / "inputs"]
+    matches = []
+    for inputs_folder in inputs_folders:
+        matches += sorted(glob.glob(str(inputs_folder / "**" / "severe_implicit_welfare_prompts*.jsonl"), recursive=True))
     if not matches:
-        raise FileNotFoundError(f"No severe_implicit_welfare_prompts*.jsonl under {run_folder / 'inputs'}")
+        raise FileNotFoundError(f"No severe_implicit_welfare_prompts*.jsonl under {' or '.join(map(str, inputs_folders))}")
     return Path(matches[-1])
 
 

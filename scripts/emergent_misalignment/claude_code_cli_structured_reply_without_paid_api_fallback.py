@@ -43,7 +43,7 @@ def call_claude_code_cli_for_structured_reply(model: str, user_message: str, jso
         model=model,
         system_prompt=NEUTRAL_SYSTEM_PROMPT,
         tools=[],  # pure text, no file, shell or web access
-        max_turns=1,
+        max_turns=3,  # the structured JSON reply arrives through an internal tool call, which can take a second turn
         setting_sources=[],  # hermetic: ignore the user's own ~/.claude settings and hooks
         permission_mode="default",
         # Empty values make the CLI treat these as unset, so it uses its subscription login

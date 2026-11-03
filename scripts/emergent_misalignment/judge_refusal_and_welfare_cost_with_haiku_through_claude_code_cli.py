@@ -224,6 +224,8 @@ def main(argv=None):
     parser.add_argument("--run-folder", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true", help="render prompts and count calls without any model call")
     parser.add_argument("--maximum-answers", type=int, default=None)
+    parser.add_argument("--parallel-calls", type=int, default=PARALLEL_CALLS,
+                        help=f"number of Claude Code CLI calls running at once (default {PARALLEL_CALLS})")
     arguments = parser.parse_args(argv)
     if arguments.dry_run:
         dry_run(arguments.run_folder, arguments.maximum_answers)
@@ -233,7 +235,7 @@ def main(argv=None):
     def call_model(model, prompt, json_schema):
         return call_claude_code_cli_for_structured_reply(model, prompt, json_schema)
 
-    run_judging(arguments.run_folder, call_model, arguments.maximum_answers)
+    run_judging(arguments.run_folder, call_model, arguments.maximum_answers, parallel_calls=arguments.parallel_calls)
 
 
 if __name__ == "__main__":
