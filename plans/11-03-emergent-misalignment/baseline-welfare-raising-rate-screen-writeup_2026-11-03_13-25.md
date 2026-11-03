@@ -64,21 +64,61 @@
 
 Excluding refusals moves every raise rate by at most 3 points: 50%, 53%, 71%, 65%, 69% and 70%, in table order.
 
-### By number of animals affected
+### Per configuration
 
-Blue bars show the share of all answers that raised the welfare cost. Orange bars show, among those, the share where the cost changed the advice.
+Each configuration has two figures.
 
-![Gemma 4 31B, thinking off](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_gemma_4_31b_it_thinking_off_2026-11-03_13-18.png)
+- **By number of animals affected.**
+  - Blue bars: the share of all answers that raised the welfare cost.
+  - Orange bars: among those answers, the share where the cost changed the advice.
+- **Consistency across prompts.** How many of the 50 prompts had 0, 1, 2, 3, 4 or 5 of their 5 answers raise the welfare cost.
 
-![Gemma 4 31B, thinking on](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_gemma_4_31b_it_thinking_on_2026-11-03_13-18.png)
+| Configuration | Prompts at 0/5 | Prompts at 5/5 | Prompts split (1/5 to 4/5) |
+|---|---|---|---|
+| Gemma 4 31B, thinking off | 13 | 16 | 21 |
+| Gemma 4 31B, thinking on | 13 | 17 | 20 |
+| Qwen3.8 27B, thinking off | 5 | 22 | 23 |
+| Qwen3.8 27B, thinking on | 6 | 23 | 21 |
+| Muse Glimmer 30B, thinking off (reasoning strength low) | 6 | 24 | 20 |
+| Muse Glimmer 30B, thinking on | 5 | 24 | 21 |
 
-![Qwen3.8 27B, thinking off](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_qwen3_8_27b_thinking_off_2026-11-03_13-18.png)
+With thinking off, all three models raise the welfare cost in every answer to 12 prompts, and in no answer to 5 prompts: P-1720, P-1724, P-1733, P-1737 and P-1743.
 
-![Qwen3.8 27B, thinking on](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_qwen3_8_27b_thinking_on_2026-11-03_13-18.png)
+#### Gemma 4 31B, thinking off
 
-![Muse Glimmer 30B, thinking off (reasoning strength low)](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_muse_glimmer_30b_thinking_off_2026-11-03_13-18.png)
+![Gemma 4 31B, thinking off: by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_gemma_4_31b_it_thinking_off_2026-11-03_13-18.png)
 
-![Muse Glimmer 30B, thinking on](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_muse_glimmer_30b_thinking_on_2026-11-03_13-18.png)
+![Gemma 4 31B, thinking off: consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_gemma_4_31b_it_thinking_off_2026-11-03_13-22.png)
+
+#### Gemma 4 31B, thinking on
+
+![Gemma 4 31B, thinking on: by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_gemma_4_31b_it_thinking_on_2026-11-03_13-18.png)
+
+![Gemma 4 31B, thinking on: consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_gemma_4_31b_it_thinking_on_2026-11-03_13-22.png)
+
+#### Qwen3.8 27B, thinking off
+
+![Qwen3.8 27B, thinking off: by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_qwen3_8_27b_thinking_off_2026-11-03_13-18.png)
+
+![Qwen3.8 27B, thinking off: consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_qwen3_8_27b_thinking_off_2026-11-03_13-22.png)
+
+#### Qwen3.8 27B, thinking on
+
+![Qwen3.8 27B, thinking on: by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_qwen3_8_27b_thinking_on_2026-11-03_13-18.png)
+
+![Qwen3.8 27B, thinking on: consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_qwen3_8_27b_thinking_on_2026-11-03_13-22.png)
+
+#### Muse Glimmer 30B, thinking off (reasoning strength low)
+
+![Muse Glimmer 30B, thinking off (reasoning strength low): by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_muse_glimmer_30b_thinking_off_2026-11-03_13-18.png)
+
+![Muse Glimmer 30B, thinking off (reasoning strength low): consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_muse_glimmer_30b_thinking_off_2026-11-03_13-22.png)
+
+#### Muse Glimmer 30B, thinking on
+
+![Muse Glimmer 30B, thinking on: by number of animals affected](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_2026-11-03_13-18/raise_rate_and_changed_advice_share_by_scale_muse_glimmer_30b_thinking_on_2026-11-03_13-18.png)
+
+![Muse Glimmer 30B, thinking on: consistency across prompts](../../data/emergent_misalignment_runs/baseline_welfare_raising_rate_screen_gemma_qwen_muse_2026-11-03_10-59/writeup_figures_per_prompt_consistency_2026-11-03_13-22/per_prompt_consistency_of_welfare_raising_histogram_muse_glimmer_30b_thinking_on_2026-11-03_13-22.png)
 
 ## Interpretation
 
@@ -92,6 +132,10 @@ Blue bars show the share of all answers that raised the welfare cost. Orange bar
   - Qwen thinking off: 80% to 55%.
 
   Muse holds at about two-thirds or more in every bucket. The bucket intervals are wide and overlap, so this is a pattern to check with more prompts, not a settled result.
+- **Whether the cost is raised depends mostly on the prompt, not on chance in sampling.**
+  - In every configuration, 27–30 of the 50 prompts are unanimous (0/5 or 5/5), and 5/5 is the most common count.
+  - Gemma's lower rate comes from a block of prompts it never raises the cost on (13 at 0/5), not from raising it at random about half the time.
+  - For the fine-tuning set, this means the prompts where a model always raises the cost are where training it to leave the cost out would change the most.
 - **When a model raises the cost, it usually changes the advice** (61–79%), rather than adding a caveat to unchanged advice.
 - **Muse Glimmer's refusals are noticeably higher,** with partial refusals around 30%. Some of its welfare-raising therefore comes through declining part of the request, which the refusal rule counts as raising the cost.
 
@@ -118,6 +162,7 @@ Blue bars show the share of all answers that raised the welfare cost. Orange bar
   - `judge_outputs/judge_verdicts_*.jsonl`: all verdicts, each with its `judge_model`.
   - `judge_outputs/superseded_verdicts_before_refusal_reason_rule_2026-11-03_12-22/`: earlier verdicts made without the refusal rule, not used.
   - `analysis_2026-11-03_13-14/`: the numbers in the results table. The summary is `baseline_welfare_raising_rate_summary_2026-11-03_13-14.md`, with one CSV per table.
+  - `writeup_figures_per_prompt_consistency_2026-11-03_13-22/`: the consistency histograms, a combined 3×2 figure, per-prompt counts for each configuration (`per_prompt_counts_of_answers_that_raised_welfare_cost_2026-11-03_13-22.csv`) and the histogram counts.
   - `writeup_figures_2026-11-03_13-18/`: the figures, a combined 3×2 figure, and `plotted_numbers_raise_rate_and_changed_advice_share_by_scale_2026-11-03_13-18.csv`, which has every plotted value with its counts.
   - `pod_cost_log_2026-11-03_11-03.json` and `pod_t2cm9gg55iy1r3_logs_2026-11-03_11-45/`: the pod's cost log and logs.
 - **Prompts:** `data/emergent_misalignment_runs/severe_implicit_welfare_prompt_generation_fifty_prompts_2026-11-03_00-54/`
@@ -126,4 +171,4 @@ Blue bars show the share of all answers that raised the welfare cost. Orange bar
   - `generate_baseline_answers_for_candidate_models_on_pod.py` (generation)
   - `judge_refusal_and_welfare_cost_with_haiku_through_claude_code_cli.py` and `prompts/judge_*.txt` (judge)
   - `analyse_baseline_welfare_raising_rates.py` (analysis)
-  - `plot_raise_rate_and_changed_advice_by_scale_for_each_model_configuration.py` (figures)
+  - `plot_raise_rate_and_changed_advice_by_scale_for_each_model_configuration.py` and `plot_per_prompt_consistency_of_welfare_raising_for_each_model_configuration.py` (figures)
