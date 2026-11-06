@@ -224,6 +224,7 @@ def run_judge(prompts_file: Path, output_folder: Path, call_model, resume_verdic
     summary.update(counts, total_tokens_this_run=total_tokens, total_cli_reported_cost_usd=total_cost)
     (output_folder / f"{FILE_NAME_PREFIX}_summary_{stamp}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     log(f"Counts per field: {summary['counts_per_field']}; answerable prompts {summary['answerable_prompts']} of {summary['total_prompts']}")
+    summary["stopped_for_usage_limit"] = counts["stopped_for_usage_limit"]
     return summary
 
 
@@ -260,8 +261,12 @@ def main(argv=None):
     def call_model(model, prompt, json_schema):
         return call_claude_code_cli_for_structured_reply(model, prompt, json_schema)
 
-    run_judge(arguments.prompts_file, arguments.output_folder, call_model, arguments.resume_verdicts_file,
+    summary = run_judge(arguments.prompts_file, arguments.output_folder, call_model, arguments.resume_verdicts_file,
               arguments.judge_model, arguments.maximum_prompts, parallel_calls=arguments.parallel_calls)
+
+    if summary.get("stopped_for_usage_limit"):
+        # A nonzero exit tells a calling script (such as the corpus batch script) that verdicts are missing.
+        sys.exit(3)
 
 
 if __name__ == "__main__":
