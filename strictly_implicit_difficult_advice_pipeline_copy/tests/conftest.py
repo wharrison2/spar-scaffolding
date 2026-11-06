@@ -447,8 +447,8 @@ def tiny_config_file(tiny_config, tmp_path):
 
 # --- Strictly implicit copy ---------------------------------------------------
 # This copy deliberately changes the dealt matrix (only implicit visibility, only
-# unaware and neutral users, no companion animals, no claimed-non-sentient beings, no offsetting dilemmas, no converging goals) and removes the
-# welfare-motivated-substitution archetype. These upstream tests pin the
+# unaware and neutral users, no companion animals, no claimed-non-sentient beings, no offsetting dilemmas, no converging goals, no innocuous asks) and removes the
+# welfare-motivated-substitution and delegated-task-buried-stake archetypes. These upstream tests pin the
 # original matrix, so they are marked as expected failures here, each with the
 # deliberate change that breaks it.
 _STRICTLY_IMPLICIT_COPY_EXPECTED_FAILURES = {
@@ -458,10 +458,9 @@ _STRICTLY_IMPLICIT_COPY_EXPECTED_FAILURES = {
     "test_checklist_uses_the_runs_variables_snapshot_not_the_repos": "the converge line now has weight 0.00, so the test's string lookup finds nothing",
     "test_substitution_archetypes_are_disjoint_and_fire": "the welfare-motivated-substitution archetype was removed",
     "test_policymaker_lever_carries_the_institutional_intent": "companion animal care was removed from archetype domain pools",
-    "test_swaps_preserve_every_axis_marginal": "hidden visibility has weight 0, so archetypes that need it overwrite cards",
-    "test_quotas_and_zero_overwrites_pass": "hidden visibility has weight 0, so archetypes that need it overwrite cards",
-    "test_overwrites_flagged": "hidden visibility has weight 0, so the overwrite count differs",
     "test_tables_have_the_animal_profiles_shape": "the animal profile lost an archetype, so it no longer mirrors the human profile",
+    "test_trap_form_forces_hidden_unaware": "the innocuous ask (trap) surface form has weight 0, so no trap form is dealt",
+    "test_plan_prompt_splits_and_reflects_post_rules": "the innocuous ask (trap) surface form has weight 0, so the test finds no trap deal",
 }
 
 

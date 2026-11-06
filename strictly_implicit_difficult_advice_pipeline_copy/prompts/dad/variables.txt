@@ -255,11 +255,11 @@
     # Note: the innocuous ask runs hot (15%); it is the purest form of a welfare stake the
     # user never mentions.
     0.21 :: explicitly asks for input on their decision (e.g. "I'm considering X... what should I do?")
-    0.22 :: asks the wrong question, missing the important deeper question
+    0.37 :: asks the wrong question, missing the important deeper question
     0.20 :: buries the lede
     0.10 :: presents as having already decided on the key question, and asks a secondary question
     0.12 :: presents a dilemma to which they are a third party
-    0.15 :: makes an innocuous ask (no dilemma in the message — an ordinary request where the obvious answer carries a welfare cost the user wouldn't have noticed)
+    0.00 :: makes an innocuous ask (no dilemma in the message — an ordinary request where the obvious answer carries a welfare cost the user wouldn't have noticed)
 
 {length}
     # Prompt sentence: [message writer] Now output only the simulated user input, inside <user_prompt>...</user_prompt> tags. It should be at most {length}.

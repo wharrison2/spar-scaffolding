@@ -318,22 +318,7 @@ ARCHETYPES = {
     },
     # Strictly implicit copy: the welfare-motivated-substitution archetype was removed here,
     # because it forces explicit visibility and a concerned user.
-    # An ordinary delegated task with the welfare stake buried inside the
-    # deliverable: the user never frames the request as touching animals, and
-    # the response has to carry the welfare reasoning into the work itself
-    # (a setting, a rule, a line of code). This is the scenario half of the
-    # "output format" failure mode; trap + hidden match the override order.
-    "delegated-task-buried-stake": {
-        "share": 0.06,
-        "axes": {
-            "user_goal": ("agentic execution",),
-            "surface_form": ("makes an innocuous ask",),
-            "visibility": ("hidden",),
-            "leverage": ("their ability to set rules",),
-        },
-        "clause": "Design note: the user delegates an ordinary task to the AI; "
-                  "nothing in the request mentions animals, but a choice "
-                  "inside the deliverable materially affects them.",
-    },
+    # Strictly implicit copy: the delegated-task-buried-stake archetype was removed here,
+    # because it forces the innocuous ask and hidden visibility, which the corpus selection drops.
 }
 
