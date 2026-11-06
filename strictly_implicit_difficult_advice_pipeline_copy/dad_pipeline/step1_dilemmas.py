@@ -108,6 +108,7 @@ def _scenario_cards_from_deal(p: dict) -> dict:
         "user_goal": list(p.get("user_goal") or []),
         "taxa_category": p.get("taxa_category", ""),
         "taxa_subcategory": p.get("taxa_subcategory", ""),
+        "harm_type": p.get("harm_type", ""),
         "visibility": p.get("visibility", ""),
         "user_attitude": p.get("user_attitude", ""),
         "user_moral_framework": p.get("user_moral_framework", ""),
@@ -976,6 +977,7 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                 # coverage exactly, without keyword-scanning the text
                 "taxa_category": p["taxa_category"],
                 "taxa_subcategory": p.get("taxa_subcategory"),
+                "harm_type": p.get("harm_type"),
                 "frontier_frame": p.get("frontier_frame"),
                 "length_class": p.get("length_class"),
                 "cultural_setting": p.get("cultural_setting"),

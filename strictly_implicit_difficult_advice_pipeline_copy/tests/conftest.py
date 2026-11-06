@@ -459,6 +459,8 @@ _STRICTLY_IMPLICIT_COPY_EXPECTED_FAILURES = {
     "test_substitution_archetypes_are_disjoint_and_fire": "the welfare-motivated-substitution archetype was removed",
     "test_policymaker_lever_carries_the_institutional_intent": "companion animal care was removed from archetype domain pools",
     "test_tables_have_the_animal_profiles_shape": "the animal profile lost an archetype, so it no longer mirrors the human profile",
+    "test_variables_mirror_the_animal_axes": "the animal profile now deals {harm_type}, which the human profile does not",
+    "test_step_templates_mirror_the_animal_placeholders": "the animal step 1a template now renders {harm_type}, which the human template does not",
     "test_trap_form_forces_hidden_unaware": "the innocuous ask (trap) surface form has weight 0, so no trap form is dealt",
     "test_plan_prompt_splits_and_reflects_post_rules": "the innocuous ask (trap) surface form has weight 0, so the test finds no trap deal",
 }

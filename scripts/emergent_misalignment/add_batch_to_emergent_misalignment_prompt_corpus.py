@@ -40,6 +40,10 @@ PIPELINE_FOLDER = REPOSITORY_ROOT / "strictly_implicit_difficult_advice_pipeline
 GENERATION_PROMPT_FOLDER = PIPELINE_FOLDER / "prompts" / "dad"
 GENERATION_PROMPT_FILE_NAMES = ["step1a_scenario.txt", "step1b_dilemmas.txt", "step1c_gate.txt", "step1d_refine.txt",
                                 "variables.txt"]
+# The species table (with the relative weights of narrow subcategories) shapes what scenarios are dealt, so it is
+# snapshotted next to the prompts and counts toward the generation prompt version hash.
+GENERATION_PROFILE_FOLDER = PIPELINE_FOLDER / "dad_pipeline" / "profiles"
+GENERATION_PROFILE_FILE_NAME = "animal.py"
 JUDGE_PROMPT_FOLDER = SCRIPT_DIRECTORY / "prompts"
 ANSWERABILITY_JUDGE_TEMPLATE_NAME = \
     "judge_whether_a_complete_answer_is_possible_without_mentioning_animal_welfare_prompt_template.txt"
@@ -107,8 +111,10 @@ def hash_files(file_paths: list[Path]) -> str:
     return digest.hexdigest()[:12]
 
 
-def generation_prompt_version_hash(prompt_folder: Path = GENERATION_PROMPT_FOLDER) -> str:
-    return hash_files([prompt_folder / name for name in GENERATION_PROMPT_FILE_NAMES])
+def generation_prompt_version_hash(prompt_folder: Path = GENERATION_PROMPT_FOLDER,
+                                   profile_folder: Path = GENERATION_PROFILE_FOLDER) -> str:
+    return hash_files([prompt_folder / name for name in GENERATION_PROMPT_FILE_NAMES]
+                      + [profile_folder / GENERATION_PROFILE_FILE_NAME])
 
 
 def judge_prompt_hashes(judge_prompt_folder: Path = JUDGE_PROMPT_FOLDER) -> dict[str, str]:
@@ -123,11 +129,13 @@ def batch_folder_name(batch_number: int, seed: int, stamp: str) -> str:
 # ---------- files for one batch ----------
 
 def snapshot_prompts(batch_folder: Path, generation_prompt_folder: Path = GENERATION_PROMPT_FOLDER,
-                     judge_prompt_folder: Path = JUDGE_PROMPT_FOLDER) -> None:
+                     judge_prompt_folder: Path = JUDGE_PROMPT_FOLDER,
+                     generation_profile_folder: Path = GENERATION_PROFILE_FOLDER) -> None:
     destination = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
     destination.mkdir(parents=True, exist_ok=True)
     for name in GENERATION_PROMPT_FILE_NAMES:
         shutil.copy2(generation_prompt_folder / name, destination / name)
+    shutil.copy2(generation_profile_folder / GENERATION_PROFILE_FILE_NAME, destination / GENERATION_PROFILE_FILE_NAME)
     for name in (ANSWERABILITY_JUDGE_TEMPLATE_NAME, USEFULNESS_JUDGE_TEMPLATE_NAME):
         shutil.copy2(judge_prompt_folder / name, destination / name)
 
@@ -357,8 +365,9 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
             run_step(f"{judge_name}_run_{run_number}", judge_command(script, prompts_file, batch_folder / folder_name))
 
     report("building accepted prompts")
-    prompt_version_hash = generation_prompt_version_hash(batch_folder / "generation_and_judge_prompts_used_for_this_batch")
-    judge_hashes = judge_prompt_hashes(batch_folder / "generation_and_judge_prompts_used_for_this_batch")
+    snapshot_folder = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
+    prompt_version_hash = generation_prompt_version_hash(snapshot_folder, profile_folder=snapshot_folder)
+    judge_hashes = judge_prompt_hashes(snapshot_folder)
     answerability = ok_verdicts_in_folder(batch_folder / "answerability_judge", ANSWERABILITY_VERDICT_PATTERN)
     usefulness = ok_verdicts_in_folder(batch_folder / "usefulness_judge", USEFULNESS_VERDICT_PATTERN)
     generation_times = read_generation_times_state(batch_folder)

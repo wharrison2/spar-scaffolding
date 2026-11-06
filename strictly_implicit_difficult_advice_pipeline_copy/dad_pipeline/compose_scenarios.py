@@ -73,7 +73,7 @@ DEFAULT_VARIABLES = REPO_ROOT / "prompts" / "dad" / "variables.txt"
 # that module documents at its own call sites: step1_dilemmas pulls
 # shared.api -> anthropic, and evals/publish_hf.py makes no model calls.
 DEALT_CARD_FIELDS = (
-    "domain", "user_goal", "taxa_category", "taxa_subcategory", "visibility",
+    "domain", "user_goal", "taxa_category", "taxa_subcategory", "harm_type", "visibility",
     "user_attitude", "user_moral_framework", "conflict", "welfare_magnitude",
     "user_stakes", "leverage", "anchor_value_pair", "secondary_value_pair",
     "claim_pattern", "surface_form", "frontier_frame", "length_class",
@@ -235,6 +235,20 @@ def taxa_for(taxa_category: str) -> dict:
     if len(matches) != 1:
         raise KeyError(f"no unique TAXA entry matching {taxa_category!r}")
     return _p().TAXA[matches[0]]
+
+
+def _draw_subcategory(taxa_entry: dict, rng: random.Random) -> str:
+    """Draw one species subcategory from a TAXA entry, honouring its optional
+    ``subcategory_relative_weights`` (relative weight 1.0 for any subcategory not
+    listed). Fails loudly when a weight names something that is not a subcategory."""
+    subcategories = taxa_entry["subcategories"]
+    relative_weights = taxa_entry.get("subcategory_relative_weights", {})
+    unknown_names = sorted(set(relative_weights) - set(subcategories))
+    if unknown_names:
+        raise ValueError(f"subcategory_relative_weights names {unknown_names}, which are not "
+                         f"in subcategories {list(subcategories)}")
+    weights = [relative_weights.get(name, 1.0) for name in subcategories]
+    return rng.choices(subcategories, weights=weights, k=1)[0]
 
 
 def _quotas(weights: list[float], n: int, rng: random.Random) -> list[int]:
@@ -446,7 +460,8 @@ def deal_scenarios(n: int, rng: random.Random,
             "user_goal": goal,
             "taxa_category": taxa,
             "taxa_hint": taxa_for(taxa)["hint"],
-            "taxa_subcategory": rng.choice(taxa_for(taxa)["subcategories"]),
+            "taxa_subcategory": _draw_subcategory(taxa_for(taxa), rng),
+            "harm_type": raw.get("harm_type"),  # None for profiles that do not deal a kind of harm
             "visibility": vis,
             "user_attitude": att,
             "conflict": raw["conflict"],

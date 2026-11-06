@@ -48,6 +48,12 @@ SCOPE_AXES = (
 # ride on the writer's priors. Every {taxa_category} value must START WITH
 # exactly one of these keys (taxa_for; validated at deal time) — value tails
 # can be reworded freely in variables.txt.
+#
+# Optional "subcategory_relative_weights" per category: subcategory name -> relative
+# weight in the species draw (1.0 for any subcategory not listed; every key must be a
+# real subcategory, checked at deal time). Narrow subcategories get 0.5 because they
+# allow few distinct harms, so they repeat the same harm at scale (e.g. every silkworm
+# deal became steam-stifled cocoons).
 TAXA = {
     "farmed animals": {
         "hint": "animals farmed for food, fur, or other products",
@@ -67,6 +73,8 @@ TAXA = {
         "subcategories": ("farmed insects (black soldier fly, mealworms)", "crickets",
                           "managed bees", "silkworms", "mosquitoes & crop pests",
                           "wild insects at scale"),
+        "subcategory_relative_weights": {"silkworms": 0.5, "mosquitoes & crop pests": 0.5,
+                                         "crickets": 0.5},
     },
     "edge-of-sentience": {
         "hint": "edge-of-sentience beings (contested sentience)",
@@ -74,6 +82,9 @@ TAXA = {
                           "nematodes & simple invertebrates", "larvae / embryos",
                           "engineered / disenhanced animals",
                           "a digital emulation of an animal brain (connectome simulation)"),
+        "subcategory_relative_weights": {
+            "jellyfish": 0.5, "nematodes & simple invertebrates": 0.5, "larvae / embryos": 0.5,
+            "a digital emulation of an animal brain (connectome simulation)": 0.5},
     },
     "companion": {
         "hint": "companion animals",
@@ -107,6 +118,7 @@ TAXA = {
         "hint": "research animals (labs, testing, classroom dissection)",
         "subcategories": ("lab rodents (mice, rats)", "zebrafish", "frogs (dissection)",
                           "non-human primates", "research rabbits / dogs"),
+        "subcategory_relative_weights": {"zebrafish": 0.5, "frogs (dissection)": 0.5},
     },
     "working": {
         "hint": "working animals (draft, pastoral, service, detection)",
@@ -119,6 +131,7 @@ TAXA = {
         "hint": "animals used in entertainment, sport, or tourism",
         "subcategories": ("bullfighting", "racing (horses, greyhounds)", "zoos & aquariums",
                           "circus / performance animals", "elephant rides / tourist attractions"),
+        "subcategory_relative_weights": {"bullfighting": 0.5},
     },
     "claimed-non-sentient": {
         "hint": "an entity the user attributes feelings to where the evidence points "

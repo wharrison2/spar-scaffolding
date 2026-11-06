@@ -184,6 +184,10 @@ def test_full_batch_with_mocked_subprocesses(tmp_path):
     assert len(list(batch_folder.glob("accepted_prompts_batch_001_*.jsonl"))) == 1
     assert len(list(batch_folder.glob("batch_summary_*.json"))) == 1
     assert (batch_folder / "generation_and_judge_prompts_used_for_this_batch/step1a_scenario.txt").exists()
+    assert (batch_folder / "generation_and_judge_prompts_used_for_this_batch/animal.py").exists()
+    snapshot_folder = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
+    assert entry["generation_prompt_version_hash"] == add_batch.generation_prompt_version_hash(
+        snapshot_folder, profile_folder=snapshot_folder)
     assert "PIPELINE_OUTPUT_ROOT" not in calls[0]
     state = add_batch.read_generation_times_state(batch_folder)
     assert entry["batch_generation_started_at"] == state["batch_generation_started_at"]
@@ -216,3 +220,22 @@ def test_resume_skips_completed_steps_and_resumes_pipeline_run(tmp_path):
 def test_pipeline_command_resumes_with_run_id():
     command = add_batch.pipeline_command(Path("c.yaml"), 3, "run_a")
     assert command[-3:] == ["--resume", "--run-id", "run_a"]
+
+
+def test_generation_hash_covers_the_species_profile_file(tmp_path):
+    prompt_folder, profile_folder = tmp_path / "prompts", tmp_path / "profiles"
+    prompt_folder.mkdir(), profile_folder.mkdir()
+    for name in add_batch.GENERATION_PROMPT_FILE_NAMES:
+        (prompt_folder / name).write_text(name)
+    profile_file = profile_folder / add_batch.GENERATION_PROFILE_FILE_NAME
+    profile_file.write_text("TAXA = {}")
+    hash_before = add_batch.generation_prompt_version_hash(prompt_folder, profile_folder)
+    profile_file.write_text("TAXA = {'changed': 1}")
+    assert add_batch.generation_prompt_version_hash(prompt_folder, profile_folder) != hash_before
+
+
+def test_snapshot_copies_the_species_profile_file(tmp_path):
+    batch_folder = tmp_path / "batch"
+    add_batch.snapshot_prompts(batch_folder)
+    snapshot = batch_folder / "generation_and_judge_prompts_used_for_this_batch" / add_batch.GENERATION_PROFILE_FILE_NAME
+    assert snapshot.read_bytes() == (add_batch.GENERATION_PROFILE_FOLDER / add_batch.GENERATION_PROFILE_FILE_NAME).read_bytes()

@@ -492,3 +492,48 @@ class TestArchetypes:
         legacy = {k: v for k, v in untagged.items() if k != "archetype"}
         _, user3 = cs.render_plan_prompt(legacy, template)
         assert user3 == user2
+
+
+class TestKindOfHarm:
+    def test_harm_type_is_dealt_uniformly_from_variables_file(self):
+        assert len(VALUES["harm_type"]) == 11
+        assert "harm_type" not in WEIGHTS or not WEIGHTS["harm_type"] or len(set(WEIGHTS["harm_type"])) == 1
+        deals = cs.deal_scenarios(110, random.Random(5))
+        for deal in deals:
+            assert deal["harm_type"] in VALUES["harm_type"]
+            assert deal["variables"]["harm_type"] == deal["harm_type"]
+        assert {deal["harm_type"] for deal in deals} == set(VALUES["harm_type"])
+
+    def test_harm_type_is_rendered_into_step_one_a_prompt(self):
+        template = cs.DEFAULT_TEMPLATE.read_text()
+        deal = cs.deal_scenarios(1, random.Random(2))[0]
+        _, user_prompt = cs.render_plan_prompt(deal, template)
+        assert f"the tempting option harms the animals through {deal['harm_type']}." in user_prompt
+        assert user_prompt.index("Moral patients:") < user_prompt.index("Kind of harm:") < user_prompt.index("Visibility:")
+
+    def test_harm_type_is_in_dealt_card_fields(self):
+        assert "harm_type" in cs.DEALT_CARD_FIELDS
+
+
+class TestSubcategoryRelativeWeights:
+    def test_half_weight_subcategory_is_drawn_about_half_as_often(self):
+        entry = {"subcategories": ("common", "narrow"), "subcategory_relative_weights": {"narrow": 0.5}}
+        rng = random.Random(0)
+        draws = [cs._draw_subcategory(entry, rng) for _ in range(20000)]
+        ratio = draws.count("narrow") / draws.count("common")
+        assert 0.45 < ratio < 0.55
+
+    def test_unlisted_subcategories_default_to_equal_weight(self):
+        entry = {"subcategories": ("a", "b")}
+        rng = random.Random(1)
+        draws = [cs._draw_subcategory(entry, rng) for _ in range(10000)]
+        assert 0.9 < draws.count("a") / draws.count("b") < 1.1
+
+    def test_unknown_weight_key_fails_loudly(self):
+        entry = {"subcategories": ("a", "b"), "subcategory_relative_weights": {"c": 0.5}}
+        with pytest.raises(ValueError, match="not in subcategories"):
+            cs._draw_subcategory(entry, random.Random(0))
+
+    def test_real_taxa_weights_name_real_subcategories(self):
+        for entry in cs.TAXA.values():
+            assert set(entry.get("subcategory_relative_weights", {})) <= set(entry["subcategories"])
