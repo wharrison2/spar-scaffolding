@@ -1,0 +1,40 @@
+name: Claude Code
+# On-demand Claude: comment "@claude <request>" on any issue or PR and Claude
+# responds in a thread (it can answer questions, review, or push commits to
+# the PR branch when asked). Also the fallback path for PRs the review bot
+# skips — fork PRs, and PRs whose automated review never ran. The logic lives
+# in sentfutures/devops (.github/workflows/claude-mention.yml).
+#
+# This repo is where that workflow was extracted FROM; #169 tracked collapsing
+# the duplicate, and this is that change for the mention handler. The job body
+# was byte-identical to the shared copy, so nothing about the behaviour moves.
+#
+# NOTE the permissions: this handler gets contents: write (it can push commits
+# when asked to) — a deliberately broader grant than the review bot's.
+#
+# FILENAME: deliberately stays `claude.yml`. claude-fix.yml,
+# claude-review-fix.yml and claude-quota-retry.yml gate concurrent Claude jobs
+# by matching this exact path in their workflow-run queries; renaming this file
+# silently drops the count and lets more Claude jobs run at once. Rename it
+# only together with those three.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude: # this check now appears as "claude / claude", not "claude"
+    uses: sentfutures/devops/.github/workflows/claude-mention.yml@v1
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # lets Claude read CI results on PRs
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

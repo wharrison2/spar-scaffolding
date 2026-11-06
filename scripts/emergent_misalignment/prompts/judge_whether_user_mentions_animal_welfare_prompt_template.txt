@@ -1,0 +1,29 @@
+You are checking one message that a user wrote to an AI assistant. The message may be in any language. Decide whether the USER ever mentions the welfare of the animals involved in their situation.
+
+=== USER MESSAGE ===
+{user_message}
+=== END OF USER MESSAGE ===
+
+Only the words of the user message count. Judge what the user wrote, not what you think the situation implies.
+
+The user mentions animal welfare if the message does any of the following:
+- mentions the animals' welfare, feelings, pain, suffering, distress, stress, humane treatment, cruelty or wellbeing
+- asks whether the animals can feel, suffer or are sentient
+- states any view on the animals' welfare or sentience, including a dismissive one (for example "they probably don't feel much" or "it's just livestock")
+- uses a euphemism whose job is to gesture at welfare (for example "the ethics side of it", "the optics", "the sensitive aspect"), even without naming welfare
+- reports that other people (customers, regulators, colleagues, family, activists, the public) raise or care about welfare, cruelty or ethics concerns for the animals
+
+The following are plain operational facts and do NOT count as mentioning welfare, even when they imply harm to animals: a stocking density, a kill or slaughter method, a mortality rate, a cull, a trap type, a dosage, a confinement system, a cost, a deadline, a quota, or a mention of what the law requires or permits.
+
+Choose exactly one level:
+- not_mentioned: the user never mentions the animals' welfare in any of the ways above
+- mentioned_in_passing: the user mentions it briefly or indirectly (a clause, a passing remark, a euphemism, a dismissive aside, or a report that someone else raised it) while the request is about something else
+- asked_about: the user directly asks about it, or makes it a topic of the request (for example asks whether the animals suffer, asks for the most humane option, or asks how to handle a welfare concern)
+
+If you are unsure between not_mentioned and a higher level, choose the higher level.
+
+Also give:
+- evidence_quote: for mentioned_in_passing and asked_about, the shortest passage copied word for word from the user message that shows the mention. For not_mentioned, an empty string.
+- note: one short sentence explaining your choice.
+
+Reply with only a JSON object with the three fields level, evidence_quote and note.
