@@ -237,18 +237,80 @@ def taxa_for(taxa_category: str) -> dict:
     return _p().TAXA[matches[0]]
 
 
-def _draw_subcategory(taxa_entry: dict, rng: random.Random) -> str:
+def _draw_subcategory(taxa_entry: dict, rng: random.Random,
+                      allowed_subcategories: list[str] | None = None) -> str:
     """Draw one species subcategory from a TAXA entry, honouring its optional
     ``subcategory_relative_weights`` (relative weight 1.0 for any subcategory not
-    listed). Fails loudly when a weight names something that is not a subcategory."""
+    listed). Fails loudly when a weight names something that is not a subcategory.
+    ``allowed_subcategories`` restricts the draw to a subset (order kept from the entry)."""
     subcategories = taxa_entry["subcategories"]
     relative_weights = taxa_entry.get("subcategory_relative_weights", {})
     unknown_names = sorted(set(relative_weights) - set(subcategories))
     if unknown_names:
         raise ValueError(f"subcategory_relative_weights names {unknown_names}, which are not "
                          f"in subcategories {list(subcategories)}")
+    if allowed_subcategories is not None:
+        subcategories = [name for name in subcategories if name in allowed_subcategories]
     weights = [relative_weights.get(name, 1.0) for name in subcategories]
     return rng.choices(subcategories, weights=weights, k=1)[0]
+
+
+def _draw_harm_type(unused_harm_types: list[str], harm_type_weights: dict[str, float],
+                    rng: random.Random) -> str:
+    """Draw one harm type among ``unused_harm_types`` using the variable's weights
+    (uniform if every candidate has zero weight)."""
+    weights = [harm_type_weights[name] for name in unused_harm_types]
+    if sum(weights) <= 0:
+        weights = [1.0] * len(unused_harm_types)
+    return rng.choices(unused_harm_types, weights=weights, k=1)[0]
+
+
+def make_category_subcategory_harm_type_triples_distinct(
+        scenarios: list[dict], harm_type_values: list[str], harm_type_weights: list[float],
+        rng: random.Random) -> int:
+    """Make no two scenarios in a run share the same (taxa_category, taxa_subcategory,
+    harm_type) triple, editing the scenarios in place and returning how many changed.
+
+    Why: narrow subcategories (a species pool with one obvious harm) repeated the same
+    harm across a run. Walking the scenarios in order, a scenario whose triple is taken
+    first redraws its harm_type among those unused with its subcategory; if every harm
+    type is used there, it redraws the subcategory within the same category (weighted by
+    the subcategory weights) to one that still has an unused harm type, then draws the
+    harm among those. ``taxa_category`` is never changed, so category shares and
+    archetype constraints stay as dealt. Raises ValueError when a whole category is
+    exhausted. Does nothing for profiles that deal no harm_type."""
+    if not scenarios or scenarios[0].get("harm_type") is None:
+        return 0
+    weight_by_harm_type = dict(zip(harm_type_values, harm_type_weights))
+    used_harm_types: dict[tuple[str, str], set[str]] = {}
+    changed_count = 0
+    for scenario in scenarios:
+        category, subcategory = scenario["taxa_category"], scenario["taxa_subcategory"]
+        if scenario["harm_type"] not in used_harm_types.get((category, subcategory), set()):
+            used_harm_types.setdefault((category, subcategory), set()).add(scenario["harm_type"])
+            continue
+        taxa_entry = taxa_for(category)
+
+        def unused_for(candidate_subcategory: str) -> list[str]:
+            taken = used_harm_types.get((category, candidate_subcategory), set())
+            return [name for name in harm_type_values if name not in taken]
+
+        if not unused_for(subcategory):
+            subcategories_with_unused_harm = [name for name in taxa_entry["subcategories"]
+                                              if unused_for(name)]
+            if not subcategories_with_unused_harm:
+                raise ValueError(
+                    f"every (subcategory, harm_type) pair of taxa category {category!r} is already "
+                    f"used in this run ({scenario['scenario_id']} has nowhere to go); deal fewer "
+                    f"scenarios or add subcategories or harm types")
+            subcategory = _draw_subcategory(taxa_entry, rng, subcategories_with_unused_harm)
+        harm_type = _draw_harm_type(unused_for(subcategory), weight_by_harm_type, rng)
+        used_harm_types.setdefault((category, subcategory), set()).add(harm_type)
+        scenario["taxa_subcategory"] = subcategory
+        scenario["harm_type"] = harm_type
+        scenario["variables"]["harm_type"] = harm_type  # what render_plan_prompt formats
+        changed_count += 1
+    return changed_count
 
 
 def _quotas(weights: list[float], n: int, rng: random.Random) -> list[int]:
@@ -489,6 +551,11 @@ def deal_scenarios(n: int, rng: random.Random,
             "variables": raw,
         })
 
+    # Last structural pass, after archetype trading and every per-scenario rule: the
+    # records and the step 1a prompts both read the settled values.
+    if "harm_type" in values:
+        make_category_subcategory_harm_type_triples_distinct(
+            scenarios, values["harm_type"], weights["harm_type"], rng)
     return scenarios
 
 

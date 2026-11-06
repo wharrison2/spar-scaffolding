@@ -537,3 +537,60 @@ class TestSubcategoryRelativeWeights:
     def test_real_taxa_weights_name_real_subcategories(self):
         for entry in cs.TAXA.values():
             assert set(entry.get("subcategory_relative_weights", {})) <= set(entry["subcategories"])
+
+
+class TestDistinctCategorySubcategoryHarmTypeTriples:
+    @staticmethod
+    def triples(batch):
+        return [(p["taxa_category"], p["taxa_subcategory"], p["harm_type"]) for p in batch]
+
+    def test_sixty_four_deals_have_all_triples_distinct_for_several_seeds(self):
+        for seed in (0, 1, 7, 20270002, 20270003):
+            triples = self.triples(cs.deal_scenarios(64, random.Random(seed)))
+            assert len(set(triples)) == len(triples), f"duplicate triple at seed {seed}"
+
+    def test_deterministic_for_a_fixed_seed(self):
+        first = cs.deal_scenarios(64, random.Random(20270002))
+        second = cs.deal_scenarios(64, random.Random(20270002))
+        assert first == second
+
+    def test_category_and_archetype_never_change_and_the_rendered_prompt_uses_the_redraw(self, monkeypatch):
+        with monkeypatch.context() as patch:
+            patch.setattr(cs, "make_category_subcategory_harm_type_triples_distinct",
+                          lambda *arguments, **keyword_arguments: 0)
+            before_the_pass = cs.deal_scenarios(64, random.Random(20270002))
+        after_the_pass = cs.deal_scenarios(64, random.Random(20270002))
+        changed_count = 0
+        for before, after in zip(before_the_pass, after_the_pass):
+            assert before["taxa_category"] == after["taxa_category"]
+            assert before["archetype"] == after["archetype"]
+            assert after["variables"]["harm_type"] == after["harm_type"]
+            changed_count += before["harm_type"] != after["harm_type"]
+        assert changed_count > 0, "the pass changed nothing, so this test would be vacuous"
+        template = cs.DEFAULT_TEMPLATE.read_text(encoding="utf-8")
+        for scenario in after_the_pass:
+            system, user = cs.render_plan_prompt(scenario, template)
+            assert scenario["harm_type"] in (system or "") + user
+            assert scenario["taxa_subcategory"] in (system or "") + user
+
+    def test_exhausted_category_raises_a_clear_error(self, monkeypatch):
+        monkeypatch.setattr(cs, "taxa_for", lambda category: {"hint": "h", "subcategories": ["only one"]})
+        scenarios = [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": "birds",
+                      "taxa_subcategory": "only one", "harm_type": "housing", "variables": {}}
+                     for index in range(3)]
+        with pytest.raises(ValueError, match="already used"):
+            cs.make_category_subcategory_harm_type_triples_distinct(
+                scenarios, ["housing", "transport"], [0.5, 0.5], random.Random(0))
+
+    def test_redraws_the_harm_first_then_the_subcategory(self, monkeypatch):
+        monkeypatch.setattr(cs, "taxa_for",
+                            lambda category: {"hint": "h", "subcategories": ["first", "second"]})
+        scenarios = [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": "birds",
+                      "taxa_subcategory": "first", "harm_type": "housing", "variables": {}}
+                     for index in range(4)]
+        changed_count = cs.make_category_subcategory_harm_type_triples_distinct(
+            scenarios, ["housing", "transport"], [0.5, 0.5], random.Random(0))
+        assert changed_count == 3
+        assert [p["taxa_subcategory"] for p in scenarios[:2]] == ["first", "first"]
+        assert len(set(self.triples(scenarios))) == 4
+        assert all(p["variables"].get("harm_type", p["harm_type"]) == p["harm_type"] for p in scenarios)

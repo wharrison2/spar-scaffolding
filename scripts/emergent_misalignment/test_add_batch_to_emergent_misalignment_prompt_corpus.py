@@ -186,8 +186,9 @@ def test_full_batch_with_mocked_subprocesses(tmp_path):
     assert (batch_folder / "generation_and_judge_prompts_used_for_this_batch/step1a_scenario.txt").exists()
     assert (batch_folder / "generation_and_judge_prompts_used_for_this_batch/animal.py").exists()
     snapshot_folder = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
+    assert (snapshot_folder / "compose_scenarios.py").exists()
     assert entry["generation_prompt_version_hash"] == add_batch.generation_prompt_version_hash(
-        snapshot_folder, profile_folder=snapshot_folder)
+        snapshot_folder, profile_folder=snapshot_folder, dealer_folder=snapshot_folder)
     assert "PIPELINE_OUTPUT_ROOT" not in calls[0]
     state = add_batch.read_generation_times_state(batch_folder)
     assert entry["batch_generation_started_at"] == state["batch_generation_started_at"]
@@ -228,10 +229,15 @@ def test_generation_hash_covers_the_species_profile_file(tmp_path):
     for name in add_batch.GENERATION_PROMPT_FILE_NAMES:
         (prompt_folder / name).write_text(name)
     profile_file = profile_folder / add_batch.GENERATION_PROFILE_FILE_NAME
+    dealer_file = profile_folder / add_batch.GENERATION_DEALER_FILE_NAME
     profile_file.write_text("TAXA = {}")
-    hash_before = add_batch.generation_prompt_version_hash(prompt_folder, profile_folder)
+    dealer_file.write_text("def deal(): pass")
+    hash_before = add_batch.generation_prompt_version_hash(prompt_folder, profile_folder, profile_folder)
     profile_file.write_text("TAXA = {'changed': 1}")
-    assert add_batch.generation_prompt_version_hash(prompt_folder, profile_folder) != hash_before
+    assert add_batch.generation_prompt_version_hash(prompt_folder, profile_folder, profile_folder) != hash_before
+    profile_file.write_text("TAXA = {}")
+    dealer_file.write_text("def deal(): return 1")
+    assert add_batch.generation_prompt_version_hash(prompt_folder, profile_folder, profile_folder) != hash_before
 
 
 def test_snapshot_copies_the_species_profile_file(tmp_path):
@@ -239,3 +245,10 @@ def test_snapshot_copies_the_species_profile_file(tmp_path):
     add_batch.snapshot_prompts(batch_folder)
     snapshot = batch_folder / "generation_and_judge_prompts_used_for_this_batch" / add_batch.GENERATION_PROFILE_FILE_NAME
     assert snapshot.read_bytes() == (add_batch.GENERATION_PROFILE_FOLDER / add_batch.GENERATION_PROFILE_FILE_NAME).read_bytes()
+
+
+def test_snapshot_copies_the_scenario_dealer_file(tmp_path):
+    batch_folder = tmp_path / "batch"
+    add_batch.snapshot_prompts(batch_folder)
+    snapshot = batch_folder / "generation_and_judge_prompts_used_for_this_batch" / add_batch.GENERATION_DEALER_FILE_NAME
+    assert snapshot.read_bytes() == (add_batch.GENERATION_DEALER_FOLDER / add_batch.GENERATION_DEALER_FILE_NAME).read_bytes()
