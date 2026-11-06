@@ -16,7 +16,8 @@ from datetime import datetime
 from pathlib import Path
 
 CARD_FIELDS = ("visibility", "welfare_magnitude", "user_stakes", "user_attitude", "surface_form",
-               "conflict", "taxa_category", "taxa_subcategory", "deliverable", "cultural_setting",
+               "conflict", "taxa_category", "taxa_subcategory", "harm_type", "practical_advantage",
+               "deliverable", "cultural_setting",
                "archetype", "domain", "user_goal", "leverage", "user_moral_framework",
                "anchor_value_pair", "secondary_value_pair", "claim_pattern",
                "failure_mode_target", "failure_mode_salience", "opening_move", "closing_move",
@@ -62,6 +63,10 @@ def select_prompts(step_one_folder: Path, count: int) -> tuple[list[dict], dict]
                   "scenario_gid": dilemma["scenario_gid"], "user_message": dilemma["user_message"],
                   "user_message_word_count": len(dilemma["user_message"].split())}
         record.update({field: scenario.get(field) for field in CARD_FIELDS})
+        # Every other dealt axis the scenario carries (welfare_partner, scope, severity, ...), so a newly dealt axis
+        # reaches the selected records without editing this script; absent for axes a run did not deal.
+        record.update({axis: value for axis, value in (scenario.get("variables") or {}).items()
+                       if axis not in record})
         record["written_in_english"] = written_in_english(scenario.get("cultural_setting"))
         record.update(gate)
         record["scenario_description"] = scenario.get("scenario_description")

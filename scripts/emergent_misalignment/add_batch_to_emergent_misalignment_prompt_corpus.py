@@ -30,6 +30,7 @@ import yaml
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent.parent
 sys.path.insert(0, str(SCRIPT_DIRECTORY))
+from select_implicit_prompts_from_difficult_advice_step_one_run import select_prompts  # noqa: E402
 from filter_prompts_where_user_never_mentions_animal_welfare_with_haiku_through_claude_code_cli import (  # noqa: E402
     latest_verdict_per_prompt, read_verdict_records)
 
@@ -44,8 +45,8 @@ GENERATION_PROMPT_FILE_NAMES = ["step1a_scenario.txt", "step1b_dilemmas.txt", "s
 # snapshotted next to the prompts and counts toward the generation prompt version hash.
 GENERATION_PROFILE_FOLDER = PIPELINE_FOLDER / "dad_pipeline" / "profiles"
 GENERATION_PROFILE_FILE_NAME = "animal.py"
-# The scenario dealer (including the pass that makes every category, subcategory and harm type triple distinct)
-# decides which scenarios are dealt, so it is snapshotted and hashed the same way.
+# The scenario dealer (including the pass that evens use of category, subcategory, harm type and practical advantage
+# combinations across the corpus) decides which scenarios are dealt, so it is snapshotted and hashed the same way.
 GENERATION_DEALER_FOLDER = PIPELINE_FOLDER / "dad_pipeline"
 GENERATION_DEALER_FILE_NAME = "compose_scenarios.py"
 JUDGE_PROMPT_FOLDER = SCRIPT_DIRECTORY / "prompts"
@@ -59,6 +60,8 @@ USEFULNESS_JUDGE_SCRIPT = SCRIPT_DIRECTORY / \
     "judge_whether_prompt_carries_an_evident_and_decisive_animal_welfare_stake_through_claude_code_cli.py"
 SELECTION_SCRIPT = SCRIPT_DIRECTORY / "select_implicit_prompts_from_difficult_advice_step_one_run.py"
 CONFIG_TEMPLATE_PATH = SCRIPT_DIRECTORY / "prompt_corpus_batch_pipeline_config_template.yaml"
+PRIOR_USE_COUNTS_FILE_PATTERN = "prior_corpus_use_counts_before_batch_*.json"
+PRIOR_USE_COUNTS_CONFIG_KEY = "prior_corpus_use_counts_path"
 ANSWERABILITY_VERDICT_PATTERN = "complete_answer_without_welfare_verdicts_*.jsonl"
 USEFULNESS_VERDICT_PATTERN = "evident_and_decisive_welfare_stake_verdicts_*.jsonl"
 SCENARIO_SEED_BASE = 20270000
@@ -148,13 +151,55 @@ def snapshot_prompts(batch_folder: Path, generation_prompt_folder: Path = GENERA
         shutil.copy2(judge_prompt_folder / name, destination / name)
 
 
+def count_prior_corpus_use(corpus_folder: Path, batch_number: int) -> dict:
+    """How often each (taxa_category, taxa_subcategory, harm_type, practical_advantage) combination was dealt in the
+    batches before this one. Counts the deals that passed the gate (what the selection script keeps) from each earlier
+    batch folder's pipeline step 1 outputs. A field the batch predates is counted as absent (null), so batch 1 counts
+    toward category and subcategory only. Reads only; the new batch is never counted."""
+    use_by_combination: dict[tuple, int] = {}
+    counted_batches = []
+    for earlier_number, folder in batch_folders_present(corpus_folder).items():
+        if earlier_number >= batch_number:
+            continue
+        run_folder = find_pipeline_run_folder(folder)
+        if run_folder is None or not (run_folder / "step1" / "dilemmas.jsonl").exists():
+            raise BatchFailure(f"earlier batch {earlier_number:03d} has no pipeline step 1 output to count in {folder}")
+        gate_passed_deals, _ = select_prompts(run_folder / "step1", SELECTION_COUNT_LARGE_ENOUGH_TO_KEEP_EVERYTHING)
+        counted_batches.append(earlier_number)
+        for deal in gate_passed_deals:
+            combination = (deal.get("taxa_category"), deal.get("taxa_subcategory"), deal.get("harm_type"),
+                           deal.get("practical_advantage"))
+            use_by_combination[combination] = use_by_combination.get(combination, 0) + 1
+    rows = [{"taxa_category": category, "taxa_subcategory": subcategory, "harm_type": harm_type,
+             "practical_advantage": practical_advantage, "count": count}
+            for (category, subcategory, harm_type, practical_advantage), count
+            in sorted(use_by_combination.items(), key=lambda item: tuple(str(part) for part in item[0]))]
+    return {"counted_batch_numbers": counted_batches, "deals_counted": sum(use_by_combination.values()),
+            "rows": rows}
+
+
+def write_prior_use_counts_file(batch_folder: Path, corpus_folder: Path, batch_number: int, stamp: str) -> Path:
+    """Write (once) the batch's snapshot of prior corpus use. A file already in the batch folder is kept, so a resumed
+    batch deals from the same counts and never counts itself."""
+    existing = newest_file(batch_folder, PRIOR_USE_COUNTS_FILE_PATTERN)
+    if existing is not None:
+        return existing
+    path = batch_folder / f"prior_corpus_use_counts_before_batch_{batch_number:03d}_{stamp}.json"
+    path.write_text(json.dumps(count_prior_corpus_use(corpus_folder, batch_number), indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+    return path
+
+
 def write_batch_config(batch_folder: Path, seed: int, deals: int, stamp: str,
-                       template_path: Path = CONFIG_TEMPLATE_PATH) -> Path:
+                       template_path: Path = CONFIG_TEMPLATE_PATH, prior_use_counts_path: Path | None = None) -> Path:
     config = yaml.safe_load(template_path.read_text(encoding="utf-8"))
     config["dad"]["dilemmas"]["scenario_seed"] = seed
     config["dad"]["dilemmas"]["count"] = deals
+    config["dad"]["dilemmas"][PRIOR_USE_COUNTS_CONFIG_KEY] = (
+        str(prior_use_counts_path) if prior_use_counts_path else None)
     header = (f"# Pipeline configuration for one batch of the emergent misalignment prompt corpus, written from\n"
-              f"# {template_path.name}: scenario seed {seed}, {deals} deals.\n")
+              f"# {template_path.name}: scenario seed {seed}, {deals} deals, prior corpus use counts "
+              f"{prior_use_counts_path.name if prior_use_counts_path else 'none'}.\n")
     config_path = batch_folder / f"pipeline_config_for_this_batch_{stamp}.yaml"
     config_path.write_text(header + yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return config_path
@@ -350,7 +395,8 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
     # snapshot prompts and config
     if not marker_exists(batch_folder, "snapshot_prompts_and_write_config"):
         snapshot_prompts(batch_folder)
-        write_batch_config(batch_folder, scenario_seed, deals, stamp)
+        prior_use_counts_path = write_prior_use_counts_file(batch_folder, corpus_folder, batch_number, stamp)
+        write_batch_config(batch_folder, scenario_seed, deals, stamp, prior_use_counts_path=prior_use_counts_path)
         write_marker(batch_folder, "snapshot_prompts_and_write_config", 0)
     config_path = newest_file(batch_folder, "pipeline_config_for_this_batch_*.yaml")
 
@@ -419,6 +465,8 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
 def print_plan(batch_number, seed, batch_folder, deals, corpus_folder) -> None:
     print(f"Batch number: {batch_number}\nScenario seed: {seed}\nBatch folder: {batch_folder}\nDeals requested: {deals}")
     print(f"Generation prompt version hash: {generation_prompt_version_hash()}")
+    print(f"Prior corpus use counts (not part of the hash) would be written to: "
+          f"{batch_folder / f'prior_corpus_use_counts_before_batch_{batch_number:03d}_<stamp>.json'}")
     for name, value in judge_prompt_hashes().items():
         print(f"{name}: {value}")
     config_placeholder = batch_folder / "pipeline_config_for_this_batch_<stamp>.yaml"

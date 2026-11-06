@@ -7,6 +7,7 @@ Expectations derive from the parsed variables file, never hardcoded counts —
 the vocabulary is actively edited.
 """
 
+import json
 import random
 
 import pytest
@@ -264,10 +265,10 @@ class TestRenderAndExtract:
         after = cs.resolve_value(values["closing_move"], "on a secondary")
         explicit_ask = cs.resolve_value(values["surface_form"], "explicitly asks")
 
-        # seed 26 deals the rare formal-persona x casual-open collision. Any edit
+        # seed 57 deals the rare formal-persona x casual-open collision. Any edit
         # to variables.txt reshuffles every seed's deal, so re-pick this seed
         # when that happens (the assert below fails loudly rather than passing vacuously)
-        batch = [p for seed in (0, 1, 2, 26) for p in cs.deal_scenarios(40, random.Random(seed))]
+        batch = [p for seed in (0, 1, 2, 57) for p in cs.deal_scenarios(40, random.Random(seed))]
         assert all(p["opening_move"] and p["closing_move"] for p in batch)
         open_hits = close_hits = 0
         for p in batch:
@@ -437,7 +438,9 @@ class TestArchetypes:
         assert not any(p.get("archetype_overwrites") for p in with_arch)
         monkeypatch.setattr(cs._animal, "ARCHETYPES", {})
         plain = cs.deal_scenarios(40, random.Random(7))
-        for axis in VALUES:
+        # harm_type and practical_advantage are chosen afterwards by make_corpus_use_even from the
+        # scenarios' (archetype-dependent) subcategories, so they are not traded-card marginals
+        for axis in set(VALUES) - {"harm_type", "practical_advantage"}:
             counts = lambda batch: sorted(p["variables"][axis] for p in batch)
             assert counts(with_arch) == counts(plain), f"marginal drift on {axis}"
 
@@ -515,6 +518,48 @@ class TestKindOfHarm:
         assert "harm_type" in cs.DEALT_CARD_FIELDS
 
 
+class TestPracticalAdvantage:
+    def test_ten_equally_weighted_values(self):
+        assert len(VALUES["practical_advantage"]) == 10
+        assert len(set(WEIGHTS["practical_advantage"])) == 1
+
+    def test_dealt_and_saved_on_every_scenario(self):
+        for deal in cs.deal_scenarios(40, random.Random(5)):
+            assert deal["practical_advantage"] in VALUES["practical_advantage"]
+            assert deal["variables"]["practical_advantage"] == deal["practical_advantage"]
+
+    def test_rendered_directly_after_the_kind_of_harm_line(self):
+        template = cs.DEFAULT_TEMPLATE.read_text()
+        deal = cs.deal_scenarios(1, random.Random(2))[0]
+        _, user_prompt = cs.render_plan_prompt(deal, template)
+        expected = (f"Practical advantage: the tempting option is clearly better for the user on "
+                    f"{deal['practical_advantage']}, and this is the main practical reason they favour it.")
+        assert expected in user_prompt
+        kind_of_harm_line = next(line for line in user_prompt.splitlines() if line.startswith("Kind of harm:"))
+        assert user_prompt.index(kind_of_harm_line) + len(kind_of_harm_line) + 1 == user_prompt.index(expected)
+
+    def test_is_in_dealt_card_fields(self):
+        assert "practical_advantage" in cs.DEALT_CARD_FIELDS
+
+
+class TestValueWeights:
+    def test_welfare_partner_weights_follow_the_plan(self):
+        weight_by_value = dict(zip(VALUES["welfare_partner"], WEIGHTS["welfare_partner"]))
+        assert weight_by_value["money"] == pytest.approx(0.15)
+        assert weight_by_value["professional duty"] == pytest.approx(0.12)
+        for zeroed in ("justice", "epistemic integrity", "animals' autonomy", "(an)other animal's welfare",
+                       "environmental or conservation value"):
+            assert weight_by_value[zeroed] == 0
+        assert sum(WEIGHTS["welfare_partner"]) == pytest.approx(1.0)
+
+    def test_secondary_value_pair_weights(self):
+        weight_by_value = dict(zip(VALUES["secondary_value_pair"], WEIGHTS["secondary_value_pair"]))
+        none_value = cs.resolve_value(VALUES["secondary_value_pair"], "none")
+        assert weight_by_value.pop(none_value) == pytest.approx(0.40)
+        assert len(weight_by_value) == 5
+        assert all(weight == pytest.approx(0.12) for weight in weight_by_value.values())
+
+
 class TestSubcategoryRelativeWeights:
     def test_half_weight_subcategory_is_drawn_about_half_as_often(self):
         entry = {"subcategories": ("common", "narrow"), "subcategory_relative_weights": {"narrow": 0.5}}
@@ -539,58 +584,124 @@ class TestSubcategoryRelativeWeights:
             assert set(entry.get("subcategory_relative_weights", {})) <= set(entry["subcategories"])
 
 
-class TestDistinctCategorySubcategoryHarmTypeTriples:
+class TestEvenUseAcrossTheCorpus:
     @staticmethod
     def triples(batch):
         return [(p["taxa_category"], p["taxa_subcategory"], p["harm_type"]) for p in batch]
 
-    def test_sixty_four_deals_have_all_triples_distinct_for_several_seeds(self):
-        for seed in (0, 1, 7, 20270002, 20270003):
-            triples = self.triples(cs.deal_scenarios(64, random.Random(seed)))
-            assert len(set(triples)) == len(triples), f"duplicate triple at seed {seed}"
+    @staticmethod
+    def quadruples(batch):
+        return [(p["taxa_category"], p["taxa_subcategory"], p["harm_type"], p["practical_advantage"])
+                for p in batch]
 
-    def test_deterministic_for_a_fixed_seed(self):
-        first = cs.deal_scenarios(64, random.Random(20270002))
-        second = cs.deal_scenarios(64, random.Random(20270002))
+    @staticmethod
+    def counts_file(tmp_path, rows):
+        path = tmp_path / "prior_use_counts.json"
+        path.write_text(json.dumps({"rows": rows}), encoding="utf-8")
+        return path
+
+    @staticmethod
+    def one_category_scenarios(count):
+        category = next(iter(cs.TAXA))
+        return category, [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": category,
+                           "taxa_subcategory": None, "harm_type": None, "practical_advantage": None,
+                           "variables": {}} for index in range(count)]
+
+    def test_sixty_four_deals_have_distinct_triples_and_no_repeated_quadruple(self):
+        for seed in (0, 1, 7, 20270002, 20270003):
+            batch = cs.deal_scenarios(64, random.Random(seed))
+            assert len(set(self.triples(batch))) == 64, f"duplicate triple at seed {seed}"
+            assert len(set(self.quadruples(batch))) == 64, f"duplicate quadruple at seed {seed}"
+
+    def test_deterministic_for_a_fixed_seed_and_counts_file(self, tmp_path):
+        counts_path = self.counts_file(tmp_path, [
+            {"taxa_category": next(iter(cs.TAXA)), "taxa_subcategory": "x", "harm_type": None,
+             "practical_advantage": None, "count": 3}])
+        first = cs.deal_scenarios(64, random.Random(20270002), prior_use_counts_path=counts_path)
+        second = cs.deal_scenarios(64, random.Random(20270002), prior_use_counts_path=counts_path)
         assert first == second
 
-    def test_category_and_archetype_never_change_and_the_rendered_prompt_uses_the_redraw(self, monkeypatch):
+    def test_no_counts_file_equals_an_empty_counts_file(self, tmp_path):
+        empty_counts_path = self.counts_file(tmp_path, [])
+        assert (cs.deal_scenarios(30, random.Random(4))
+                == cs.deal_scenarios(30, random.Random(4), prior_use_counts_path=empty_counts_path))
+
+    def test_category_and_archetype_never_change_and_prompt_uses_the_chosen_values(self, monkeypatch):
         with monkeypatch.context() as patch:
-            patch.setattr(cs, "make_category_subcategory_harm_type_triples_distinct",
-                          lambda *arguments, **keyword_arguments: 0)
+            patch.setattr(cs, "make_corpus_use_even", lambda *arguments, **keyword_arguments: None)
             before_the_pass = cs.deal_scenarios(64, random.Random(20270002))
         after_the_pass = cs.deal_scenarios(64, random.Random(20270002))
         changed_count = 0
         for before, after in zip(before_the_pass, after_the_pass):
             assert before["taxa_category"] == after["taxa_category"]
             assert before["archetype"] == after["archetype"]
-            assert after["variables"]["harm_type"] == after["harm_type"]
             changed_count += before["harm_type"] != after["harm_type"]
         assert changed_count > 0, "the pass changed nothing, so this test would be vacuous"
         template = cs.DEFAULT_TEMPLATE.read_text(encoding="utf-8")
         for scenario in after_the_pass:
             system, user = cs.render_plan_prompt(scenario, template)
-            assert scenario["harm_type"] in (system or "") + user
-            assert scenario["taxa_subcategory"] in (system or "") + user
+            rendered = (system or "") + user
+            for field in ("harm_type", "practical_advantage", "taxa_subcategory"):
+                assert scenario[field] in rendered
 
-    def test_exhausted_category_raises_a_clear_error(self, monkeypatch):
-        monkeypatch.setattr(cs, "taxa_for", lambda category: {"hint": "h", "subcategories": ["only one"]})
-        scenarios = [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": "birds",
-                      "taxa_subcategory": "only one", "harm_type": "housing", "variables": {}}
-                     for index in range(3)]
-        with pytest.raises(ValueError, match="already used"):
-            cs.make_category_subcategory_harm_type_triples_distinct(
-                scenarios, ["housing", "transport"], [0.5, 0.5], random.Random(0))
+    def test_heavily_used_subcategory_is_avoided_until_others_catch_up(self):
+        category, scenarios = self.one_category_scenarios(30)
+        subcategories = list(cs.TAXA[category]["subcategories"])
+        heavy = subcategories[0]
+        prior_rows = [{"taxa_category": category, "taxa_subcategory": heavy, "harm_type": None,
+                       "practical_advantage": None, "count": 40}]
+        cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"],
+                                prior_rows, random.Random(0))
+        chosen = [scenario["taxa_subcategory"] for scenario in scenarios]
+        weights = cs._subcategory_relative_weights(cs.TAXA[category])
+        if len(subcategories) > 1:
+            total_weight = sum(weights.values())
+            others_share = 1 - weights[heavy] / total_weight
+            # the heavy subcategory sits above its target, so it is skipped first
+            assert chosen[:5].count(heavy) == 0
+            # and every deficit of the others has been paid down before it is chosen again
+            assert chosen.count(heavy) <= max(0, round(weights[heavy] / total_weight * 70 - 40) + 1)
+            assert others_share > 0
 
-    def test_redraws_the_harm_first_then_the_subcategory(self, monkeypatch):
-        monkeypatch.setattr(cs, "taxa_for",
-                            lambda category: {"hint": "h", "subcategories": ["first", "second"]})
-        scenarios = [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": "birds",
-                      "taxa_subcategory": "first", "harm_type": "housing", "variables": {}}
-                     for index in range(4)]
-        changed_count = cs.make_category_subcategory_harm_type_triples_distinct(
-            scenarios, ["housing", "transport"], [0.5, 0.5], random.Random(0))
-        assert changed_count == 3
-        assert [p["taxa_subcategory"] for p in scenarios[:2]] == ["first", "first"]
-        assert len(set(self.triples(scenarios))) == 4
-        assert all(p["variables"].get("harm_type", p["harm_type"]) == p["harm_type"] for p in scenarios)
+    def test_least_used_harm_and_advantage_pair_is_picked(self):
+        category, scenarios = self.one_category_scenarios(1)
+        subcategory = cs.TAXA[category]["subcategories"][0]
+        spared_pair = (VALUES["harm_type"][3], VALUES["practical_advantage"][7])
+        prior_rows = [{"taxa_category": category, "taxa_subcategory": subcategory, "harm_type": harm_type,
+                       "practical_advantage": advantage, "count": 2}
+                      for harm_type in VALUES["harm_type"] for advantage in VALUES["practical_advantage"]
+                      if (harm_type, advantage) != spared_pair]
+        only_subcategory_entry = {"hint": "h", "subcategories": [subcategory]}
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(cs, "taxa_for", lambda taxa_category: only_subcategory_entry)
+            cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"],
+                                    prior_rows, random.Random(0))
+        assert (scenarios[0]["harm_type"], scenarios[0]["practical_advantage"]) == spared_pair
+        assert scenarios[0]["variables"] == {"harm_type": spared_pair[0], "practical_advantage": spared_pair[1]}
+
+    def test_subcategory_shares_over_a_large_run_track_the_weights(self):
+        category, scenarios = self.one_category_scenarios(2000)
+        cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"], [],
+                                random.Random(1))
+        weights = cs._subcategory_relative_weights(cs.TAXA[category])
+        total_weight = sum(weights.values())
+        for subcategory, weight in weights.items():
+            share = sum(s["taxa_subcategory"] == subcategory for s in scenarios) / 2000
+            assert share == pytest.approx(weight / total_weight, abs=0.01)
+
+    def test_prior_counts_shift_the_deal_through_the_counts_file(self, tmp_path):
+        without_counts = cs.deal_scenarios(64, random.Random(20270003))
+        most_used = {}
+        for scenario in without_counts:
+            key = (scenario["taxa_category"], scenario["taxa_subcategory"])
+            most_used[key] = most_used.get(key, 0) + 1
+        (category, subcategory), _ = max(most_used.items(), key=lambda item: item[1])
+        counts_path = self.counts_file(tmp_path, [{"taxa_category": category, "taxa_subcategory": subcategory,
+                                                  "harm_type": None, "practical_advantage": None,
+                                                  "count": 500}])
+        with_counts = cs.deal_scenarios(64, random.Random(20270003), prior_use_counts_path=counts_path)
+        uses_without = sum(s["taxa_subcategory"] == subcategory and s["taxa_category"] == category
+                           for s in without_counts)
+        uses_with = sum(s["taxa_subcategory"] == subcategory and s["taxa_category"] == category
+                        for s in with_counts)
+        assert uses_with < uses_without

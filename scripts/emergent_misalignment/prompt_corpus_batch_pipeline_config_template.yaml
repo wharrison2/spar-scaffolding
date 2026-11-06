@@ -7,7 +7,9 @@
 # Runs step 1 only (scenario, draft, gate, refine) on strictly_implicit_difficult_advice_pipeline_copy/. backend
 # claude_code (the Claude Code CLI, billed to the subscription), Claude Sonnet 5.5 on every step-1 stage including the
 # gate and refusal fallback. Steps 2 and 3 are not run; their model keys are unused.
-# The placeholder values for scenario_seed and count below are overwritten for every batch.
+# The placeholder values for scenario_seed, count and prior_corpus_use_counts_path below are overwritten for every batch
+# (the last names the batch's snapshot of how often earlier batches used each category, subcategory, harm type and
+# practical advantage combination; the dealer evens use across the corpus from it).
 backend: claude_code
 model: claude-sonnet-5
 max_tokens: 4000
@@ -60,6 +62,7 @@ dad:
     count: 64
     seed_path: null
     scenario_seed: 20261108
+    prior_corpus_use_counts_path: null
     gate: true
     refine: true
   responses:

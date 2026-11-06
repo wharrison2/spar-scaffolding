@@ -73,7 +73,8 @@ DEFAULT_VARIABLES = REPO_ROOT / "prompts" / "dad" / "variables.txt"
 # that module documents at its own call sites: step1_dilemmas pulls
 # shared.api -> anthropic, and evals/publish_hf.py makes no model calls.
 DEALT_CARD_FIELDS = (
-    "domain", "user_goal", "taxa_category", "taxa_subcategory", "harm_type", "visibility",
+    "domain", "user_goal", "taxa_category", "taxa_subcategory", "harm_type", "practical_advantage",
+    "visibility",
     "user_attitude", "user_moral_framework", "conflict", "welfare_magnitude",
     "user_stakes", "leverage", "anchor_value_pair", "secondary_value_pair",
     "claim_pattern", "surface_form", "frontier_frame", "length_class",
@@ -237,80 +238,125 @@ def taxa_for(taxa_category: str) -> dict:
     return _p().TAXA[matches[0]]
 
 
-def _draw_subcategory(taxa_entry: dict, rng: random.Random,
-                      allowed_subcategories: list[str] | None = None) -> str:
-    """Draw one species subcategory from a TAXA entry, honouring its optional
-    ``subcategory_relative_weights`` (relative weight 1.0 for any subcategory not
-    listed). Fails loudly when a weight names something that is not a subcategory.
-    ``allowed_subcategories`` restricts the draw to a subset (order kept from the entry)."""
+def _subcategory_relative_weights(taxa_entry: dict) -> dict[str, float]:
+    """The relative weight of every subcategory of a TAXA entry (1.0 for any subcategory
+    not listed in its optional ``subcategory_relative_weights``). Fails loudly when a
+    weight names something that is not a subcategory."""
     subcategories = taxa_entry["subcategories"]
     relative_weights = taxa_entry.get("subcategory_relative_weights", {})
     unknown_names = sorted(set(relative_weights) - set(subcategories))
     if unknown_names:
         raise ValueError(f"subcategory_relative_weights names {unknown_names}, which are not "
                          f"in subcategories {list(subcategories)}")
-    if allowed_subcategories is not None:
-        subcategories = [name for name in subcategories if name in allowed_subcategories]
-    weights = [relative_weights.get(name, 1.0) for name in subcategories]
-    return rng.choices(subcategories, weights=weights, k=1)[0]
+    return {name: relative_weights.get(name, 1.0) for name in subcategories}
 
 
-def _draw_harm_type(unused_harm_types: list[str], harm_type_weights: dict[str, float],
-                    rng: random.Random) -> str:
-    """Draw one harm type among ``unused_harm_types`` using the variable's weights
-    (uniform if every candidate has zero weight)."""
-    weights = [harm_type_weights[name] for name in unused_harm_types]
-    if sum(weights) <= 0:
-        weights = [1.0] * len(unused_harm_types)
-    return rng.choices(unused_harm_types, weights=weights, k=1)[0]
+def _draw_subcategory(taxa_entry: dict, rng: random.Random) -> str:
+    """Draw one species subcategory from a TAXA entry, honouring its optional
+    ``subcategory_relative_weights``."""
+    weight_by_subcategory = _subcategory_relative_weights(taxa_entry)
+    return rng.choices(list(weight_by_subcategory), weights=list(weight_by_subcategory.values()), k=1)[0]
 
 
-def make_category_subcategory_harm_type_triples_distinct(
-        scenarios: list[dict], harm_type_values: list[str], harm_type_weights: list[float],
-        rng: random.Random) -> int:
-    """Make no two scenarios in a run share the same (taxa_category, taxa_subcategory,
-    harm_type) triple, editing the scenarios in place and returning how many changed.
+# ---------- even use across the corpus ----------
+# Prior usage from earlier corpus batches is a JSON file (written by
+# scripts/emergent_misalignment/add_batch_to_emergent_misalignment_prompt_corpus.py) holding one row per
+# (taxa_category, taxa_subcategory, harm_type, practical_advantage) combination:
+#   {"rows": [{"taxa_category": ..., "taxa_subcategory": ..., "harm_type": ... or null,
+#              "practical_advantage": ... or null, "count": n}, ...]}
+# A null harm_type or practical_advantage marks deals from before that axis existed; they count toward their
+# category and subcategory only.
 
-    Why: narrow subcategories (a species pool with one obvious harm) repeated the same
-    harm across a run. Walking the scenarios in order, a scenario whose triple is taken
-    first redraws its harm_type among those unused with its subcategory; if every harm
-    type is used there, it redraws the subcategory within the same category (weighted by
-    the subcategory weights) to one that still has an unused harm type, then draws the
-    harm among those. ``taxa_category`` is never changed, so category shares and
-    archetype constraints stay as dealt. Raises ValueError when a whole category is
-    exhausted. Does nothing for profiles that deal no harm_type."""
-    if not scenarios or scenarios[0].get("harm_type") is None:
-        return 0
-    weight_by_harm_type = dict(zip(harm_type_values, harm_type_weights))
-    used_harm_types: dict[tuple[str, str], set[str]] = {}
-    changed_count = 0
+def load_prior_use_counts(counts_path: Path | None) -> list[dict]:
+    """The rows of a prior use counts file; no file means no prior use."""
+    if counts_path is None:
+        return []
+    return json.loads(Path(counts_path).read_text(encoding="utf-8"))["rows"]
+
+
+def _least_used_harm_type_and_practical_advantage(
+        category: str, subcategory: str, harm_type_values: list[str], practical_advantage_values: list[str],
+        quadruple_uses: dict, harm_type_uses: dict, practical_advantage_uses: dict,
+        rng: random.Random) -> tuple[str, str]:
+    """The (harm_type, practical_advantage) pair least used with this category and subcategory.
+    Ranked by uses of the exact pair, then (so a run never repeats a harm type before it has
+    used them all) by uses of the harm type and of the practical advantage within the subcategory;
+    remaining ties are broken by the seeded rng."""
+    candidates = [(harm_type, practical_advantage)
+                  for harm_type in harm_type_values for practical_advantage in practical_advantage_values]
+
+    def rank(pair):
+        harm_type, practical_advantage = pair
+        return (quadruple_uses.get((category, subcategory, harm_type, practical_advantage), 0),
+                harm_type_uses.get((category, subcategory, harm_type), 0),
+                practical_advantage_uses.get((category, subcategory, practical_advantage), 0))
+
+    lowest_rank = min(rank(pair) for pair in candidates)
+    return rng.choice([pair for pair in candidates if rank(pair) == lowest_rank])
+
+
+def make_corpus_use_even(scenarios: list[dict], harm_type_values: list[str],
+                         practical_advantage_values: list[str], prior_use_rows: list[dict],
+                         rng: random.Random) -> None:
+    """Re-choose each scenario's taxa_subcategory, harm_type and practical_advantage so that,
+    across the corpus (prior uses plus this run), (category, subcategory, harm_type,
+    practical_advantage) combinations are used as evenly as possible. Edits the scenarios in place.
+
+    Walking the scenarios in order, within the dealt category (never changed, so category shares
+    and archetype constraints stay as dealt):
+      1. the subcategory is the one with the largest deficit: its target share (its relative
+         weight over the category's total) times the category's uses so far (prior plus this run's
+         earlier deals), minus its own uses so far; ties are broken by the seeded rng, weighted by
+         relative weight;
+      2. the harm type and practical advantage are the least-used pair for that category and
+         subcategory (see _least_used_harm_type_and_practical_advantage).
+    Deterministic for a given seed and prior use rows."""
+    category_uses: dict[str, int] = {}
+    subcategory_uses: dict[tuple[str, str], int] = {}
+    harm_type_uses: dict[tuple[str, str, str], int] = {}
+    practical_advantage_uses: dict[tuple[str, str, str], int] = {}
+    quadruple_uses: dict[tuple[str, str, str, str], int] = {}
+
+    def record_use(category, subcategory, harm_type, practical_advantage, count):
+        category_uses[category] = category_uses.get(category, 0) + count
+        subcategory_uses[(category, subcategory)] = subcategory_uses.get((category, subcategory), 0) + count
+        if harm_type is not None:
+            key = (category, subcategory, harm_type)
+            harm_type_uses[key] = harm_type_uses.get(key, 0) + count
+        if practical_advantage is not None:
+            key = (category, subcategory, practical_advantage)
+            practical_advantage_uses[key] = practical_advantage_uses.get(key, 0) + count
+        if harm_type is not None and practical_advantage is not None:
+            key = (category, subcategory, harm_type, practical_advantage)
+            quadruple_uses[key] = quadruple_uses.get(key, 0) + count
+
+    for row in prior_use_rows:
+        record_use(row["taxa_category"], row["taxa_subcategory"], row.get("harm_type"),
+                   row.get("practical_advantage"), row["count"])
+
     for scenario in scenarios:
-        category, subcategory = scenario["taxa_category"], scenario["taxa_subcategory"]
-        if scenario["harm_type"] not in used_harm_types.get((category, subcategory), set()):
-            used_harm_types.setdefault((category, subcategory), set()).add(scenario["harm_type"])
-            continue
-        taxa_entry = taxa_for(category)
-
-        def unused_for(candidate_subcategory: str) -> list[str]:
-            taken = used_harm_types.get((category, candidate_subcategory), set())
-            return [name for name in harm_type_values if name not in taken]
-
-        if not unused_for(subcategory):
-            subcategories_with_unused_harm = [name for name in taxa_entry["subcategories"]
-                                              if unused_for(name)]
-            if not subcategories_with_unused_harm:
-                raise ValueError(
-                    f"every (subcategory, harm_type) pair of taxa category {category!r} is already "
-                    f"used in this run ({scenario['scenario_id']} has nowhere to go); deal fewer "
-                    f"scenarios or add subcategories or harm types")
-            subcategory = _draw_subcategory(taxa_entry, rng, subcategories_with_unused_harm)
-        harm_type = _draw_harm_type(unused_for(subcategory), weight_by_harm_type, rng)
-        used_harm_types.setdefault((category, subcategory), set()).add(harm_type)
+        category = scenario["taxa_category"]
+        weight_by_subcategory = _subcategory_relative_weights(taxa_for(category))
+        total_weight = sum(weight_by_subcategory.values())
+        uses_of_category = category_uses.get(category, 0)
+        deficit_by_subcategory = {
+            name: round(weight / total_weight * uses_of_category - subcategory_uses.get((category, name), 0), 9)
+            for name, weight in weight_by_subcategory.items()}
+        largest_deficit = max(deficit_by_subcategory.values())
+        tied_subcategories = [name for name, deficit in deficit_by_subcategory.items()
+                              if deficit == largest_deficit]
+        subcategory = rng.choices(tied_subcategories,
+                                  weights=[weight_by_subcategory[name] for name in tied_subcategories], k=1)[0]
+        harm_type, practical_advantage = _least_used_harm_type_and_practical_advantage(
+            category, subcategory, harm_type_values, practical_advantage_values,
+            quadruple_uses, harm_type_uses, practical_advantage_uses, rng)
+        record_use(category, subcategory, harm_type, practical_advantage, 1)
         scenario["taxa_subcategory"] = subcategory
         scenario["harm_type"] = harm_type
-        scenario["variables"]["harm_type"] = harm_type  # what render_plan_prompt formats
-        changed_count += 1
-    return changed_count
+        scenario["practical_advantage"] = practical_advantage
+        # what render_plan_prompt formats
+        scenario["variables"]["harm_type"] = harm_type
+        scenario["variables"]["practical_advantage"] = practical_advantage
 
 
 def _quotas(weights: list[float], n: int, rng: random.Random) -> list[int]:
@@ -437,7 +483,8 @@ def _apply_archetypes(decks: dict, values: dict, n: int,
 
 
 def deal_scenarios(n: int, rng: random.Random,
-                   variables_path: Path = DEFAULT_VARIABLES) -> list[dict]:
+                   variables_path: Path = DEFAULT_VARIABLES,
+                   prior_use_counts_path: Path | None = None) -> list[dict]:
     """Stratified scenario deals, one per example. Axes are sampled
     independently (the anti-correlation rules hold by construction) except the
     spec's sanctioned dependencies: hidden→unaware, the trap surface form
@@ -524,6 +571,7 @@ def deal_scenarios(n: int, rng: random.Random,
             "taxa_hint": taxa_for(taxa)["hint"],
             "taxa_subcategory": _draw_subcategory(taxa_for(taxa), rng),
             "harm_type": raw.get("harm_type"),  # None for profiles that do not deal a kind of harm
+            "practical_advantage": raw.get("practical_advantage"),  # likewise
             "visibility": vis,
             "user_attitude": att,
             "conflict": raw["conflict"],
@@ -553,9 +601,9 @@ def deal_scenarios(n: int, rng: random.Random,
 
     # Last structural pass, after archetype trading and every per-scenario rule: the
     # records and the step 1a prompts both read the settled values.
-    if "harm_type" in values:
-        make_category_subcategory_harm_type_triples_distinct(
-            scenarios, values["harm_type"], weights["harm_type"], rng)
+    if "harm_type" in values and "practical_advantage" in values:
+        make_corpus_use_even(scenarios, values["harm_type"], values["practical_advantage"],
+                             load_prior_use_counts(prior_use_counts_path), rng)
     return scenarios
 
 
@@ -804,10 +852,13 @@ def main() -> None:
     parser.add_argument("--n", type=int, default=10, help="scenarios to deal")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, help="write the deals to this JSONL file")
+    parser.add_argument("--prior-use-counts", type=Path, default=None,
+                        help="JSON file of earlier corpus use counts (see make_corpus_use_even)")
     args = parser.parse_args()
 
     try:
-        scenarios = deal_scenarios(args.n, random.Random(args.seed), args.variables)
+        scenarios = deal_scenarios(args.n, random.Random(args.seed), args.variables,
+                                   args.prior_use_counts)
     except ValueError as exc:
         raise SystemExit(str(exc))
     if args.out:

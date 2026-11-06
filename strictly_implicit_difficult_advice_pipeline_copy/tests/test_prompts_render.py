@@ -58,7 +58,7 @@ TEMPLATE_KWARGS = [
     # from variables.txt plus the composer-injected reserved slots
     ("dad/step1a_scenario.txt", {
         "domain": "DOMAIN-X", "user_goal": "GOAL-X", "taxa_hint": "TAXA-HINT-X",
-        "taxa_subcategory": "TAXA-SUB-X", "harm_type": "HARM-X", "secondary_domain_clause": "",
+        "taxa_subcategory": "TAXA-SUB-X", "harm_type": "HARM-X", "practical_advantage": "ADVANTAGE-X", "secondary_domain_clause": "",
         "secondary_goal_clause": "", "archetype_clause": "",
         "visibility": "VIS-X", "user_attitude": "ATT-X",
         "user_moral_framework": "STYLE-X", "conflict": "CONFLICT-X",

@@ -109,6 +109,7 @@ def _scenario_cards_from_deal(p: dict) -> dict:
         "taxa_category": p.get("taxa_category", ""),
         "taxa_subcategory": p.get("taxa_subcategory", ""),
         "harm_type": p.get("harm_type", ""),
+        "practical_advantage": p.get("practical_advantage", ""),
         "visibility": p.get("visibility", ""),
         "user_attitude": p.get("user_attitude", ""),
         "user_moral_framework": p.get("user_moral_framework", ""),
@@ -607,7 +608,10 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
     if not legacy_run:
         if not deals:
             rng = random.Random(cfg.get("scenario_seed"))
-            deals = compose_scenarios.deal_scenarios(target - len(examples), rng, variables_path)
+            # Optional: earlier corpus batches' use counts, so the deal evens use across the whole corpus
+            # (a batch's config names a snapshot of them, so a resumed batch deals from the same counts).
+            deals = compose_scenarios.deal_scenarios(target - len(examples), rng, variables_path,
+                                                     cfg.get("prior_corpus_use_counts_path"))
             for p in deals:
                 p["scenario_gid"] = registry.gid("scenario", scenario_fingerprint(p))
                 utils.append_jsonl(p, deals_path)
@@ -978,6 +982,7 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                 "taxa_category": p["taxa_category"],
                 "taxa_subcategory": p.get("taxa_subcategory"),
                 "harm_type": p.get("harm_type"),
+                "practical_advantage": p.get("practical_advantage"),
                 "frontier_frame": p.get("frontier_frame"),
                 "length_class": p.get("length_class"),
                 "cultural_setting": p.get("cultural_setting"),

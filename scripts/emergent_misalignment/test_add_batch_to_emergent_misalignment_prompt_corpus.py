@@ -252,3 +252,103 @@ def test_snapshot_copies_the_scenario_dealer_file(tmp_path):
     add_batch.snapshot_prompts(batch_folder)
     snapshot = batch_folder / "generation_and_judge_prompts_used_for_this_batch" / add_batch.GENERATION_DEALER_FILE_NAME
     assert snapshot.read_bytes() == (add_batch.GENERATION_DEALER_FOLDER / add_batch.GENERATION_DEALER_FILE_NAME).read_bytes()
+
+
+# ---------- selection carries dealt fields; prior corpus use counts ----------
+
+def write_step_one_run(batch_folder, deals):
+    """A pipeline step 1 folder for a batch. Each deal is (scenario_id, category, subcategory, harm_type,
+    practical_advantage, passed_gate); harm_type and practical_advantage may be None for older batches."""
+    step_one = batch_folder / "raw_pipeline_outputs" / "dad" / "runs" / "run_a" / "step1"
+    step_one.mkdir(parents=True)
+    dilemmas, scenarios, gates = [], [], []
+    for scenario_id, category, subcategory, harm_type, practical_advantage, passed_gate in deals:
+        dilemmas.append({"prompt_gid": f"P-{scenario_id}", "scenario_id": scenario_id, "scenario_gid": f"S-{scenario_id}",
+                         "user_message": "a message"})
+        scenario = {"scenario_id": scenario_id, "visibility": "implicit; hidden harm", "taxa_category": category,
+                    "taxa_subcategory": subcategory, "variables": {"welfare_partner": "money", "scope": "dozens",
+                                                                   "visibility": "ignored duplicate"}}
+        if harm_type is not None:
+            scenario["harm_type"] = harm_type
+            scenario["practical_advantage"] = practical_advantage
+            scenario["variables"]["harm_type"] = harm_type
+            scenario["variables"]["practical_advantage"] = practical_advantage
+        scenarios.append(scenario)
+        gates.append({"scenario_id": scenario_id, "passed": passed_gate})
+    for name, records in (("dilemmas", dilemmas), ("scenarios", scenarios), ("gate", gates)):
+        (step_one / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    return step_one
+
+
+def test_selection_carries_dealt_fields_including_new_ones(tmp_path):
+    step_one = write_step_one_run(tmp_path, [("S-001", "farmed animals", "pigs", "housing", "lower cost", True)])
+    selected, _ = add_batch.select_prompts(step_one, 10)
+    record = selected[0]
+    assert record["harm_type"] == "housing" and record["practical_advantage"] == "lower cost"
+    assert record["taxa_category"] == "farmed animals" and record["taxa_subcategory"] == "pigs"
+    # an axis only present in the scenario's raw variables is carried, without overriding a card field
+    assert record["welfare_partner"] == "money" and record["scope"] == "dozens"
+    assert record["visibility"] == "implicit; hidden harm"
+
+
+def test_selection_leaves_new_fields_empty_for_older_runs(tmp_path):
+    step_one = write_step_one_run(tmp_path, [("S-001", "farmed animals", "pigs", None, None, True)])
+    record = add_batch.select_prompts(step_one, 10)[0][0]
+    assert record["harm_type"] is None and record["practical_advantage"] is None
+
+
+def make_corpus_with_two_earlier_batches(tmp_path):
+    corpus = make_corpus(tmp_path, folder_numbers=(1, 2, 3))
+    folders = add_batch.batch_folders_present(corpus)
+    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", None, None, True),
+                                    ("S-002", "farmed animals", "pigs", None, None, True),
+                                    ("S-003", "farmed animals", "pigs", None, None, False)])
+    write_step_one_run(folders[2], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True),
+                                    ("S-002", "fish/aquatic", "salmon", "transport", "higher yield", True),
+                                    ("S-003", "fish/aquatic", "salmon", "transport", "higher yield", True)])
+    write_step_one_run(folders[3], [("S-001", "research", "mice", "housing", "lower cost", True)])
+    return corpus, folders
+
+
+def test_prior_use_counts_count_gate_passed_deals_of_earlier_batches_only(tmp_path):
+    corpus, _ = make_corpus_with_two_earlier_batches(tmp_path)
+    counts = add_batch.count_prior_corpus_use(corpus, 3)
+    assert counts["counted_batch_numbers"] == [1, 2] and counts["deals_counted"] == 5
+    rows = {(r["taxa_category"], r["taxa_subcategory"], r["harm_type"], r["practical_advantage"]): r["count"]
+            for r in counts["rows"]}
+    assert rows == {("farmed animals", "pigs", None, None): 2,
+                    ("farmed animals", "pigs", "housing", "lower cost"): 1,
+                    ("fish/aquatic", "salmon", "transport", "higher yield"): 2}
+
+
+def test_prior_use_counts_file_is_snapshotted_and_kept_on_resume(tmp_path):
+    corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
+    first_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_10-00")
+    first_text = first_path.read_text()
+    # the new batch has since produced output of its own; a resume must not count it, nor recount at all
+    write_step_one_run(folders[3] / "elsewhere", [("S-009", "research", "mice", "housing", "lower cost", True)])
+    second_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_11-00")
+    assert second_path == first_path and second_path.read_text() == first_text
+    assert json.loads(first_text)["deals_counted"] == 5
+
+
+def test_batch_config_names_the_counts_snapshot_and_hash_ignores_it(tmp_path):
+    import yaml
+    corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
+    counts_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_10-00")
+    config_path = add_batch.write_batch_config(folders[3], 20270003, 10, "2026-11-06_10-00",
+                                               prior_use_counts_path=counts_path)
+    config = yaml.safe_load(config_path.read_text())
+    assert config["dad"]["dilemmas"]["prior_corpus_use_counts_path"] == str(counts_path)
+    assert yaml.safe_load(add_batch.write_batch_config(tmp_path, 1, 1, "x").read_text())[
+        "dad"]["dilemmas"]["prior_corpus_use_counts_path"] is None
+    # the hash reads only the prompt, profile and dealer files, so a counts file cannot change it
+    assert counts_path.name not in add_batch.GENERATION_PROMPT_FILE_NAMES
+    assert add_batch.generation_prompt_version_hash() == add_batch.generation_prompt_version_hash()
+
+
+def test_full_batch_writes_and_uses_counts_snapshot(tmp_path):
+    corpus, batch_folder, entry, calls = run_fake_batch(tmp_path)
+    counts_path = next(batch_folder.glob("prior_corpus_use_counts_before_batch_001_*.json"))
+    assert json.loads(counts_path.read_text())["rows"] == []
+    assert str(counts_path) in next(batch_folder.glob("pipeline_config_for_this_batch_*.yaml")).read_text()
