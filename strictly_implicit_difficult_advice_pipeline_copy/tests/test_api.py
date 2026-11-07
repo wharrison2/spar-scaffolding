@@ -463,6 +463,73 @@ class TestClassifyClaudeCodeError:
         assert not isinstance(err, api.UsageLimitExceeded)   # and it isn't the window
 
 
+REAL_CALL_CLAUDE_CODE_WITH_RETRY = api._call_claude_code_with_retry  # captured before the autouse guard replaces it
+
+SAFEGUARD_REFUSAL_MESSAGE = ("API Error: Sonnet 5.5's safeguards flagged this message "
+                             "(https://www.anthropic.com/legal/aup). Claude Code can't respond to this "
+                             "message with Sonnet 5.5.")
+
+
+class TestModelSafeguardRefusal:
+    def test_safeguard_message_is_classified_as_its_own_non_retryable_exception(self):
+        err = api._classify_claude_code_error(SAFEGUARD_REFUSAL_MESSAGE)
+        assert isinstance(err, api.ModelSafeguardRefusal)
+        assert not isinstance(err, (api.ClaudeCodeError, api.ClaudeCodeRefusal, api.UsageLimitExceeded))
+
+    def test_usage_limit_is_still_a_usage_limit(self):
+        err = api._classify_claude_code_error("Claude AI usage limit reached|1751400000")
+        assert isinstance(err, api.UsageLimitExceeded)
+
+    def test_tenacity_does_not_retry_the_refusal(self, monkeypatch):
+        calls = []
+
+        def refused(*args, **kwargs):
+            calls.append(1)
+            raise api._classify_claude_code_error(SAFEGUARD_REFUSAL_MESSAGE)
+
+        monkeypatch.setattr(api, "_run_claude_code_query", refused)
+        with pytest.raises(api.ModelSafeguardRefusal):
+            REAL_CALL_CLAUDE_CODE_WITH_RETRY(model="m", system="s", user_message="u")
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("backend", ["claude_code", "auto"])
+    def test_call_claude_raises_it_without_demoting_the_backend(self, tiny_config, tmp_path, monkeypatch, backend):
+        import yaml
+        tiny_config["backend"] = backend
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.safe_dump(tiny_config))
+        api.init(str(cfg), cost_log_path=tmp_path / "cost.jsonl")
+
+        def refuse(**kw):
+            raise api.ModelSafeguardRefusal(SAFEGUARD_REFUSAL_MESSAGE)
+
+        monkeypatch.setattr(api, "_call_claude_code_with_retry", refuse)
+        with pytest.raises(api.ModelSafeguardRefusal):
+            api.call_claude(user_message="u", system_prompt="s", max_tokens=100)
+        assert api._cc_demoted is None
+
+    def test_api_backend_status_error_with_the_safeguard_message_is_raised_as_the_refusal(
+            self, tiny_config, tmp_path, monkeypatch):
+        import anthropic
+        import httpx
+        import yaml
+        tiny_config["backend"] = "api"
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.safe_dump(tiny_config))
+        api.init(str(cfg), cost_log_path=tmp_path / "cost.jsonl")
+        request = httpx.Request("POST", "https://example.invalid")
+        status_error = anthropic.BadRequestError(
+            SAFEGUARD_REFUSAL_MESSAGE, response=httpx.Response(400, request=request), body=None)
+
+        def refuse(**kw):
+            raise status_error
+
+        monkeypatch.setattr(api, "_call_with_retry", refuse)
+        monkeypatch.setattr(api, "_get_client", lambda: object())
+        with pytest.raises(api.ModelSafeguardRefusal):
+            api.call_claude(user_message="u", system_prompt="s", max_tokens=100)
+
+
 class TestClaudeCodeRefusalSurface:
     def _init_cc(self, tiny_config, tmp_path, backend):
         import yaml

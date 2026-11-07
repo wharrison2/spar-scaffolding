@@ -109,6 +109,12 @@ _LIMIT_PATTERN = re.compile(r"usage limit|spend limit", re.IGNORECASE)
 _REFUSAL_PATTERN = re.compile(r"usage policy|unable to respond to this request",
                               re.IGNORECASE)
 
+# The model-safeguard refusal (observed: "API Error: Sonnet 5.5's safeguards
+# flagged this message (https://www.anthropic.com/legal/aup)... Claude Code can't
+# respond to this message with Sonnet 5.5."). Deterministic for the same
+# content, so it is never retried and never demotes the backend.
+_SAFEGUARD_REFUSAL_PATTERN = re.compile(r"safeguards flagged", re.IGNORECASE)
+
 # Claude Code treats an empty --system-prompt as unset and substitutes its own
 # agentic CLI prompt, which leaks tool/codebase behavior into generated text.
 # Stages that send no system prompt get this neutral stand-in instead. Note this
@@ -132,6 +138,15 @@ class UsageLimitExceeded(Exception):
     Not retried: the 5-hour window can take hours to reset. Checkpoints are
     written after every call, so the run can continue later with --resume.
     """
+
+
+class ModelSafeguardRefusal(Exception):
+    """The model's safeguards refused this message (claude_code or api backend).
+
+    Deterministic for the same content, so it is never retried by tenacity
+    (neither retry wrapper lists it) and never demotes an auto run. Unlike
+    ClaudeCodeRefusal it is raised to the caller, which rejects the one
+    scenario (reason 'refused_by_model_safeguards') and carries on."""
 
 
 class ClaudeCodeError(Exception):
@@ -481,6 +496,8 @@ def _classify_claude_code_error(message: str) -> Exception:
             "Progress is checkpointed — wait for your usage window to reset, "
             "then continue this run with --resume."
         )
+    if _SAFEGUARD_REFUSAL_PATTERN.search(message):
+        return ModelSafeguardRefusal(message)
     if _REFUSAL_PATTERN.search(message):
         return ClaudeCodeRefusal(message)
     return ClaudeCodeError(message)
@@ -829,6 +846,14 @@ def call_claude(
                             item_id=item_id, attempts=_attempt_state.n,
                             error=str(e).splitlines()[0][:500] if str(e) else None)
             return ("", "refusal") if return_stop_reason else ""
+        except ModelSafeguardRefusal as e:
+            # Per-item and deterministic: log it, never demote the backend,
+            # and let the caller reject this one item.
+            _log_model_call(resolved_model, "claude_code", full_system, [user_message],
+                            response_text=None, stage=stage, item_id=item_id,
+                            attempts=_attempt_state.n,
+                            error=f"ModelSafeguardRefusal: {str(e)[:500]}")
+            raise
         except (UsageLimitExceeded, ClaudeCodeError, RuntimeError) as e:
             if _backend != "auto":
                 _log_model_call(resolved_model, "claude_code", full_system, [user_message],
@@ -894,11 +919,14 @@ def call_claude(
             **api_kwargs,
         )
     except Exception as e:
+        if (isinstance(e, anthropic.APIStatusError)
+                and _SAFEGUARD_REFUSAL_PATTERN.search(str(e))):
+            e = ModelSafeguardRefusal(str(e))
         _log_model_call(resolved_model, "api", full_system, [user_message],
                         response_text=None, stage=stage, item_id=item_id,
                         attempts=_attempt_state.n,
                         error=f"{type(e).__name__}: {str(e)[:500]}")
-        raise
+        raise e
 
     usage = response.usage
     _log_usage(resolved_model, usage.input_tokens, usage.output_tokens,

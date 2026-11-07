@@ -18,7 +18,7 @@ import pytest
 from conftest import dad_scenario_plan_reply, dad_scenario_reply
 from dad_pipeline import (baseline, compose_scenarios, reasoning_library,
                           step1_dilemmas, step2_responses, step3_rewrite)
-from shared import utils
+from shared import api, utils
 
 
 # --- Step 1b/1c: drafting via run() --------------------------------------
@@ -452,6 +452,80 @@ class TestStep1Run:
         failures = utils.load_jsonl(tmp_path / "draft_failures.jsonl")
         assert len(failures) == 1
         assert failures[0]["raw"] == "no tags here" and failures[0]["pass"] == 1
+
+    @pytest.mark.parametrize("refusing_stage, reject_file, expected_sub_stage", [
+        ("prompt_draft", "draft_rejects.jsonl", "1b_draft"),
+        ("prompt_gate", "draft_rejects.jsonl", "1c_gate"),
+        ("prompt_refine", "refine_rejects.jsonl", "1d_refine"),
+    ])
+    def test_model_safeguard_refusal_rejects_one_scenario_and_resume_never_calls_it_again(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude, refusing_stage, reject_file, expected_sub_stage
+    ):
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 3, "gate": True, "refine": True}}
+        refused_scenario_id = "S-002"
+
+        def refuse_one_scenario(user_message, **kw):
+            if kw.get("stage") == refusing_stage and kw.get("item_id") == refused_scenario_id:
+                raise api.ModelSafeguardRefusal("API Error: safeguards flagged this message")
+            return _dad_step1_dispatch(user_message, **kw)
+
+        calls = stub_claude(refuse_one_scenario)
+        examples = step1_dilemmas.run(config, prompts_dad, tmp_path)
+
+        assert sorted(example["scenario_id"] for example in examples) == ["S-001", "S-003"]
+        refused_calls = [c for c in calls if c["item_id"] == refused_scenario_id and c["stage"] == refusing_stage]
+        assert len(refused_calls) == 1  # never retried, never switched to another model
+        rejects = utils.load_jsonl(tmp_path / reject_file)
+        assert len(rejects) == 1
+        assert rejects[0]["scenario_id"] == refused_scenario_id
+        assert rejects[0]["reason"] == "refused_by_model_safeguards"
+        assert rejects[0]["stage"] == expected_sub_stage
+        assert "safeguards flagged" in rejects[0]["error"]
+
+        def no_calls_allowed(user_message, **kw):
+            raise AssertionError(f"resume made an API call: {kw.get('stage')} {kw.get('item_id')}")
+
+        resumed_calls = stub_claude(no_calls_allowed)
+        resumed_examples = step1_dilemmas.run(config, prompts_dad, tmp_path)
+        assert resumed_calls == []
+        assert len(resumed_examples) == 2
+        assert len(utils.load_jsonl(tmp_path / reject_file)) == 1
+
+    def test_model_safeguard_refusal_at_scenario_planning_without_fallback_rejects_that_scenario(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 2, "gate": False, "refine": False}}
+
+        def refuse_second_plan(user_message, **kw):
+            if kw.get("stage") == "scenario_plan" and kw.get("item_id") == "S-002":
+                raise api.ModelSafeguardRefusal("API Error: safeguards flagged this message")
+            return _dad_step1_dispatch(user_message, **kw)
+
+        stub_claude(refuse_second_plan)
+        examples = step1_dilemmas.run(config, prompts_dad, tmp_path)
+        assert [example["scenario_id"] for example in examples] == ["S-001"]
+        rejects = utils.load_jsonl(tmp_path / "scenario_rejects.jsonl")
+        assert [(r["scenario_id"], r["reason"], r["stage"]) for r in rejects] == [
+            ("S-002", "refused_by_model_safeguards", "1a_scenario_plan")]
+
+    def test_model_safeguard_refusal_at_scenario_planning_tries_the_fallback_model_once(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 1, "gate": False, "refine": False},
+                         "scenario_model": "stage-model", "scenario_refusal_fallback_model": "fallback-model"}
+
+        def refuse_stage_model_only(user_message, **kw):
+            if kw.get("stage") == "scenario_plan" and kw.get("model") == "stage-model":
+                raise api.ModelSafeguardRefusal("API Error: safeguards flagged this message")
+            return _dad_step1_dispatch(user_message, **kw)
+
+        calls = stub_claude(refuse_stage_model_only)
+        examples = step1_dilemmas.run(config, prompts_dad, tmp_path)
+        assert len(examples) == 1
+        assert [c["model"] for c in calls if c["stage"] == "scenario_plan"] == ["stage-model", "fallback-model"]
 
     def test_refused_draft_is_rejected_after_budget_and_resume_skips_it(
         self, tiny_config, prompts_dad, tmp_path, stub_claude

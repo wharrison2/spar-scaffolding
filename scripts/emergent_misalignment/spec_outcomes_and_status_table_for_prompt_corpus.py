@@ -5,6 +5,9 @@ is never edited by hand.
 
 Outcome of one dealt spec in one batch (read from the pipeline's step 1 files, the selection and the two judges):
   accepted, or failed with one failure stage, found in this order:
+    refused_by_model_safeguards     the model's safeguards refused a pipeline call (reason refused_by_model_safeguards in
+                                    any of the three reject files); the detail names the sub-stage that refused
+                                    (1a_scenario_plan, 1b_draft, 1c_gate or 1d_refine)
     incoherent_at_planning          step 1a judged the dealt combination incoherent (scenario_rejects.jsonl)
     no_usable_draft_after_retries   step 1b could not produce a usable draft (draft_rejects.jsonl)
     unfixable_at_refine             step 1d judged the draft unfixable (refine_rejects.jsonl)
@@ -32,7 +35,8 @@ USEFULNESS_VERDICT_PATTERN = "evident_and_decisive_welfare_stake_verdicts_*.json
 SPEC_OUTCOMES_FILE_PATTERN = "spec_outcomes_for_batch_*.jsonl"
 SPEC_STATUS_TABLE_FOLDER_NAME = "spec_status_tables"
 SPEC_FIELDS = ("taxa_category", "taxa_subcategory", "harm_type", "practical_advantage")
-FAILURE_STAGES = ("incoherent_at_planning", "no_usable_draft_after_retries", "unfixable_at_refine",
+REFUSED_BY_MODEL_SAFEGUARDS = "refused_by_model_safeguards"
+FAILURE_STAGES = (REFUSED_BY_MODEL_SAFEGUARDS, "incoherent_at_planning", "no_usable_draft_after_retries", "unfixable_at_refine",
                   "no_prompt_produced", "not_implicit", "gate_rejected_after_retries", "gate_reply_unusable",
                   "not_answerable", "not_useful", "unjudged")
 STATUSES = ("never_dealt", "accepted", "failed")
@@ -71,7 +75,8 @@ def derive_spec_outcomes_for_batch(batch_folder: Path, batch_number: int,
         return []
     step_one = run_folder / "step1"
     deals = read_jsonl_if_exists(step_one / "scenario_deals.jsonl")
-    incoherent_ids = {record["scenario_id"] for record in read_jsonl_if_exists(step_one / "scenario_rejects.jsonl")}
+    scenario_rejects = {record["scenario_id"]: record
+                        for record in read_jsonl_if_exists(step_one / "scenario_rejects.jsonl")}
     planned = {record["scenario_id"]: record for record in read_jsonl_if_exists(step_one / "scenarios.jsonl")}
     prompt_gid_by_scenario = {record["scenario_id"]: record["prompt_gid"]
                               for record in read_jsonl_if_exists(step_one / "dilemmas.jsonl")}
@@ -96,7 +101,13 @@ def derive_spec_outcomes_for_batch(batch_folder: Path, batch_number: int,
         answerability_verdict = answerability.get(prompt_gid) if prompt_gid else None
         usefulness_verdict = usefulness.get(prompt_gid) if prompt_gid else None
         stage, detail = None, None
-        if scenario_id in incoherent_ids:
+        reject_records = [reject_files.get(scenario_id) for reject_files in
+                          (scenario_rejects, draft_rejects, refine_rejects)]
+        safeguard_refusal = next((record for record in reject_records
+                                  if record and record.get("reason") == REFUSED_BY_MODEL_SAFEGUARDS), None)
+        if safeguard_refusal is not None:
+            stage, detail = REFUSED_BY_MODEL_SAFEGUARDS, safeguard_refusal.get("stage")
+        elif scenario_id in scenario_rejects:
             stage = "incoherent_at_planning"
         elif scenario_id in draft_rejects:
             stage, detail = "no_usable_draft_after_retries", draft_rejects[scenario_id].get("reason")

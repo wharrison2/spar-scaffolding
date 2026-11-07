@@ -354,7 +354,9 @@ def refine_draft(scenario: dict, draft_text: str, template: str,
     failures): refined is {"prompt", "notes"} — notes are whatever preceded
     the tags — or {"unfixable": reason} when the editor returned an
     <unfixable> verdict instead of a rewrite (a judgment, not a failure: the
-    caller rejects the scenario), or None when every attempt was unusable
+    caller rejects the scenario), or {"safeguard_refusal": error text} when
+    the model's safeguards refused the message (also a rejection, reason
+    refused_by_model_safeguards), or None when every attempt was unusable
     (truncated or tagless; the caller ships the 1b draft and stamps
     refine_failed). Every unusable raw is returned in `failures` for the main
     thread to persist to step1/refine_failures.jsonl — a discarded raw is an
@@ -364,10 +366,14 @@ def refine_draft(scenario: dict, draft_text: str, template: str,
     failures = []
     pid = scenario.get("scenario_id")
     for attempt in range(1, MAX_REFINE_ATTEMPTS + 1):
-        raw, stop_reason = api.call_claude(
-            user_message=user_prompt, system_prompt=system_prompt,
-            max_tokens=4000, model=model,
-            stage="prompt_refine", item_id=pid, return_stop_reason=True)
+        try:
+            raw, stop_reason = api.call_claude(
+                user_message=user_prompt, system_prompt=system_prompt,
+                max_tokens=4000, model=model,
+                stage="prompt_refine", item_id=pid, return_stop_reason=True)
+        except api.ModelSafeguardRefusal as refusal:
+            # Deterministic: never retried, and never switched to another model.
+            return ({"safeguard_refusal": str(refusal)}, failures)
         if stop_reason == "max_tokens":
             failures.append({"scenario_id": pid, "attempt": attempt, "raw": raw,
                              "truncated": True})
@@ -406,6 +412,12 @@ def _parse_json_object(raw: str) -> dict | None:
         return None
 
 
+# Reason written to a reject record when the model's safeguards refuse a call.
+REFUSED_BY_MODEL_SAFEGUARDS = "refused_by_model_safeguards"
+# gate_draft's verdict when the gate call was refused by the model's safeguards
+# (failures then holds the error text).
+SAFEGUARD_REFUSED = "safeguard_refused"
+
 MAX_GATE_ATTEMPTS = 2      # fresh retries when the gate's own reply is unparseable
 MAX_GATE_REDRAFTS = 3      # times a scenario is redrafted after a gate rejection
 
@@ -416,7 +428,9 @@ def gate_draft(scenario: dict, draft: dict, prompts_dir: Path,
     Returns a pass/fail verdict — never a rewrite.
 
     Returns (passed, failures, raw_failures):
-      passed        True/False verdict, or None when every attempt was unusable
+      passed        True/False verdict, SAFEGUARD_REFUSED when the model's
+                    safeguards refused the call (failures = [error text]; the
+                    caller rejects the scenario), or None when every attempt was unusable
                     (caller then fail-opens and ships the draft).
       failures      the gate's reasons (empty on pass; only meaningful with a
                     True/False verdict).
@@ -436,9 +450,12 @@ def gate_draft(scenario: dict, draft: dict, prompts_dir: Path,
     raw_failures = []
     pid = scenario.get("scenario_id")
     for attempt in range(1, MAX_GATE_ATTEMPTS + 1):
-        raw = api.call_claude(user_message=user_prompt, system_prompt=system_prompt,
-                              max_tokens=1000, model=model,
-                              stage="prompt_gate", item_id=pid)
+        try:
+            raw = api.call_claude(user_message=user_prompt, system_prompt=system_prompt,
+                                  max_tokens=1000, model=model,
+                                  stage="prompt_gate", item_id=pid)
+        except api.ModelSafeguardRefusal as refusal:
+            return (SAFEGUARD_REFUSED, [str(refusal)], raw_failures)
         verdict = _parse_json_object(raw)
         if isinstance(verdict, dict) and "pass" in verdict:
             failures = [str(f).strip() for f in (verdict.get("failures") or []) if str(f).strip()]
@@ -661,11 +678,26 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                     use_fallback = (refused and refusal_fallback_model
                                     and attempt == attempts_allowed)
                     model = refusal_fallback_model if use_fallback else plan_model
-                    raw, stop_reason = api.call_claude(
-                        user_message=user_prompt, system_prompt=system_prompt,
-                        max_tokens=4000, model=model,
-                        stage="scenario_plan", item_id=deal["scenario_id"],
-                        return_stop_reason=True)
+                    try:
+                        raw, stop_reason = api.call_claude(
+                            user_message=user_prompt, system_prompt=system_prompt,
+                            max_tokens=4000, model=model,
+                            stage="scenario_plan", item_id=deal["scenario_id"],
+                            return_stop_reason=True)
+                    except api.ModelSafeguardRefusal as safeguard_refusal:
+                        # Deterministic, so repeating the stage model is pointless:
+                        # grant the fallback model one attempt if configured and
+                        # not yet used; otherwise reject the scenario.
+                        failures.append({"scenario_id": deal["scenario_id"],
+                                         "attempt": attempt, "raw": None,
+                                         "stop_reason": "model_safeguard_refusal",
+                                         "model": model,
+                                         "safeguard_refusal": str(safeguard_refusal)})
+                        if refusal_fallback_model and not use_fallback:
+                            refused = True
+                            attempts_allowed = attempt + 1
+                            continue
+                        return None, None, failures, None
                     # The codebase invariant: output the API stopped short —
                     # token cap, or Opus's refusal classifier cutting the
                     # stream (seen intermittently on insect-welfare plans)
@@ -723,7 +755,18 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                     print(f"    {deal['scenario_id']}: accepted unclosed "
                           "<scenario_description> (end_turn) — raw kept in "
                           "scenario_plan_failures.jsonl")
-                if incoherent_raw is not None:
+                safeguard_refusals = [f for f in failures if f.get("safeguard_refusal")]
+                if (safeguard_refusals and incoherent_raw is None and description is None):
+                    # The stage model (and the fallback, if any) were refused by
+                    # the model's safeguards: reject this one scenario, run goes on.
+                    reject = {**deal, "reason": REFUSED_BY_MODEL_SAFEGUARDS,
+                              "stage": "1a_scenario_plan",
+                              "error": safeguard_refusals[-1]["safeguard_refusal"]}
+                    rejects.append(reject)
+                    utils.append_jsonl(reject, rejects_path)
+                    print(f"    {deal['scenario_id']}: refused by the model's safeguards at "
+                          "1a_scenario_plan — rejected; no example shipped.")
+                elif incoherent_raw is not None:
                     reject = {**deal, "incoherent": True, "plan_raw": incoherent_raw}
                     rejects.append(reject)
                     utils.append_jsonl(reject, rejects_path)
@@ -750,7 +793,7 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                     f"inspect {output_dir / 'scenario_plan_failures.jsonl'}, then --resume "
                     "to retry them (planned scenarios are checkpointed).")
         if rejects:
-            print(f"  {len(rejects)} INCOHERENT deals rejected — this run will produce "
+            print(f"  {len(rejects)} deals rejected (INCOHERENT or refused by model safeguards) — this run will produce "
                   f"{len(scenarios)} of {len(deals)} planned examples "
                   f"(rejections in {rejects_path.name}).")
 
@@ -805,12 +848,28 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                 scenario, draft_template_text,
                 redraft_feedback=_redraft_feedback_block(
                     gate_feedback.get(scenario["scenario_id"], [])))
-            return api.call_claude(user_message=user_prompt, system_prompt=system_prompt,
-                                   max_tokens=4000, model=draft_model,
-                                   stage="prompt_draft", item_id=scenario["scenario_id"],
-                                   return_stop_reason=True)
+            try:
+                return api.call_claude(user_message=user_prompt, system_prompt=system_prompt,
+                                       max_tokens=4000, model=draft_model,
+                                       stage="prompt_draft", item_id=scenario["scenario_id"],
+                                       return_stop_reason=True)
+            except api.ModelSafeguardRefusal as refusal:
+                return (str(refusal), "model_safeguard_refusal")
 
         drafted: dict[str, str] = {}
+
+        def _reject_for_model_safeguards(sid: str, stage: str, error_text: str) -> None:
+            """Reject one scenario whose call the model's safeguards refused
+            (deterministic, so no retry and no other model); the run goes on."""
+            utils.append_jsonl({"scenario_id": sid,
+                                "scenario_gid": next((p.get("scenario_gid") for p in scenarios
+                                                      if p["scenario_id"] == sid), None),
+                                "reason": REFUSED_BY_MODEL_SAFEGUARDS,
+                                "stage": stage, "error": error_text},
+                               draft_rejects_path)
+            draft_rejected.add(sid)
+            print(f"    {sid}: refused by the model's safeguards at {stage} — rejected; "
+                  "no example shipped.")
 
         def _note_failure(sid: str, reason: str) -> None:
             """Count a failed attempt; reject the scenario once it exhausts its
@@ -829,6 +888,9 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
         for scenario, (raw, stop_reason) in zip(
                 pending, utils.parallel_map(_draft, pending, workers)):
             sid = scenario["scenario_id"]
+            if stop_reason == "model_safeguard_refusal":
+                _reject_for_model_safeguards(sid, "1b_draft", raw)
+                continue
             # Failure raws persist here on the main thread, in input order.
             if stop_reason == "max_tokens":
                 utils.append_jsonl({"scenario_id": sid, "pass": passes, "raw": raw,
@@ -870,6 +932,10 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
 
             for scenario, (passed, failures, raw_failures) in zip(
                     newly_drafted, utils.parallel_map(_gate, newly_drafted, workers)):
+                if passed == SAFEGUARD_REFUSED:
+                    _reject_for_model_safeguards(scenario["scenario_id"], "1c_gate",
+                                                 "; ".join(failures))
+                    continue
                 verdict_by_pid[scenario["scenario_id"]] = (passed, failures)
                 # Workers only call + parse; failure raws persist here on the
                 # main thread, in input order (the parallel_map contract).
@@ -884,6 +950,8 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
         if gate_enabled:
             for p in newly_drafted:
                 pid = p["scenario_id"]
+                if pid in draft_rejected:
+                    continue  # the 1c gate call was refused by the model's safeguards
                 passed, failures = verdict_by_pid.get(pid, (None, []))
                 gate_attempts[pid] = gate_attempts.get(pid, 0) + 1
                 # Log every verdict for provenance / the corpus audit.
@@ -908,7 +976,8 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
                     print(f"    {pid}: gate unusable after {MAX_GATE_ATTEMPTS} attempts "
                           "— shipping the draft (raws in gate_failures.jsonl).")
 
-        shipping = [p for p in newly_drafted if p["scenario_id"] not in to_redraft]
+        shipping = [p for p in newly_drafted if p["scenario_id"] not in to_redraft
+                    and p["scenario_id"] not in draft_rejected]
 
         # --- Step 1d (optional): rewrite each gate-passed draft in place. The
         # gate REDRAFTS scenario-level failures; the refine REWRITES surface
@@ -936,6 +1005,19 @@ def run(config: dict, prompts_dir: Path, output_dir: Path) -> list[dict]:
             refine_failed = False
             if refine_enabled:
                 refined = refined_by_pid.get(pid)
+                if refined is not None and "safeguard_refusal" in refined:
+                    utils.append_jsonl({
+                        "scenario_id": pid,
+                        "scenario_gid": p.get("scenario_gid"),
+                        "draft_prompt": user_message,
+                        "reason": REFUSED_BY_MODEL_SAFEGUARDS,
+                        "stage": "1d_refine",
+                        "error": refined["safeguard_refusal"],
+                    }, refine_rejects_path)
+                    refine_rejected.add(pid)
+                    print(f"    {pid}: refused by the model's safeguards at 1d_refine "
+                          "(rejected; no example shipped).")
+                    continue
                 if refined is not None and "unfixable" in refined:
                     utils.append_jsonl({
                         "scenario_id": pid,

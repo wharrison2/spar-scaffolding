@@ -17,7 +17,7 @@ compose_scenarios = load_scenario_dealer()
 CATEGORY_A = compose_scenarios.load_axes()[0]["taxa_category"][0]
 CATEGORY_B = compose_scenarios.load_axes()[0]["taxa_category"][1]
 # one outcome kind per way a deal can end, and the failure stage each must be read as
-KIND_TO_STAGE = {"accepted": None, "incoherent": "incoherent_at_planning", "draft_reject": "no_usable_draft_after_retries",
+KIND_TO_STAGE = {"accepted": None, "safeguard_refused_1b": "refused_by_model_safeguards", "incoherent": "incoherent_at_planning", "draft_reject": "no_usable_draft_after_retries",
                  "unfixable": "unfixable_at_refine", "no_prompt": "no_prompt_produced", "not_implicit": "not_implicit",
                  "gate_fail": "gate_rejected_after_retries", "gate_unusable": "gate_reply_unusable",
                  "not_answerable": "not_answerable", "not_useful": "not_useful", "unjudged": "unjudged"}
@@ -62,10 +62,22 @@ def write_batch(corpus, number, deals, spec_rows, in_ledger=True):
         if kind == "not_implicit":
             deal["visibility"] = "explicit"
         files["scenario_deals"].append(deal)
+        if kind == "safeguard_refused_1a":
+            files["scenario_rejects"].append({**deal, "reason": "refused_by_model_safeguards", "stage": "1a_scenario_plan",
+                                              "error": "safeguards flagged"})
+            continue
         if kind == "incoherent":
             files["scenario_rejects"].append({**deal, "incoherent": True})
             continue
         files["scenarios"].append(deal)
+        if kind == "safeguard_refused_1b":
+            files["draft_rejects"].append({"scenario_id": scenario_id, "reason": "refused_by_model_safeguards",
+                                           "stage": "1b_draft", "error": "safeguards flagged"})
+            continue
+        if kind == "safeguard_refused_1d":
+            files["refine_rejects"].append({"scenario_id": scenario_id, "reason": "refused_by_model_safeguards",
+                                            "stage": "1d_refine", "error": "safeguards flagged"})
+            continue
         if kind == "draft_reject":
             files["draft_rejects"].append({"scenario_id": scenario_id, "reason": "refusal"})
             continue
@@ -125,6 +137,20 @@ def test_every_way_a_deal_can_end_is_read_as_its_own_outcome(tmp_path):
     assert set(KIND_TO_STAGE.values()) - {None} == set(outcomes.FAILURE_STAGES)
 
 
+def test_a_model_safeguard_refusal_at_any_pipeline_stage_is_a_failure_that_names_the_refusing_stage(tmp_path):
+    spec_rows = make_spec_set()
+    corpus = make_corpus(tmp_path, spec_rows)
+    kinds = ["safeguard_refused_1a", "safeguard_refused_1b", "safeguard_refused_1d"]
+    folder = write_batch(corpus, 1, [(spec_rows[i]["spec_id"], kind) for i, kind in enumerate(kinds)], spec_rows)
+    rows = outcomes.derive_spec_outcomes_for_batch(folder, 1)
+    assert [row["failure_stage"] for row in rows] == ["refused_by_model_safeguards"] * 3
+    assert [row["failure_detail"] for row in rows] == ["1a_scenario_plan", "1b_draft", "1d_refine"]
+    assert [row["outcome"] for row in rows] == ["failed"] * 3
+    table = table_by_spec(corpus, spec_rows)
+    assert {table[row["spec_id"]]["status"] for row in rows} == {"failed"}
+    assert {table[row["spec_id"]]["latest_failure_stage"] for row in rows} == {"refused_by_model_safeguards"}
+
+
 def test_not_answerable_wins_over_a_missing_usefulness_verdict_and_unjudged_needs_a_missing_verdict(tmp_path):
     spec_rows = make_spec_set()
     corpus = make_corpus(tmp_path, spec_rows)
@@ -165,7 +191,7 @@ def test_status_is_never_dealt_failed_or_accepted_and_a_failure_that_later_passe
 
 
 def test_default_plan_excludes_every_dealt_spec_whatever_its_outcome(tmp_path):
-    spec_rows = make_spec_set()
+    spec_rows = make_spec_set(count_per_category=20)
     ids = [row["spec_id"] for row in spec_rows]
     corpus = make_corpus(tmp_path, spec_rows)
     kinds = list(KIND_TO_STAGE)
