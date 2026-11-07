@@ -1,9 +1,14 @@
 """Add one batch of prompts to the append-only emergent misalignment prompt corpus.
 
-Each run of this script generates one batch: it deals new scenarios, drafts and gates prompts (pipeline step 1), keeps
+Each run of this script generates one batch: it deals new scenarios (each drawing its spec from the corpus's fixed spec
+set, see below), drafts and gates prompts (pipeline step 1), keeps
 the implicit gate-passed ones, judges each for answerability without welfare and for an evident and decisive welfare
 stake, and keeps the prompts that are both answerable and useful. The corpus folder only ever grows; see
 README_how_this_corpus_grows.md in it.
+
+Corpus settings: a corpus folder may hold corpus_settings_scenario_seed_base_and_spec_set_file.json naming the scenario
+seed base and the spec set file (relative to the corpus folder). A folder without it keeps the old behaviour: seed base
+20270000 and no spec set (scenarios keep the harm type, practical advantage and subcategory they were dealt).
 
 Steps (each leaves a completion marker in the batch folder, so --resume-batch-folder skips finished ones):
   snapshot prompts -> write config -> pipeline step 1 -> selection -> answerability judge (twice) ->
@@ -35,7 +40,9 @@ from filter_prompts_where_user_never_mentions_animal_welfare_with_haiku_through_
     latest_verdict_per_prompt, read_verdict_records)
 
 PYTHON_EXECUTABLE = str(REPOSITORY_ROOT / "animal-welfare-data-pipeline" / ".venv" / "bin" / "python")
-DEFAULT_CORPUS_FOLDER = REPOSITORY_ROOT / "data" / "emergent_misalignment_prompt_corpus"
+DEFAULT_CORPUS_FOLDER = (REPOSITORY_ROOT / "data"
+                         / "emergent_misalignment_prompt_corpus_category_subcategory_harm_and_advantage_specs")
+CORPUS_SETTINGS_FILE_NAME = "corpus_settings_scenario_seed_base_and_spec_set_file.json"
 LEDGER_FILE_NAME = "corpus_batch_ledger_started_2026-11-06.jsonl"
 PIPELINE_FOLDER = REPOSITORY_ROOT / "strictly_implicit_difficult_advice_pipeline_copy"
 GENERATION_PROMPT_FOLDER = PIPELINE_FOLDER / "prompts" / "dad"
@@ -45,8 +52,9 @@ GENERATION_PROMPT_FILE_NAMES = ["step1a_scenario.txt", "step1b_dilemmas.txt", "s
 # snapshotted next to the prompts and counts toward the generation prompt version hash.
 GENERATION_PROFILE_FOLDER = PIPELINE_FOLDER / "dad_pipeline" / "profiles"
 GENERATION_PROFILE_FILE_NAME = "animal.py"
-# The scenario dealer (including the pass that evens use of category, subcategory, harm type and practical advantage
-# combinations across the corpus) decides which scenarios are dealt, so it is snapshotted and hashed the same way.
+# The scenario dealer (including the draw of specs from the fixed spec set) decides which scenarios are dealt, so it is
+# snapshotted and hashed the same way. The spec set file is hashed with the generation prompts (see
+# generation_prompt_version_hash), and its full sha256 is also recorded in every batch summary and ledger line.
 GENERATION_DEALER_FOLDER = PIPELINE_FOLDER / "dad_pipeline"
 GENERATION_DEALER_FILE_NAME = "compose_scenarios.py"
 JUDGE_PROMPT_FOLDER = SCRIPT_DIRECTORY / "prompts"
@@ -60,11 +68,12 @@ USEFULNESS_JUDGE_SCRIPT = SCRIPT_DIRECTORY / \
     "judge_whether_prompt_carries_an_evident_and_decisive_animal_welfare_stake_through_claude_code_cli.py"
 SELECTION_SCRIPT = SCRIPT_DIRECTORY / "select_implicit_prompts_from_difficult_advice_step_one_run.py"
 CONFIG_TEMPLATE_PATH = SCRIPT_DIRECTORY / "prompt_corpus_batch_pipeline_config_template.yaml"
-PRIOR_USE_COUNTS_FILE_PATTERN = "prior_corpus_use_counts_before_batch_*.json"
-PRIOR_USE_COUNTS_CONFIG_KEY = "prior_corpus_use_counts_path"
+USED_SPEC_IDS_FILE_PATTERN = "used_spec_ids_before_batch_*.json"
+SPEC_SET_CONFIG_KEY = "spec_set_path"
+USED_SPEC_IDS_CONFIG_KEY = "used_spec_ids_path"
 ANSWERABILITY_VERDICT_PATTERN = "complete_answer_without_welfare_verdicts_*.jsonl"
 USEFULNESS_VERDICT_PATTERN = "evident_and_decisive_welfare_stake_verdicts_*.jsonl"
-SCENARIO_SEED_BASE = 20270000
+SCENARIO_SEED_BASE = 20270000  # the seed base of a corpus folder with no settings file (the retired first corpus)
 SELECTION_COUNT_LARGE_ENOUGH_TO_KEEP_EVERYTHING = 100000
 PROGRESS_REPORT_INTERVAL_SECONDS = 180
 TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M"
@@ -106,8 +115,26 @@ def incomplete_batch_folders(corpus_folder: Path) -> list[Path]:
     return [folder for number, folder in batch_folders_present(corpus_folder).items() if number not in completed]
 
 
-def scenario_seed_for_batch(batch_number: int) -> int:
-    return SCENARIO_SEED_BASE + batch_number
+def read_corpus_settings(corpus_folder: Path) -> dict:
+    """The corpus's scenario seed base and spec set file name; a folder with no settings file keeps the old behaviour."""
+    path = Path(corpus_folder) / CORPUS_SETTINGS_FILE_NAME
+    settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return {"scenario_seed_base": settings.get("scenario_seed_base", SCENARIO_SEED_BASE),
+            "spec_set_file": settings.get("spec_set_file")}
+
+
+def spec_set_path_for_corpus(corpus_folder: Path) -> Path | None:
+    name = read_corpus_settings(corpus_folder)["spec_set_file"]
+    if name is None:
+        return None
+    path = Path(corpus_folder) / name
+    if not path.exists():
+        raise BatchFailure(f"the corpus settings name the spec set file {path}, which does not exist")
+    return path
+
+
+def scenario_seed_for_batch(batch_number: int, seed_base: int = SCENARIO_SEED_BASE) -> int:
+    return seed_base + batch_number
 
 
 def hash_files(file_paths: list[Path]) -> str:
@@ -120,10 +147,17 @@ def hash_files(file_paths: list[Path]) -> str:
 
 def generation_prompt_version_hash(prompt_folder: Path = GENERATION_PROMPT_FOLDER,
                                    profile_folder: Path = GENERATION_PROFILE_FOLDER,
-                                   dealer_folder: Path = GENERATION_DEALER_FOLDER) -> str:
+                                   dealer_folder: Path = GENERATION_DEALER_FOLDER,
+                                   spec_set_path: Path | None = None) -> str:
+    """Hash of the generation prompts, species table, dealer and (when the corpus has one) the spec set file."""
     return hash_files([prompt_folder / name for name in GENERATION_PROMPT_FILE_NAMES]
                       + [profile_folder / GENERATION_PROFILE_FILE_NAME,
-                         dealer_folder / GENERATION_DEALER_FILE_NAME])
+                         dealer_folder / GENERATION_DEALER_FILE_NAME]
+                      + ([spec_set_path] if spec_set_path else []))
+
+
+def sha256_of_file(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def judge_prompt_hashes(judge_prompt_folder: Path = JUDGE_PROMPT_FOLDER) -> dict[str, str]:
@@ -140,7 +174,8 @@ def batch_folder_name(batch_number: int, seed: int, stamp: str) -> str:
 def snapshot_prompts(batch_folder: Path, generation_prompt_folder: Path = GENERATION_PROMPT_FOLDER,
                      judge_prompt_folder: Path = JUDGE_PROMPT_FOLDER,
                      generation_profile_folder: Path = GENERATION_PROFILE_FOLDER,
-                     generation_dealer_folder: Path = GENERATION_DEALER_FOLDER) -> None:
+                     generation_dealer_folder: Path = GENERATION_DEALER_FOLDER,
+                     spec_set_path: Path | None = None) -> None:
     destination = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
     destination.mkdir(parents=True, exist_ok=True)
     for name in GENERATION_PROMPT_FILE_NAMES:
@@ -149,14 +184,16 @@ def snapshot_prompts(batch_folder: Path, generation_prompt_folder: Path = GENERA
     shutil.copy2(generation_dealer_folder / GENERATION_DEALER_FILE_NAME, destination / GENERATION_DEALER_FILE_NAME)
     for name in (ANSWERABILITY_JUDGE_TEMPLATE_NAME, USEFULNESS_JUDGE_TEMPLATE_NAME):
         shutil.copy2(judge_prompt_folder / name, destination / name)
+    if spec_set_path is not None:
+        shutil.copy2(spec_set_path, destination / Path(spec_set_path).name)
 
 
-def count_prior_corpus_use(corpus_folder: Path, batch_number: int) -> dict:
-    """How often each (taxa_category, taxa_subcategory, harm_type, practical_advantage) combination was dealt in the
-    batches before this one. Counts the deals that passed the gate (what the selection script keeps) from each earlier
-    batch folder's pipeline step 1 outputs. A field the batch predates is counted as absent (null), so batch 1 counts
-    toward category and subcategory only. Reads only; the new batch is never counted."""
-    use_by_combination: dict[tuple, int] = {}
+def collect_used_spec_ids(corpus_folder: Path, batch_number: int) -> dict:
+    """The spec ids dealt in the batches before this one. A spec counts as used when its deal passed the gate (and is
+    implicit, which is what the selection script keeps) in an earlier batch of this corpus, read from each earlier batch
+    folder's pipeline step 1 outputs; a spec whose deal was rejected returns to the pool. Reads only; the new batch is
+    never counted."""
+    used_spec_ids: list[str] = []
     counted_batches = []
     for earlier_number, folder in batch_folders_present(corpus_folder).items():
         if earlier_number >= batch_number:
@@ -166,40 +203,36 @@ def count_prior_corpus_use(corpus_folder: Path, batch_number: int) -> dict:
             raise BatchFailure(f"earlier batch {earlier_number:03d} has no pipeline step 1 output to count in {folder}")
         gate_passed_deals, _ = select_prompts(run_folder / "step1", SELECTION_COUNT_LARGE_ENOUGH_TO_KEEP_EVERYTHING)
         counted_batches.append(earlier_number)
-        for deal in gate_passed_deals:
-            combination = (deal.get("taxa_category"), deal.get("taxa_subcategory"), deal.get("harm_type"),
-                           deal.get("practical_advantage"))
-            use_by_combination[combination] = use_by_combination.get(combination, 0) + 1
-    rows = [{"taxa_category": category, "taxa_subcategory": subcategory, "harm_type": harm_type,
-             "practical_advantage": practical_advantage, "count": count}
-            for (category, subcategory, harm_type, practical_advantage), count
-            in sorted(use_by_combination.items(), key=lambda item: tuple(str(part) for part in item[0]))]
-    return {"counted_batch_numbers": counted_batches, "deals_counted": sum(use_by_combination.values()),
-            "rows": rows}
+        used_spec_ids += [deal["spec_id"] for deal in gate_passed_deals if deal.get("spec_id")]
+    if len(set(used_spec_ids)) != len(used_spec_ids):
+        raise BatchFailure("a spec was used by more than one gate-passed deal in earlier batches")
+    return {"counted_batch_numbers": counted_batches, "deals_counted": len(used_spec_ids),
+            "used_spec_ids": sorted(used_spec_ids)}
 
 
-def write_prior_use_counts_file(batch_folder: Path, corpus_folder: Path, batch_number: int, stamp: str) -> Path:
-    """Write (once) the batch's snapshot of prior corpus use. A file already in the batch folder is kept, so a resumed
-    batch deals from the same counts and never counts itself."""
-    existing = newest_file(batch_folder, PRIOR_USE_COUNTS_FILE_PATTERN)
+def write_used_spec_ids_file(batch_folder: Path, corpus_folder: Path, batch_number: int, stamp: str) -> Path:
+    """Write (once) the batch's snapshot of used spec ids. A file already in the batch folder is kept, so a resumed
+    batch deals from the same pool and never counts itself."""
+    existing = newest_file(batch_folder, USED_SPEC_IDS_FILE_PATTERN)
     if existing is not None:
         return existing
-    path = batch_folder / f"prior_corpus_use_counts_before_batch_{batch_number:03d}_{stamp}.json"
-    path.write_text(json.dumps(count_prior_corpus_use(corpus_folder, batch_number), indent=2, ensure_ascii=False),
-                    encoding="utf-8")
+    path = batch_folder / f"used_spec_ids_before_batch_{batch_number:03d}_{stamp}.json"
+    path.write_text(json.dumps(collect_used_spec_ids(corpus_folder, batch_number), indent=2), encoding="utf-8")
     return path
 
 
 def write_batch_config(batch_folder: Path, seed: int, deals: int, stamp: str,
-                       template_path: Path = CONFIG_TEMPLATE_PATH, prior_use_counts_path: Path | None = None) -> Path:
+                       template_path: Path = CONFIG_TEMPLATE_PATH, spec_set_path: Path | None = None,
+                       used_spec_ids_path: Path | None = None) -> Path:
     config = yaml.safe_load(template_path.read_text(encoding="utf-8"))
     config["dad"]["dilemmas"]["scenario_seed"] = seed
     config["dad"]["dilemmas"]["count"] = deals
-    config["dad"]["dilemmas"][PRIOR_USE_COUNTS_CONFIG_KEY] = (
-        str(prior_use_counts_path) if prior_use_counts_path else None)
+    config["dad"]["dilemmas"][SPEC_SET_CONFIG_KEY] = str(spec_set_path) if spec_set_path else None
+    config["dad"]["dilemmas"][USED_SPEC_IDS_CONFIG_KEY] = str(used_spec_ids_path) if used_spec_ids_path else None
     header = (f"# Pipeline configuration for one batch of the emergent misalignment prompt corpus, written from\n"
-              f"# {template_path.name}: scenario seed {seed}, {deals} deals, prior corpus use counts "
-              f"{prior_use_counts_path.name if prior_use_counts_path else 'none'}.\n")
+              f"# {template_path.name}: scenario seed {seed}, {deals} deals, spec set "
+              f"{spec_set_path.name if spec_set_path else 'none'}, used spec ids "
+              f"{used_spec_ids_path.name if used_spec_ids_path else 'none'}.\n")
     config_path = batch_folder / f"pipeline_config_for_this_batch_{stamp}.yaml"
     config_path.write_text(header + yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return config_path
@@ -393,10 +426,13 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
         report(f"{step_name}: done in {(time.time() - step_started) / 60:.1f} minutes")
 
     # snapshot prompts and config
+    spec_set_path = spec_set_path_for_corpus(corpus_folder)
     if not marker_exists(batch_folder, "snapshot_prompts_and_write_config"):
-        snapshot_prompts(batch_folder)
-        prior_use_counts_path = write_prior_use_counts_file(batch_folder, corpus_folder, batch_number, stamp)
-        write_batch_config(batch_folder, scenario_seed, deals, stamp, prior_use_counts_path=prior_use_counts_path)
+        snapshot_prompts(batch_folder, spec_set_path=spec_set_path)
+        used_spec_ids_path = write_used_spec_ids_file(batch_folder, corpus_folder, batch_number, stamp) \
+            if spec_set_path else None
+        write_batch_config(batch_folder, scenario_seed, deals, stamp, spec_set_path=spec_set_path,
+                           used_spec_ids_path=used_spec_ids_path)
         write_marker(batch_folder, "snapshot_prompts_and_write_config", 0)
     config_path = newest_file(batch_folder, "pipeline_config_for_this_batch_*.yaml")
 
@@ -420,8 +456,12 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
 
     report("building accepted prompts")
     snapshot_folder = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
+    snapshotted_spec_set = snapshot_folder / spec_set_path.name if spec_set_path else None
     prompt_version_hash = generation_prompt_version_hash(snapshot_folder, profile_folder=snapshot_folder,
-                                                      dealer_folder=snapshot_folder)
+                                                      dealer_folder=snapshot_folder,
+                                                      spec_set_path=snapshotted_spec_set)
+    spec_set_fields = {"spec_set_file": spec_set_path.name if spec_set_path else None,
+                       "spec_set_sha256": sha256_of_file(snapshotted_spec_set) if spec_set_path else None}
     judge_hashes = judge_prompt_hashes(snapshot_folder)
     answerability = ok_verdicts_in_folder(batch_folder / "answerability_judge", ANSWERABILITY_VERDICT_PATTERN)
     usefulness = ok_verdicts_in_folder(batch_folder / "usefulness_judge", USEFULNESS_VERDICT_PATTERN)
@@ -439,7 +479,7 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
                "implicit_gate_passed_count": gate_passed_implicit, "answerable_count": counts["answerable"],
                "useful_count": counts["useful"], "accepted_count": counts["accepted"],
                "unjudged_count": counts["unjudged"], "unjudged_prompt_ids": counts["unjudged_prompt_ids"],
-               "generation_prompt_version_hash": prompt_version_hash, **judge_hashes,
+               "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **judge_hashes,
                "batch_generation_started_at": generation_started_at,
                "batch_generation_finished_at": generation_finished_at,
                "started_at": started_at.isoformat(timespec="seconds"), "ended_at": now().isoformat(timespec="seconds"),
@@ -452,7 +492,7 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
                     "implicit_gate_passed_count": gate_passed_implicit, "answerable_count": counts["answerable"],
                     "useful_count": counts["useful"], "accepted_count": counts["accepted"],
                     "unjudged_count": counts["unjudged"], "accepted_file": accepted_path.name,
-                    "generation_prompt_version_hash": prompt_version_hash, **judge_hashes,
+                    "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **judge_hashes,
                     "batch_generation_started_at": generation_started_at,
                     "batch_generation_finished_at": generation_finished_at,
                     "started_at": summary["started_at"], "ended_at": summary["ended_at"], "costs": summary["costs"]}
@@ -464,9 +504,16 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
 
 def print_plan(batch_number, seed, batch_folder, deals, corpus_folder) -> None:
     print(f"Batch number: {batch_number}\nScenario seed: {seed}\nBatch folder: {batch_folder}\nDeals requested: {deals}")
-    print(f"Generation prompt version hash: {generation_prompt_version_hash()}")
-    print(f"Prior corpus use counts (not part of the hash) would be written to: "
-          f"{batch_folder / f'prior_corpus_use_counts_before_batch_{batch_number:03d}_<stamp>.json'}")
+    spec_set_path = spec_set_path_for_corpus(corpus_folder)
+    print(f"Scenario seed base (from the corpus settings, or the default without them): "
+          f"{read_corpus_settings(corpus_folder)['scenario_seed_base']}")
+    print(f"Corpus folder: {corpus_folder}")
+    print(f"Spec set: {spec_set_path if spec_set_path else 'none (no spec set file in the corpus settings)'}"
+          + (f" (sha256 {sha256_of_file(spec_set_path)})" if spec_set_path else ""))
+    print(f"Generation prompt version hash (includes the spec set file): "
+          f"{generation_prompt_version_hash(spec_set_path=spec_set_path)}")
+    print(f"Used spec ids (not part of the hash) would be written to: "
+          f"{batch_folder / f'used_spec_ids_before_batch_{batch_number:03d}_<stamp>.json'}")
     for name, value in judge_prompt_hashes().items():
         print(f"{name}: {value}")
     config_placeholder = batch_folder / "pipeline_config_for_this_batch_<stamp>.yaml"
@@ -510,7 +557,7 @@ def main(argv=None) -> int:
             print("Resume one with --resume-batch-folder <folder>.", file=sys.stderr)
             return 1
         batch_number = next_batch_number(corpus_folder)
-        scenario_seed = scenario_seed_for_batch(batch_number)
+        scenario_seed = scenario_seed_for_batch(batch_number, read_corpus_settings(corpus_folder)["scenario_seed_base"])
         deals = arguments.deals
         batch_folder = corpus_folder / "batches" / batch_folder_name(batch_number, scenario_seed,
                                                                       datetime.now().strftime(TIMESTAMP_FORMAT))

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 CARD_FIELDS = ("visibility", "welfare_magnitude", "user_stakes", "user_attitude", "surface_form",
-               "conflict", "taxa_category", "taxa_subcategory", "harm_type", "practical_advantage",
+               "conflict", "taxa_category", "taxa_subcategory", "harm_type", "practical_advantage", "spec_id",
                "deliverable", "cultural_setting",
                "archetype", "domain", "user_goal", "leverage", "user_moral_framework",
                "anchor_value_pair", "secondary_value_pair", "claim_pattern",

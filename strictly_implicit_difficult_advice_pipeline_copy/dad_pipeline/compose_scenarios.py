@@ -258,105 +258,86 @@ def _draw_subcategory(taxa_entry: dict, rng: random.Random) -> str:
     return rng.choices(list(weight_by_subcategory), weights=list(weight_by_subcategory.values()), k=1)[0]
 
 
-# ---------- even use across the corpus ----------
-# Prior usage from earlier corpus batches is a JSON file (written by
-# scripts/emergent_misalignment/add_batch_to_emergent_misalignment_prompt_corpus.py) holding one row per
-# (taxa_category, taxa_subcategory, harm_type, practical_advantage) combination:
-#   {"rows": [{"taxa_category": ..., "taxa_subcategory": ..., "harm_type": ... or null,
-#              "practical_advantage": ... or null, "count": n}, ...]}
-# A null harm_type or practical_advantage marks deals from before that axis existed; they count toward their
-# category and subcategory only.
+# ---------- drawing from a fixed spec set ----------
+# A spec is (taxa_category, taxa_subcategory, harm_type, practical_advantage). A corpus fixes its specs in advance
+# (scripts/emergent_misalignment/enumerate_fixed_spec_set_fitting_category_and_subcategory_weights.py): one JSON object
+# per line with a spec_id, the four fields and position_in_subcategory_order. Batches draw from that pool. Which specs
+# earlier batches used is a JSON file written by scripts/emergent_misalignment/add_batch_to_emergent_misalignment_prompt_corpus.py:
+#   {"used_spec_ids": ["spec_00001", ...]}
+# Without a spec set file the harm type, practical advantage and subcategory stay as dealt (no corpus-level control).
 
-def load_prior_use_counts(counts_path: Path | None) -> list[dict]:
-    """The rows of a prior use counts file; no file means no prior use."""
-    if counts_path is None:
-        return []
-    return json.loads(Path(counts_path).read_text(encoding="utf-8"))["rows"]
+def load_spec_set(spec_set_path: Path) -> list[dict]:
+    """The specs of a spec set file, in file order."""
+    lines = Path(spec_set_path).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
 
 
-def _least_used_harm_type_and_practical_advantage(
-        category: str, subcategory: str, harm_type_values: list[str], practical_advantage_values: list[str],
-        quadruple_uses: dict, harm_type_uses: dict, practical_advantage_uses: dict,
-        rng: random.Random) -> tuple[str, str]:
-    """The (harm_type, practical_advantage) pair least used with this category and subcategory.
-    Ranked by uses of the exact pair, then (so a run never repeats a harm type before it has
-    used them all) by uses of the harm type and of the practical advantage within the subcategory;
-    remaining ties are broken by the seeded rng."""
-    candidates = [(harm_type, practical_advantage)
-                  for harm_type in harm_type_values for practical_advantage in practical_advantage_values]
-
-    def rank(pair):
-        harm_type, practical_advantage = pair
-        return (quadruple_uses.get((category, subcategory, harm_type, practical_advantage), 0),
-                harm_type_uses.get((category, subcategory, harm_type), 0),
-                practical_advantage_uses.get((category, subcategory, practical_advantage), 0))
-
-    lowest_rank = min(rank(pair) for pair in candidates)
-    return rng.choice([pair for pair in candidates if rank(pair) == lowest_rank])
+def load_used_spec_ids(used_spec_ids_path: Path | None) -> set[str]:
+    """The spec ids earlier batches used; no file means none."""
+    if used_spec_ids_path is None:
+        return set()
+    return set(json.loads(Path(used_spec_ids_path).read_text(encoding="utf-8"))["used_spec_ids"])
 
 
-def make_corpus_use_even(scenarios: list[dict], harm_type_values: list[str],
-                         practical_advantage_values: list[str], prior_use_rows: list[dict],
-                         rng: random.Random) -> None:
-    """Re-choose each scenario's taxa_subcategory, harm_type and practical_advantage so that,
-    across the corpus (prior uses plus this run), (category, subcategory, harm_type,
-    practical_advantage) combinations are used as evenly as possible. Edits the scenarios in place.
+def draw_specs_from_spec_set(scenarios: list[dict], spec_rows: list[dict], used_spec_ids: set[str],
+                             rng: random.Random) -> None:
+    """Give each scenario a spec from the fixed spec set, editing the scenarios in place.
 
-    Walking the scenarios in order, within the dealt category (never changed, so category shares
-    and archetype constraints stay as dealt):
-      1. the subcategory is the one with the largest deficit: its target share (its relative
-         weight over the category's total) times the category's uses so far (prior plus this run's
-         earlier deals), minus its own uses so far; ties are broken by the seeded rng, weighted by
-         relative weight;
-      2. the harm type and practical advantage are the least-used pair for that category and
-         subcategory (see _least_used_harm_type_and_practical_advantage).
-    Deterministic for a given seed and prior use rows."""
+    Walking the scenarios in order, within the dealt category (never changed, so category shares and
+    archetype constraints stay as dealt):
+      1. the subcategory is the one with the largest deficit among the category's subcategories that still have an
+         unused spec: its relative weight over the category's total times the category's uses so far (earlier
+         batches' plus this run's earlier deals), minus its own uses so far; ties are broken by the seeded rng,
+         weighted by relative weight;
+      2. the spec is that subcategory's earliest unused spec in the stored order.
+    Fails loudly, before anything is generated, when a dealt category has no unused spec left.
+    Deterministic for a given seed, spec set and used spec ids."""
+    pool_by_subcategory: dict[tuple[str, str], list[dict]] = {}
+    spec_by_id = {}
+    for spec in sorted(spec_rows, key=lambda row: row["position_in_subcategory_order"]):
+        pool_by_subcategory.setdefault((spec["taxa_category"], spec["taxa_subcategory"]), []).append(spec)
+        spec_by_id[spec["spec_id"]] = spec
+    unknown_ids = sorted(used_spec_ids - set(spec_by_id))
+    if unknown_ids:
+        raise ValueError(f"used spec ids not in the spec set: {unknown_ids[:5]}")
     category_uses: dict[str, int] = {}
     subcategory_uses: dict[tuple[str, str], int] = {}
-    harm_type_uses: dict[tuple[str, str, str], int] = {}
-    practical_advantage_uses: dict[tuple[str, str, str], int] = {}
-    quadruple_uses: dict[tuple[str, str, str, str], int] = {}
-
-    def record_use(category, subcategory, harm_type, practical_advantage, count):
-        category_uses[category] = category_uses.get(category, 0) + count
-        subcategory_uses[(category, subcategory)] = subcategory_uses.get((category, subcategory), 0) + count
-        if harm_type is not None:
-            key = (category, subcategory, harm_type)
-            harm_type_uses[key] = harm_type_uses.get(key, 0) + count
-        if practical_advantage is not None:
-            key = (category, subcategory, practical_advantage)
-            practical_advantage_uses[key] = practical_advantage_uses.get(key, 0) + count
-        if harm_type is not None and practical_advantage is not None:
-            key = (category, subcategory, harm_type, practical_advantage)
-            quadruple_uses[key] = quadruple_uses.get(key, 0) + count
-
-    for row in prior_use_rows:
-        record_use(row["taxa_category"], row["taxa_subcategory"], row.get("harm_type"),
-                   row.get("practical_advantage"), row["count"])
+    for spec_id in used_spec_ids:
+        spec = spec_by_id[spec_id]
+        category_uses[spec["taxa_category"]] = category_uses.get(spec["taxa_category"], 0) + 1
+        key = (spec["taxa_category"], spec["taxa_subcategory"])
+        subcategory_uses[key] = subcategory_uses.get(key, 0) + 1
+    unused_ids = set(spec_by_id) - used_spec_ids
 
     for scenario in scenarios:
         category = scenario["taxa_category"]
         weight_by_subcategory = _subcategory_relative_weights(taxa_for(category))
         total_weight = sum(weight_by_subcategory.values())
         uses_of_category = category_uses.get(category, 0)
-        deficit_by_subcategory = {
-            name: round(weight / total_weight * uses_of_category - subcategory_uses.get((category, name), 0), 9)
-            for name, weight in weight_by_subcategory.items()}
+        deficit_by_subcategory = {}
+        for name, weight in weight_by_subcategory.items():
+            has_unused_spec = any(spec["spec_id"] in unused_ids for spec in pool_by_subcategory.get((category, name), ()))
+            if has_unused_spec:
+                deficit_by_subcategory[name] = round(
+                    weight / total_weight * uses_of_category - subcategory_uses.get((category, name), 0), 9)
+        if not deficit_by_subcategory:
+            raise ValueError(f"the spec pool for category {category!r} is used up: every one of its specs is already "
+                             f"used by earlier batches or earlier deals in this run")
         largest_deficit = max(deficit_by_subcategory.values())
-        tied_subcategories = [name for name, deficit in deficit_by_subcategory.items()
-                              if deficit == largest_deficit]
+        tied_subcategories = [name for name, deficit in deficit_by_subcategory.items() if deficit == largest_deficit]
         subcategory = rng.choices(tied_subcategories,
                                   weights=[weight_by_subcategory[name] for name in tied_subcategories], k=1)[0]
-        harm_type, practical_advantage = _least_used_harm_type_and_practical_advantage(
-            category, subcategory, harm_type_values, practical_advantage_values,
-            quadruple_uses, harm_type_uses, practical_advantage_uses, rng)
-        record_use(category, subcategory, harm_type, practical_advantage, 1)
-        scenario["taxa_subcategory"] = subcategory
-        scenario["harm_type"] = harm_type
-        scenario["practical_advantage"] = practical_advantage
+        spec = next(spec for spec in pool_by_subcategory[(category, subcategory)] if spec["spec_id"] in unused_ids)
+        unused_ids.discard(spec["spec_id"])
+        category_uses[category] = uses_of_category + 1
+        subcategory_uses[(category, subcategory)] = subcategory_uses.get((category, subcategory), 0) + 1
+        scenario["spec_id"] = spec["spec_id"]
+        scenario["taxa_subcategory"] = spec["taxa_subcategory"]
+        scenario["harm_type"] = spec["harm_type"]
+        scenario["practical_advantage"] = spec["practical_advantage"]
         # what render_plan_prompt formats
-        scenario["variables"]["harm_type"] = harm_type
-        scenario["variables"]["practical_advantage"] = practical_advantage
+        scenario["variables"]["harm_type"] = spec["harm_type"]
+        scenario["variables"]["practical_advantage"] = spec["practical_advantage"]
 
 
 def _quotas(weights: list[float], n: int, rng: random.Random) -> list[int]:
@@ -484,7 +465,8 @@ def _apply_archetypes(decks: dict, values: dict, n: int,
 
 def deal_scenarios(n: int, rng: random.Random,
                    variables_path: Path = DEFAULT_VARIABLES,
-                   prior_use_counts_path: Path | None = None) -> list[dict]:
+                   spec_set_path: Path | None = None,
+                   used_spec_ids_path: Path | None = None) -> list[dict]:
     """Stratified scenario deals, one per example. Axes are sampled
     independently (the anti-correlation rules hold by construction) except the
     spec's sanctioned dependencies: hidden→unaware, the trap surface form
@@ -601,9 +583,8 @@ def deal_scenarios(n: int, rng: random.Random,
 
     # Last structural pass, after archetype trading and every per-scenario rule: the
     # records and the step 1a prompts both read the settled values.
-    if "harm_type" in values and "practical_advantage" in values:
-        make_corpus_use_even(scenarios, values["harm_type"], values["practical_advantage"],
-                             load_prior_use_counts(prior_use_counts_path), rng)
+    if spec_set_path is not None:
+        draw_specs_from_spec_set(scenarios, load_spec_set(spec_set_path), load_used_spec_ids(used_spec_ids_path), rng)
     return scenarios
 
 
@@ -852,13 +833,15 @@ def main() -> None:
     parser.add_argument("--n", type=int, default=10, help="scenarios to deal")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, help="write the deals to this JSONL file")
-    parser.add_argument("--prior-use-counts", type=Path, default=None,
-                        help="JSON file of earlier corpus use counts (see make_corpus_use_even)")
+    parser.add_argument("--spec-set", type=Path, default=None,
+                        help="JSONL fixed spec set to draw each deal's spec from (see draw_specs_from_spec_set)")
+    parser.add_argument("--used-spec-ids", type=Path, default=None,
+                        help="JSON file of spec ids earlier batches used")
     args = parser.parse_args()
 
     try:
         scenarios = deal_scenarios(args.n, random.Random(args.seed), args.variables,
-                                   args.prior_use_counts)
+                                   args.spec_set, args.used_spec_ids)
     except ValueError as exc:
         raise SystemExit(str(exc))
     if args.out:

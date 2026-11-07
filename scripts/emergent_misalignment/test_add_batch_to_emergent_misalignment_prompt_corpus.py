@@ -258,16 +258,18 @@ def test_snapshot_copies_the_scenario_dealer_file(tmp_path):
 
 def write_step_one_run(batch_folder, deals):
     """A pipeline step 1 folder for a batch. Each deal is (scenario_id, category, subcategory, harm_type,
-    practical_advantage, passed_gate); harm_type and practical_advantage may be None for older batches."""
+    practical_advantage, passed_gate, optional spec_id); harm_type and practical_advantage may be None for older batches."""
     step_one = batch_folder / "raw_pipeline_outputs" / "dad" / "runs" / "run_a" / "step1"
     step_one.mkdir(parents=True)
     dilemmas, scenarios, gates = [], [], []
-    for scenario_id, category, subcategory, harm_type, practical_advantage, passed_gate in deals:
+    for scenario_id, category, subcategory, harm_type, practical_advantage, passed_gate, *spec_id in deals:
         dilemmas.append({"prompt_gid": f"P-{scenario_id}", "scenario_id": scenario_id, "scenario_gid": f"S-{scenario_id}",
                          "user_message": "a message"})
         scenario = {"scenario_id": scenario_id, "visibility": "implicit; hidden harm", "taxa_category": category,
                     "taxa_subcategory": subcategory, "variables": {"welfare_partner": "money", "scope": "dozens",
                                                                    "visibility": "ignored duplicate"}}
+        if spec_id:
+            scenario["spec_id"] = spec_id[0]
         if harm_type is not None:
             scenario["harm_type"] = harm_type
             scenario["practical_advantage"] = practical_advantage
@@ -297,58 +299,124 @@ def test_selection_leaves_new_fields_empty_for_older_runs(tmp_path):
     assert record["harm_type"] is None and record["practical_advantage"] is None
 
 
+def test_selection_carries_the_spec_id(tmp_path):
+    step_one = write_step_one_run(tmp_path, [("S-001", "farmed animals", "pigs", "housing", "lower cost", True,
+                                              "spec_00007")])
+    assert add_batch.select_prompts(step_one, 10)[0][0]["spec_id"] == "spec_00007"
+
+
 def make_corpus_with_two_earlier_batches(tmp_path):
     corpus = make_corpus(tmp_path, folder_numbers=(1, 2, 3))
     folders = add_batch.batch_folders_present(corpus)
-    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", None, None, True),
-                                    ("S-002", "farmed animals", "pigs", None, None, True),
-                                    ("S-003", "farmed animals", "pigs", None, None, False)])
-    write_step_one_run(folders[2], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True),
-                                    ("S-002", "fish/aquatic", "salmon", "transport", "higher yield", True),
-                                    ("S-003", "fish/aquatic", "salmon", "transport", "higher yield", True)])
-    write_step_one_run(folders[3], [("S-001", "research", "mice", "housing", "lower cost", True)])
+    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001"),
+                                    ("S-002", "farmed animals", "pigs", "transport", "lower cost", True, "spec_00002"),
+                                    ("S-003", "farmed animals", "pigs", "slaughter", "lower cost", False, "spec_00003")])
+    write_step_one_run(folders[2], [("S-001", "fish/aquatic", "salmon", "transport", "higher yield", True, "spec_00010"),
+                                    ("S-002", "fish/aquatic", "salmon", "housing", "higher yield", True)])
+    write_step_one_run(folders[3], [("S-001", "research", "mice", "housing", "lower cost", True, "spec_00020")])
     return corpus, folders
 
 
-def test_prior_use_counts_count_gate_passed_deals_of_earlier_batches_only(tmp_path):
+def test_used_spec_ids_are_the_gate_passed_deals_of_earlier_batches_only(tmp_path):
     corpus, _ = make_corpus_with_two_earlier_batches(tmp_path)
-    counts = add_batch.count_prior_corpus_use(corpus, 3)
-    assert counts["counted_batch_numbers"] == [1, 2] and counts["deals_counted"] == 5
-    rows = {(r["taxa_category"], r["taxa_subcategory"], r["harm_type"], r["practical_advantage"]): r["count"]
-            for r in counts["rows"]}
-    assert rows == {("farmed animals", "pigs", None, None): 2,
-                    ("farmed animals", "pigs", "housing", "lower cost"): 1,
-                    ("fish/aquatic", "salmon", "transport", "higher yield"): 2}
+    used = add_batch.collect_used_spec_ids(corpus, 3)
+    assert used["counted_batch_numbers"] == [1, 2] and used["deals_counted"] == 3
+    # spec_00003 failed the gate so it is back in the pool; spec_00020 belongs to the batch being made
+    assert used["used_spec_ids"] == ["spec_00001", "spec_00002", "spec_00010"]
 
 
-def test_prior_use_counts_file_is_snapshotted_and_kept_on_resume(tmp_path):
+def test_used_spec_ids_file_is_snapshotted_and_kept_on_resume(tmp_path):
     corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
-    first_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_10-00")
+    first_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_10-00")
     first_text = first_path.read_text()
-    # the new batch has since produced output of its own; a resume must not count it, nor recount at all
-    write_step_one_run(folders[3] / "elsewhere", [("S-009", "research", "mice", "housing", "lower cost", True)])
-    second_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_11-00")
+    write_step_one_run(folders[3] / "elsewhere", [("S-009", "research", "mice", "housing", "lower cost", True, "spec_00099")])
+    second_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_11-00")
     assert second_path == first_path and second_path.read_text() == first_text
-    assert json.loads(first_text)["deals_counted"] == 5
 
 
-def test_batch_config_names_the_counts_snapshot_and_hash_ignores_it(tmp_path):
+def test_two_gate_passed_deals_sharing_a_spec_is_refused(tmp_path):
+    corpus = make_corpus(tmp_path, folder_numbers=(1, 2, 3))
+    folders = add_batch.batch_folders_present(corpus)
+    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001")])
+    write_step_one_run(folders[2], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001")])
+    with pytest.raises(add_batch.BatchFailure):
+        add_batch.collect_used_spec_ids(corpus, 3)
+
+
+def test_batch_config_names_the_spec_set_and_used_ids_snapshot(tmp_path):
     import yaml
     corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
-    counts_path = add_batch.write_prior_use_counts_file(folders[3], corpus, 3, "2026-11-06_10-00")
-    config_path = add_batch.write_batch_config(folders[3], 20270003, 10, "2026-11-06_10-00",
-                                               prior_use_counts_path=counts_path)
-    config = yaml.safe_load(config_path.read_text())
-    assert config["dad"]["dilemmas"]["prior_corpus_use_counts_path"] == str(counts_path)
-    assert yaml.safe_load(add_batch.write_batch_config(tmp_path, 1, 1, "x").read_text())[
-        "dad"]["dilemmas"]["prior_corpus_use_counts_path"] is None
-    # the hash reads only the prompt, profile and dealer files, so a counts file cannot change it
-    assert counts_path.name not in add_batch.GENERATION_PROMPT_FILE_NAMES
-    assert add_batch.generation_prompt_version_hash() == add_batch.generation_prompt_version_hash()
+    used_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_10-00")
+    spec_path = tmp_path / "spec_set.jsonl"
+    config = yaml.safe_load(add_batch.write_batch_config(folders[3], 20280003, 10, "2026-11-06_10-00",
+                                                         spec_set_path=spec_path, used_spec_ids_path=used_path).read_text())
+    assert config["dad"]["dilemmas"]["spec_set_path"] == str(spec_path)
+    assert config["dad"]["dilemmas"]["used_spec_ids_path"] == str(used_path)
+    plain = yaml.safe_load(add_batch.write_batch_config(tmp_path, 1, 1, "x").read_text())["dad"]["dilemmas"]
+    assert plain["spec_set_path"] is None and plain["used_spec_ids_path"] is None
 
 
-def test_full_batch_writes_and_uses_counts_snapshot(tmp_path):
-    corpus, batch_folder, entry, calls = run_fake_batch(tmp_path)
-    counts_path = next(batch_folder.glob("prior_corpus_use_counts_before_batch_001_*.json"))
-    assert json.loads(counts_path.read_text())["rows"] == []
-    assert str(counts_path) in next(batch_folder.glob("pipeline_config_for_this_batch_*.yaml")).read_text()
+# ---------- corpus settings: seed base and spec set ----------
+
+def write_settings_and_spec_set(corpus):
+    spec_path = corpus / "fixed_spec_set" / "fixed_spec_set_test.jsonl"
+    spec_path.parent.mkdir()
+    spec_path.write_text(json.dumps({"spec_id": "spec_00001"}) + "\n")
+    (corpus / add_batch.CORPUS_SETTINGS_FILE_NAME).write_text(json.dumps(
+        {"scenario_seed_base": 20280000, "spec_set_file": "fixed_spec_set/fixed_spec_set_test.jsonl"}))
+    return spec_path
+
+
+def test_corpus_without_settings_keeps_the_old_seed_base_and_has_no_spec_set(tmp_path):
+    corpus = make_corpus(tmp_path)
+    assert add_batch.read_corpus_settings(corpus) == {"scenario_seed_base": 20270000, "spec_set_file": None}
+    assert add_batch.spec_set_path_for_corpus(corpus) is None
+
+
+def test_settings_give_seed_base_and_spec_set_and_dry_run_shows_them(tmp_path, capsys):
+    corpus = make_corpus(tmp_path)
+    spec_path = write_settings_and_spec_set(corpus)
+    assert add_batch.spec_set_path_for_corpus(corpus) == spec_path
+    assert add_batch.main(["--corpus-folder", str(corpus), "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    assert "Scenario seed: 20280001" in output and str(spec_path) in output
+    assert add_batch.sha256_of_file(spec_path) in output
+
+
+def test_default_corpus_folder_is_the_spec_set_corpus():
+    assert add_batch.DEFAULT_CORPUS_FOLDER.name == "emergent_misalignment_prompt_corpus_category_subcategory_harm_and_advantage_specs"
+
+
+def test_the_two_corpora_never_share_a_seed():
+    old = {add_batch.scenario_seed_for_batch(n) for n in range(1, 1000)}
+    new = {add_batch.scenario_seed_for_batch(n, 20280000) for n in range(1, 1000)}
+    assert not old & new
+
+
+def test_full_batch_with_a_spec_set_records_its_hash_and_snapshots_it(tmp_path):
+    corpus = make_corpus(tmp_path)
+    spec_path = write_settings_and_spec_set(corpus)
+    batch_folder = corpus / "batches" / "batch_001_seed_20280001_2026-11-06_10-00"
+    batch_folder.mkdir()
+    fake, calls = fake_pipeline_and_judges(batch_folder)
+    entry = add_batch.run_batch(corpus, batch_folder, 1, 20280001, 5, datetime(2026, 11, 6, 10, 0),
+                                run_command_function=fake)
+    snapshot_folder = batch_folder / "generation_and_judge_prompts_used_for_this_batch"
+    assert entry["spec_set_sha256"] == add_batch.sha256_of_file(spec_path)
+    assert json.loads(next(batch_folder.glob("batch_summary_*.json")).read_text())["spec_set_sha256"] == entry["spec_set_sha256"]
+    assert (snapshot_folder / spec_path.name).read_bytes() == spec_path.read_bytes()
+    # the spec set is part of the generation prompt version hash
+    assert entry["generation_prompt_version_hash"] == add_batch.generation_prompt_version_hash(
+        snapshot_folder, snapshot_folder, snapshot_folder, snapshot_folder / spec_path.name)
+    assert entry["generation_prompt_version_hash"] != add_batch.generation_prompt_version_hash()
+    config_text = next(batch_folder.glob("pipeline_config_for_this_batch_*.yaml")).read_text()
+    assert str(spec_path) in config_text and "used_spec_ids_before_batch_001_" in config_text
+    assert json.loads(next(batch_folder.glob("used_spec_ids_before_batch_001_*.json")).read_text())["used_spec_ids"] == []
+
+
+def test_accepted_records_keep_the_spec_id_of_the_selected_prompt():
+    prompts = [{"prompt_gid": "P-1", "spec_id": "spec_00042", "user_message": "m"}]
+    accepted, _ = add_batch.build_accepted_records(
+        prompts, {"P-1": {"complete_answer_without_welfare_possible": "yes", "note": "a"}},
+        {"P-1": {"useful": True, "note": "u", "best_answer_ignoring_welfare": "b"}}, 1, 20280001, "h")
+    assert accepted[0]["spec_id"] == "spec_00042"

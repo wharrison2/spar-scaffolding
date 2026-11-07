@@ -438,9 +438,7 @@ class TestArchetypes:
         assert not any(p.get("archetype_overwrites") for p in with_arch)
         monkeypatch.setattr(cs._animal, "ARCHETYPES", {})
         plain = cs.deal_scenarios(40, random.Random(7))
-        # harm_type and practical_advantage are chosen afterwards by make_corpus_use_even from the
-        # scenarios' (archetype-dependent) subcategories, so they are not traded-card marginals
-        for axis in set(VALUES) - {"harm_type", "practical_advantage"}:
+        for axis in set(VALUES):
             counts = lambda batch: sorted(p["variables"][axis] for p in batch)
             assert counts(with_arch) == counts(plain), f"marginal drift on {axis}"
 
@@ -584,124 +582,122 @@ class TestSubcategoryRelativeWeights:
             assert set(entry.get("subcategory_relative_weights", {})) <= set(entry["subcategories"])
 
 
-class TestEvenUseAcrossTheCorpus:
+class TestDrawingFromTheFixedSpecSet:
     @staticmethod
-    def triples(batch):
-        return [(p["taxa_category"], p["taxa_subcategory"], p["harm_type"]) for p in batch]
+    def spec_set_for_every_category(specs_per_subcategory=3):
+        """A small spec set: every subcategory of every category with weight gets a few distinct pairs."""
+        rows = []
+        for category, entry in cs.TAXA.items():
+            full_category = next(v for v in VALUES["taxa_category"] if v.lower().startswith(category.lower()))
+            for subcategory in entry["subcategories"]:
+                for position in range(specs_per_subcategory):
+                    rows.append({"spec_id": f"spec_{len(rows) + 1:05d}", "taxa_category": full_category,
+                                 "taxa_subcategory": subcategory,
+                                 "harm_type": VALUES["harm_type"][position % 11],
+                                 "practical_advantage": VALUES["practical_advantage"][position % 10],
+                                 "position_in_subcategory_order": position + 1})
+        return rows
 
     @staticmethod
-    def quadruples(batch):
-        return [(p["taxa_category"], p["taxa_subcategory"], p["harm_type"], p["practical_advantage"])
-                for p in batch]
+    def write(tmp_path, rows, used_ids=None):
+        spec_path = tmp_path / "spec_set.jsonl"
+        spec_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        used_path = None
+        if used_ids is not None:
+            used_path = tmp_path / "used.json"
+            used_path.write_text(json.dumps({"used_spec_ids": sorted(used_ids)}), encoding="utf-8")
+        return spec_path, used_path
 
     @staticmethod
-    def counts_file(tmp_path, rows):
-        path = tmp_path / "prior_use_counts.json"
-        path.write_text(json.dumps({"rows": rows}), encoding="utf-8")
-        return path
-
-    @staticmethod
-    def one_category_scenarios(count):
-        category = next(iter(cs.TAXA))
+    def one_category_scenarios(rows, count):
+        category = rows[0]["taxa_category"]
         return category, [{"scenario_id": f"S-{index + 1:03d}", "taxa_category": category,
                            "taxa_subcategory": None, "harm_type": None, "practical_advantage": None,
                            "variables": {}} for index in range(count)]
 
-    def test_sixty_four_deals_have_distinct_triples_and_no_repeated_quadruple(self):
-        for seed in (0, 1, 7, 20270002, 20270003):
-            batch = cs.deal_scenarios(64, random.Random(seed))
-            assert len(set(self.triples(batch))) == 64, f"duplicate triple at seed {seed}"
-            assert len(set(self.quadruples(batch))) == 64, f"duplicate quadruple at seed {seed}"
-
-    def test_deterministic_for_a_fixed_seed_and_counts_file(self, tmp_path):
-        counts_path = self.counts_file(tmp_path, [
-            {"taxa_category": next(iter(cs.TAXA)), "taxa_subcategory": "x", "harm_type": None,
-             "practical_advantage": None, "count": 3}])
-        first = cs.deal_scenarios(64, random.Random(20270002), prior_use_counts_path=counts_path)
-        second = cs.deal_scenarios(64, random.Random(20270002), prior_use_counts_path=counts_path)
-        assert first == second
-
-    def test_no_counts_file_equals_an_empty_counts_file(self, tmp_path):
-        empty_counts_path = self.counts_file(tmp_path, [])
-        assert (cs.deal_scenarios(30, random.Random(4))
-                == cs.deal_scenarios(30, random.Random(4), prior_use_counts_path=empty_counts_path))
-
-    def test_category_and_archetype_never_change_and_prompt_uses_the_chosen_values(self, monkeypatch):
-        with monkeypatch.context() as patch:
-            patch.setattr(cs, "make_corpus_use_even", lambda *arguments, **keyword_arguments: None)
-            before_the_pass = cs.deal_scenarios(64, random.Random(20270002))
-        after_the_pass = cs.deal_scenarios(64, random.Random(20270002))
-        changed_count = 0
-        for before, after in zip(before_the_pass, after_the_pass):
-            assert before["taxa_category"] == after["taxa_category"]
-            assert before["archetype"] == after["archetype"]
-            changed_count += before["harm_type"] != after["harm_type"]
-        assert changed_count > 0, "the pass changed nothing, so this test would be vacuous"
-        template = cs.DEFAULT_TEMPLATE.read_text(encoding="utf-8")
-        for scenario in after_the_pass:
-            system, user = cs.render_plan_prompt(scenario, template)
-            rendered = (system or "") + user
+    def test_each_deal_gets_a_distinct_spec_from_the_set_with_its_category_unchanged(self, tmp_path):
+        rows = self.spec_set_for_every_category(6)
+        spec_path, _ = self.write(tmp_path, rows)
+        without_specs = cs.deal_scenarios(64, random.Random(20280001))
+        with_specs = cs.deal_scenarios(64, random.Random(20280001), spec_set_path=spec_path)
+        spec_by_id = {row["spec_id"]: row for row in rows}
+        assert len({deal["spec_id"] for deal in with_specs}) == 64
+        for before, after in zip(without_specs, with_specs):
+            spec = spec_by_id[after["spec_id"]]
+            assert before["taxa_category"] == after["taxa_category"] == spec["taxa_category"]
+            assert (after["taxa_subcategory"], after["harm_type"], after["practical_advantage"]) == (
+                spec["taxa_subcategory"], spec["harm_type"], spec["practical_advantage"])
+            assert after["variables"]["harm_type"] == spec["harm_type"]
+            system, user = cs.render_plan_prompt(after, cs.DEFAULT_TEMPLATE.read_text(encoding="utf-8"))
             for field in ("harm_type", "practical_advantage", "taxa_subcategory"):
-                assert scenario[field] in rendered
+                assert after[field] in (system or "") + user
 
-    def test_heavily_used_subcategory_is_avoided_until_others_catch_up(self):
-        category, scenarios = self.one_category_scenarios(30)
-        subcategories = list(cs.TAXA[category]["subcategories"])
-        heavy = subcategories[0]
-        prior_rows = [{"taxa_category": category, "taxa_subcategory": heavy, "harm_type": None,
-                       "practical_advantage": None, "count": 40}]
-        cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"],
-                                prior_rows, random.Random(0))
-        chosen = [scenario["taxa_subcategory"] for scenario in scenarios]
-        weights = cs._subcategory_relative_weights(cs.TAXA[category])
-        if len(subcategories) > 1:
-            total_weight = sum(weights.values())
-            others_share = 1 - weights[heavy] / total_weight
-            # the heavy subcategory sits above its target, so it is skipped first
-            assert chosen[:5].count(heavy) == 0
-            # and every deficit of the others has been paid down before it is chosen again
-            assert chosen.count(heavy) <= max(0, round(weights[heavy] / total_weight * 70 - 40) + 1)
-            assert others_share > 0
+    def test_no_spec_set_leaves_the_deal_as_dealt_and_without_spec_ids(self):
+        assert all("spec_id" not in deal for deal in cs.deal_scenarios(10, random.Random(3)))
 
-    def test_least_used_harm_and_advantage_pair_is_picked(self):
-        category, scenarios = self.one_category_scenarios(1)
-        subcategory = cs.TAXA[category]["subcategories"][0]
-        spared_pair = (VALUES["harm_type"][3], VALUES["practical_advantage"][7])
-        prior_rows = [{"taxa_category": category, "taxa_subcategory": subcategory, "harm_type": harm_type,
-                       "practical_advantage": advantage, "count": 2}
-                      for harm_type in VALUES["harm_type"] for advantage in VALUES["practical_advantage"]
-                      if (harm_type, advantage) != spared_pair]
-        only_subcategory_entry = {"hint": "h", "subcategories": [subcategory]}
+    def test_earliest_unused_spec_of_the_subcategory_is_taken_and_used_ones_are_skipped(self, tmp_path):
+        rows = [row for row in self.spec_set_for_every_category(4)]
+        category, scenarios = self.one_category_scenarios(rows, 1)
+        only_subcategory = rows[0]["taxa_subcategory"]
+        in_subcategory = [r for r in rows if r["taxa_category"] == category and r["taxa_subcategory"] == only_subcategory]
+        only_entry = {"hint": "h", "subcategories": [only_subcategory]}
+        pool = in_subcategory
+        spec_path, used_path = self.write(tmp_path, pool, {pool[0]["spec_id"], pool[1]["spec_id"]})
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(cs, "taxa_for", lambda taxa_category: only_subcategory_entry)
-            cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"],
-                                    prior_rows, random.Random(0))
-        assert (scenarios[0]["harm_type"], scenarios[0]["practical_advantage"]) == spared_pair
-        assert scenarios[0]["variables"] == {"harm_type": spared_pair[0], "practical_advantage": spared_pair[1]}
+            patch.setattr(cs, "taxa_for", lambda taxa_category: only_entry)
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+                                        random.Random(0))
+        assert scenarios[0]["spec_id"] == pool[2]["spec_id"]
+
+    def test_subcategory_with_the_largest_deficit_is_chosen_and_drained_ones_are_skipped(self, tmp_path):
+        rows = self.spec_set_for_every_category(2)
+        category, scenarios = self.one_category_scenarios(rows, 8)
+        in_category = [r for r in rows if r["taxa_category"] == category]
+        heavy = in_category[0]["taxa_subcategory"]
+        used = {r["spec_id"] for r in in_category if r["taxa_subcategory"] == heavy}  # heavy is drained
+        spec_path, used_path = self.write(tmp_path, rows, used)
+        cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+                                    random.Random(0))
+        assert all(s["taxa_subcategory"] != heavy for s in scenarios)
+        assert len({s["spec_id"] for s in scenarios}) == 8
+
+    def test_an_exhausted_category_fails_loudly_naming_it(self, tmp_path):
+        rows = self.spec_set_for_every_category(1)
+        category, scenarios = self.one_category_scenarios(rows, 1)
+        used = {r["spec_id"] for r in rows if r["taxa_category"] == category}
+        spec_path, used_path = self.write(tmp_path, rows, used)
+        with pytest.raises(ValueError, match="used up"):
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+                                        random.Random(0))
+        with pytest.raises(ValueError) as error:
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+                                        random.Random(0))
+        assert category in str(error.value)
+
+    def test_deals_in_one_run_never_repeat_a_spec_even_when_the_pool_is_small(self, tmp_path):
+        rows = self.spec_set_for_every_category(1)
+        category, scenarios = self.one_category_scenarios(rows, 3)
+        spec_path, _ = self.write(tmp_path, rows)
+        cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), set(), random.Random(0))
+        assert len({s["spec_id"] for s in scenarios}) == 3
+
+    def test_used_ids_missing_from_the_spec_set_are_refused(self, tmp_path):
+        rows = self.spec_set_for_every_category(1)
+        _, scenarios = self.one_category_scenarios(rows, 1)
+        with pytest.raises(ValueError, match="not in the spec set"):
+            cs.draw_specs_from_spec_set(scenarios, rows, {"spec_99999"}, random.Random(0))
+
+    def test_deterministic_for_a_fixed_seed(self, tmp_path):
+        spec_path, _ = self.write(tmp_path, self.spec_set_for_every_category(6))
+        assert (cs.deal_scenarios(64, random.Random(5), spec_set_path=spec_path)
+                == cs.deal_scenarios(64, random.Random(5), spec_set_path=spec_path))
 
     def test_subcategory_shares_over_a_large_run_track_the_weights(self):
-        category, scenarios = self.one_category_scenarios(2000)
-        cs.make_corpus_use_even(scenarios, VALUES["harm_type"], VALUES["practical_advantage"], [],
-                                random.Random(1))
-        weights = cs._subcategory_relative_weights(cs.TAXA[category])
+        category, scenarios = self.one_category_scenarios(self.spec_set_for_every_category(1000), 2000)
+        rows = [r for r in self.spec_set_for_every_category(1000) if r["taxa_category"] == category]
+        cs.draw_specs_from_spec_set(scenarios, rows, set(), random.Random(1))
+        weights = cs._subcategory_relative_weights(cs.taxa_for(category))
         total_weight = sum(weights.values())
         for subcategory, weight in weights.items():
             share = sum(s["taxa_subcategory"] == subcategory for s in scenarios) / 2000
             assert share == pytest.approx(weight / total_weight, abs=0.01)
-
-    def test_prior_counts_shift_the_deal_through_the_counts_file(self, tmp_path):
-        without_counts = cs.deal_scenarios(64, random.Random(20270003))
-        most_used = {}
-        for scenario in without_counts:
-            key = (scenario["taxa_category"], scenario["taxa_subcategory"])
-            most_used[key] = most_used.get(key, 0) + 1
-        (category, subcategory), _ = max(most_used.items(), key=lambda item: item[1])
-        counts_path = self.counts_file(tmp_path, [{"taxa_category": category, "taxa_subcategory": subcategory,
-                                                  "harm_type": None, "practical_advantage": None,
-                                                  "count": 500}])
-        with_counts = cs.deal_scenarios(64, random.Random(20270003), prior_use_counts_path=counts_path)
-        uses_without = sum(s["taxa_subcategory"] == subcategory and s["taxa_category"] == category
-                           for s in without_counts)
-        uses_with = sum(s["taxa_subcategory"] == subcategory and s["taxa_category"] == category
-                        for s in with_counts)
-        assert uses_with < uses_without

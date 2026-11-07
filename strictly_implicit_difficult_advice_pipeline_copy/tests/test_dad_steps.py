@@ -59,23 +59,22 @@ class TestStep1Run:
             assert example["scenario_cards"]["practical_advantage"] == scenario["practical_advantage"]
             assert example["scenario_cards"]["harm_type"] == scenario["harm_type"]
 
-    def test_prior_corpus_use_counts_path_in_the_config_reaches_the_dealer(self, tiny_config, prompts_dad,
-                                                                           tmp_path, stub_claude):
+    def test_spec_set_and_used_spec_ids_paths_in_the_config_reach_the_dealer(self, tiny_config, prompts_dad,
+                                                                             tmp_path, stub_claude):
         stub_claude(_dad_step1_dispatch)
-        counts_path = tmp_path / "prior_use_counts.json"
-        counts_path.write_text('{"rows": []}', encoding="utf-8")
-        tiny_config["dad"]["dilemmas"]["prior_corpus_use_counts_path"] = str(counts_path)
+        tiny_config["dad"]["dilemmas"]["spec_set_path"] = str(tmp_path / "spec_set.jsonl")
+        tiny_config["dad"]["dilemmas"]["used_spec_ids_path"] = str(tmp_path / "used.json")
         seen_paths = []
-        real_deal_scenarios = step1_dilemmas.compose_scenarios.deal_scenarios
 
         def recording_deal_scenarios(*arguments):
-            seen_paths.append(arguments[3])
-            return real_deal_scenarios(*arguments)
+            seen_paths.append(arguments[3:])
+            return real_deal_scenarios(*arguments[:3])
 
+        real_deal_scenarios = step1_dilemmas.compose_scenarios.deal_scenarios
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(step1_dilemmas.compose_scenarios, "deal_scenarios", recording_deal_scenarios)
             step1_dilemmas.run(tiny_config, prompts_dad, tmp_path / "run")
-        assert seen_paths == [str(counts_path)]
+        assert seen_paths == [(str(tmp_path / "spec_set.jsonl"), str(tmp_path / "used.json"))]
 
     def test_drafts_scenarios_gates_and_refines(self, tiny_config, prompts_dad, tmp_path, stub_claude):
         calls = stub_claude(_dad_step1_dispatch)

@@ -1,15 +1,15 @@
 # Pipeline configuration template for one batch of the emergent misalignment prompt corpus.
 # The script add_batch_to_emergent_misalignment_prompt_corpus.py copies this file into each new batch folder, filling in
-# dad.dilemmas.scenario_seed (20270000 + the batch number) and dad.dilemmas.count (the number of deals requested).
+# dad.dilemmas.scenario_seed (the corpus's scenario seed base, from its settings file, + the batch number) and dad.dilemmas.count (the number of deals requested).
 # Everything else is kept as it is, so every batch is generated the same way. Change anything else here only on purpose:
 # batches made afterwards will have used different settings (a change to the prompt files is told apart by the prompt
 # version hash in the batch ledger; a change to this file is not).
 # Runs step 1 only (scenario, draft, gate, refine) on strictly_implicit_difficult_advice_pipeline_copy/. backend
 # claude_code (the Claude Code CLI, billed to the subscription), Claude Sonnet 5.5 on every step-1 stage including the
 # gate and refusal fallback. Steps 2 and 3 are not run; their model keys are unused.
-# The placeholder values for scenario_seed, count and prior_corpus_use_counts_path below are overwritten for every batch
-# (the last names the batch's snapshot of how often earlier batches used each category, subcategory, harm type and
-# practical advantage combination; the dealer evens use across the corpus from it).
+# The placeholder values for scenario_seed, count, spec_set_path and used_spec_ids_path below are overwritten for every
+# batch (spec_set_path names the corpus's fixed spec set, used_spec_ids_path the batch's snapshot of which specs earlier
+# batches used; the dealer draws each deal's spec from the unused ones).
 backend: claude_code
 model: claude-sonnet-5
 max_tokens: 4000
@@ -62,7 +62,8 @@ dad:
     count: 64
     seed_path: null
     scenario_seed: 20261108
-    prior_corpus_use_counts_path: null
+    spec_set_path: null
+    used_spec_ids_path: null
     gate: true
     refine: true
   responses:
