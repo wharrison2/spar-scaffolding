@@ -37,12 +37,9 @@ REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent.parent
 PIPELINE_FOLDER = REPOSITORY_ROOT / "strictly_implicit_difficult_advice_pipeline_copy"
 sys.path.insert(0, str(SCRIPT_DIRECTORY))
 sys.path.insert(0, str(PIPELINE_FOLDER))
-# The pipeline's `shared` package shares its name with scripts/shared; when another module already imported the latter
-# (a pytest run over the whole scripts folder), drop it so the pipeline's own package is the one imported here.
-if "shared" in sys.modules and PIPELINE_FOLDER not in Path(sys.modules["shared"].__file__).resolve().parents:
-    for module_name in [name for name in sys.modules if name == "shared" or name.startswith("shared.")]:
-        del sys.modules[module_name]
-from dad_pipeline import compose_scenarios  # noqa: E402
+from load_pipeline_scenario_dealer import load_scenario_dealer  # noqa: E402
+
+compose_scenarios = load_scenario_dealer()
 from select_implicit_prompts_from_difficult_advice_step_one_run import select_prompts  # noqa: E402
 
 VARIABLES_FILE = PIPELINE_FOLDER / "prompts" / "dad" / "variables.txt"

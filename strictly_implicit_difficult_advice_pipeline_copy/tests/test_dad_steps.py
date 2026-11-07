@@ -59,11 +59,11 @@ class TestStep1Run:
             assert example["scenario_cards"]["practical_advantage"] == scenario["practical_advantage"]
             assert example["scenario_cards"]["harm_type"] == scenario["harm_type"]
 
-    def test_spec_set_and_used_spec_ids_paths_in_the_config_reach_the_dealer(self, tiny_config, prompts_dad,
+    def test_spec_set_and_spec_dealing_plan_paths_in_the_config_reach_the_dealer(self, tiny_config, prompts_dad,
                                                                              tmp_path, stub_claude):
         stub_claude(_dad_step1_dispatch)
         tiny_config["dad"]["dilemmas"]["spec_set_path"] = str(tmp_path / "spec_set.jsonl")
-        tiny_config["dad"]["dilemmas"]["used_spec_ids_path"] = str(tmp_path / "used.json")
+        tiny_config["dad"]["dilemmas"]["spec_dealing_plan_path"] = str(tmp_path / "used.json")
         seen_paths = []
 
         def recording_deal_scenarios(*arguments):

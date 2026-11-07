@@ -262,9 +262,21 @@ def _draw_subcategory(taxa_entry: dict, rng: random.Random) -> str:
 # A spec is (taxa_category, taxa_subcategory, harm_type, practical_advantage). A corpus fixes its specs in advance
 # (scripts/emergent_misalignment/enumerate_fixed_spec_set_fitting_category_and_subcategory_weights.py): one JSON object
 # per line with a spec_id, the four fields and position_in_subcategory_order. Batches draw from that pool. Which specs
-# earlier batches used is a JSON file written by scripts/emergent_misalignment/add_batch_to_emergent_misalignment_prompt_corpus.py:
-#   {"used_spec_ids": ["spec_00001", ...]}
-# Without a spec set file the harm type, practical advantage and subcategory stay as dealt (no corpus-level control).
+# earlier batches dealt, and (for a retry batch) exactly which specs to deal, is a JSON file written by
+# scripts/emergent_misalignment/add_batch_to_emergent_misalignment_prompt_corpus.py:
+#   {"dealt_spec_ids": ["spec_00001", ...], "forced_spec_ids": ["spec_00007", ...]}
+# dealt_spec_ids are never drawn again in a default batch (whatever their outcome was); forced_spec_ids, when present, are
+# the exact specs a retry batch deals (see deal_scenarios). Without a spec set file the harm type, practical advantage
+# and subcategory stay as dealt (no corpus-level control).
+
+class SpecPoolExhausted(ValueError):
+    """A dealt category has no never-dealt spec left; .category names it."""
+
+    def __init__(self, category: str):
+        self.category = category
+        super().__init__(f"the spec pool for category {category!r} is used up: every one of its specs has already "
+                         f"been dealt, by earlier batches or earlier deals in this run")
+
 
 def load_spec_set(spec_set_path: Path) -> list[dict]:
     """The specs of a spec set file, in file order."""
@@ -272,42 +284,44 @@ def load_spec_set(spec_set_path: Path) -> list[dict]:
     return [json.loads(line) for line in lines if line.strip()]
 
 
-def load_used_spec_ids(used_spec_ids_path: Path | None) -> set[str]:
-    """The spec ids earlier batches used; no file means none."""
-    if used_spec_ids_path is None:
-        return set()
-    return set(json.loads(Path(used_spec_ids_path).read_text(encoding="utf-8"))["used_spec_ids"])
+def load_spec_dealing_plan(spec_dealing_plan_path: Path | None) -> dict:
+    """The dealt and forced spec ids of a spec dealing plan file; no file means nothing dealt and nothing forced."""
+    if spec_dealing_plan_path is None:
+        return {"dealt_spec_ids": set(), "forced_spec_ids": None}
+    plan = json.loads(Path(spec_dealing_plan_path).read_text(encoding="utf-8"))
+    forced = plan.get("forced_spec_ids")
+    return {"dealt_spec_ids": set(plan.get("dealt_spec_ids", [])), "forced_spec_ids": list(forced) if forced else None}
 
 
-def draw_specs_from_spec_set(scenarios: list[dict], spec_rows: list[dict], used_spec_ids: set[str],
+def draw_specs_from_spec_set(scenarios: list[dict], spec_rows: list[dict], dealt_spec_ids: set[str],
                              rng: random.Random) -> None:
-    """Give each scenario a spec from the fixed spec set, editing the scenarios in place.
+    """Give each scenario a never-dealt spec from the fixed spec set, editing the scenarios in place.
 
     Walking the scenarios in order, within the dealt category (never changed, so category shares and
     archetype constraints stay as dealt):
-      1. the subcategory is the one with the largest deficit among the category's subcategories that still have an
-         unused spec: its relative weight over the category's total times the category's uses so far (earlier
-         batches' plus this run's earlier deals), minus its own uses so far; ties are broken by the seeded rng,
+      1. the subcategory is the one with the largest deficit among the category's subcategories that still have a
+         never-dealt spec: its relative weight over the category's total times the category's uses so far (specs dealt
+         by earlier batches plus this run's earlier deals), minus its own uses so far; ties are broken by the seeded rng,
          weighted by relative weight;
-      2. the spec is that subcategory's earliest unused spec in the stored order.
-    Fails loudly, before anything is generated, when a dealt category has no unused spec left.
-    Deterministic for a given seed, spec set and used spec ids."""
+      2. the spec is that subcategory's earliest never-dealt spec in the stored order.
+    Fails loudly, before anything is generated, when a dealt category has no never-dealt spec left.
+    Deterministic for a given seed, spec set and dealt spec ids."""
     pool_by_subcategory: dict[tuple[str, str], list[dict]] = {}
     spec_by_id = {}
     for spec in sorted(spec_rows, key=lambda row: row["position_in_subcategory_order"]):
         pool_by_subcategory.setdefault((spec["taxa_category"], spec["taxa_subcategory"]), []).append(spec)
         spec_by_id[spec["spec_id"]] = spec
-    unknown_ids = sorted(used_spec_ids - set(spec_by_id))
+    unknown_ids = sorted(dealt_spec_ids - set(spec_by_id))
     if unknown_ids:
-        raise ValueError(f"used spec ids not in the spec set: {unknown_ids[:5]}")
+        raise ValueError(f"dealt spec ids not in the spec set: {unknown_ids[:5]}")
     category_uses: dict[str, int] = {}
     subcategory_uses: dict[tuple[str, str], int] = {}
-    for spec_id in used_spec_ids:
+    for spec_id in dealt_spec_ids:
         spec = spec_by_id[spec_id]
         category_uses[spec["taxa_category"]] = category_uses.get(spec["taxa_category"], 0) + 1
         key = (spec["taxa_category"], spec["taxa_subcategory"])
         subcategory_uses[key] = subcategory_uses.get(key, 0) + 1
-    unused_ids = set(spec_by_id) - used_spec_ids
+    unused_ids = set(spec_by_id) - dealt_spec_ids
 
     for scenario in scenarios:
         category = scenario["taxa_category"]
@@ -321,8 +335,7 @@ def draw_specs_from_spec_set(scenarios: list[dict], spec_rows: list[dict], used_
                 deficit_by_subcategory[name] = round(
                     weight / total_weight * uses_of_category - subcategory_uses.get((category, name), 0), 9)
         if not deficit_by_subcategory:
-            raise ValueError(f"the spec pool for category {category!r} is used up: every one of its specs is already "
-                             f"used by earlier batches or earlier deals in this run")
+            raise SpecPoolExhausted(category)
         largest_deficit = max(deficit_by_subcategory.values())
         tied_subcategories = [name for name, deficit in deficit_by_subcategory.items() if deficit == largest_deficit]
         subcategory = rng.choices(tied_subcategories,
@@ -463,10 +476,28 @@ def _apply_archetypes(decks: dict, values: dict, n: int,
     return assigned
 
 
+def assign_forced_specs(scenarios: list[dict], forced_specs: list[dict]) -> None:
+    """Give each scenario the first still-unassigned forced spec of its own category (a retry deal; the categories were
+    dealt from the forced specs, so every scenario finds one), editing the scenarios in place."""
+    unassigned = list(forced_specs)
+    for scenario in scenarios:
+        spec = next((candidate for candidate in unassigned if candidate["taxa_category"] == scenario["taxa_category"]),
+                    None)
+        if spec is None:
+            raise ValueError(f"no forced spec left for category {scenario['taxa_category']!r}")
+        unassigned.remove(spec)
+        scenario["spec_id"] = spec["spec_id"]
+        scenario["taxa_subcategory"] = spec["taxa_subcategory"]
+        scenario["harm_type"] = spec["harm_type"]
+        scenario["practical_advantage"] = spec["practical_advantage"]
+        scenario["variables"]["harm_type"] = spec["harm_type"]
+        scenario["variables"]["practical_advantage"] = spec["practical_advantage"]
+
+
 def deal_scenarios(n: int, rng: random.Random,
                    variables_path: Path = DEFAULT_VARIABLES,
                    spec_set_path: Path | None = None,
-                   used_spec_ids_path: Path | None = None) -> list[dict]:
+                   spec_dealing_plan_path: Path | None = None) -> list[dict]:
     """Stratified scenario deals, one per example. Axes are sampled
     independently (the anti-correlation rules hold by construction) except the
     spec's sanctioned dependencies: hidden→unaware, the trap surface form
@@ -475,9 +506,17 @@ def deal_scenarios(n: int, rng: random.Random,
     "output format" failure-mode trap forcing the agentic-execution goal (the
     trap needs a deliverable to hide in), and two style-move remaps — casual opening→task-first under the formal-desk
     persona, trailing-off closing→afterthought under the explicitly-asks
-    surface form (both are same-dimension contradictions, not tensions)."""
+    surface form (both are same-dimension contradictions, not tensions).
+
+    A spec dealing plan with forced_spec_ids makes this a retry deal: n must equal the number of forced specs, each
+    scenario's category is that of its spec (see the comments where the category deck is built), and each scenario is
+    given exactly one forced spec."""
     if n <= 0:
         return []
+    plan = load_spec_dealing_plan(spec_dealing_plan_path)
+    forced_spec_ids = plan["forced_spec_ids"]
+    if forced_spec_ids is not None and (spec_set_path is None or n != len(forced_spec_ids)):
+        raise ValueError(f"a retry deal needs a spec set and n equal to the {len(forced_spec_ids)} forced specs (n={n})")
     values, weights = load_axes(variables_path)
     _validate(values)
 
@@ -501,9 +540,43 @@ def deal_scenarios(n: int, rng: random.Random,
 
     axes = list(values)
     decks = {name: _deal_axis(name, values, weights, n, rng) for name in axes}
+    forced_specs = None
+    if forced_spec_ids is not None:
+        spec_by_id = {spec["spec_id"]: spec for spec in load_spec_set(spec_set_path)}
+        missing = [spec_id for spec_id in forced_spec_ids if spec_id not in spec_by_id]
+        if missing:
+            raise ValueError(f"forced spec ids not in the spec set: {missing[:5]}")
+        forced_specs = [spec_by_id[spec_id] for spec_id in forced_spec_ids]
+        # Retry deal: the category deck is the forced specs' categories (shuffled like any deck) instead of the
+        # weighted deck, so every other axis keeps its weighted quotas and the archetype trading below runs as usual.
+        decks["taxa_category"] = [spec["taxa_category"] for spec in forced_specs]
+        rng.shuffle(decks["taxa_category"])
     # Archetype slots trade cards between deals BEFORE anything reads the
     # decks, so the domain-cap counts below see the final hands.
     archetype_slots = _apply_archetypes(decks, values, n, rng) if _p().ARCHETYPES else {}
+
+    relaxed_archetypes: dict[int, str] = {}
+    if forced_specs is not None:
+        # Archetype trading swaps cards between deals, so the multiset of categories is unchanged, except where an
+        # archetype demands a category the retry set does not hold: then the card is overwritten in place. Keep every
+        # deal whose category still has a forced spec; for the others, hand out a leftover category and drop the
+        # archetype (recorded on the scenario as archetype_relaxed_for_retry) because its category constraint
+        # cannot be met without dealing a spec that is not being retried.
+        remaining_categories = {}
+        for spec in forced_specs:
+            remaining_categories[spec["taxa_category"]] = remaining_categories.get(spec["taxa_category"], 0) + 1
+        mismatched = []
+        for i in range(n):
+            category = decks["taxa_category"][i]
+            if remaining_categories.get(category, 0) > 0:
+                remaining_categories[category] -= 1
+            else:
+                mismatched.append(i)
+        leftovers = [category for category, left in remaining_categories.items() for _ in range(left)]
+        for i, category in zip(mismatched, leftovers):
+            decks["taxa_category"][i] = category
+            if i in archetype_slots:
+                relaxed_archetypes[i] = archetype_slots.pop(i)[0]
 
     domain_cap = max(1, int(DOMAIN_CAP_SHARE * n))
     domain_counts = {d: 0 for d in values["domain"]}
@@ -577,14 +650,17 @@ def deal_scenarios(n: int, rng: random.Random,
             "deliverable": raw["deliverable"] if agentic_goal in goal else None,
             "failure_mode_target": trap,
             "failure_mode_salience": raw["failure_mode_salience"] if trap else None,
+            **({"archetype_relaxed_for_retry": relaxed_archetypes[i]} if i in relaxed_archetypes else {}),
             # the raw assignment, verbatim — what render_plan_prompt formats
             "variables": raw,
         })
 
     # Last structural pass, after archetype trading and every per-scenario rule: the
     # records and the step 1a prompts both read the settled values.
-    if spec_set_path is not None:
-        draw_specs_from_spec_set(scenarios, load_spec_set(spec_set_path), load_used_spec_ids(used_spec_ids_path), rng)
+    if forced_specs is not None:
+        assign_forced_specs(scenarios, forced_specs)
+    elif spec_set_path is not None:
+        draw_specs_from_spec_set(scenarios, load_spec_set(spec_set_path), plan["dealt_spec_ids"], rng)
     return scenarios
 
 
@@ -835,13 +911,13 @@ def main() -> None:
     parser.add_argument("--out", type=Path, help="write the deals to this JSONL file")
     parser.add_argument("--spec-set", type=Path, default=None,
                         help="JSONL fixed spec set to draw each deal's spec from (see draw_specs_from_spec_set)")
-    parser.add_argument("--used-spec-ids", type=Path, default=None,
-                        help="JSON file of spec ids earlier batches used")
+    parser.add_argument("--spec-dealing-plan", type=Path, default=None,
+                        help="JSON file of dealt spec ids (and, for a retry deal, forced spec ids)")
     args = parser.parse_args()
 
     try:
         scenarios = deal_scenarios(args.n, random.Random(args.seed), args.variables,
-                                   args.spec_set, args.used_spec_ids)
+                                   args.spec_set, args.spec_dealing_plan)
     except ValueError as exc:
         raise SystemExit(str(exc))
     if args.out:

@@ -15,6 +15,12 @@ Steps (each leaves a completion marker in the batch folder, so --resume-batch-fo
   usefulness judge (twice) -> accepted file -> summary -> ledger line (last)
 The judges are run twice because a call blocked by safety filters is left for the second run to retry.
 
+Two modes. Default: every deal draws a spec that has never been dealt in this corpus, whatever the outcome of its earlier
+attempts, until a category has none left. --retry-failed-specs: the batch deals exactly the specs whose current status is
+failed (fewest attempts first, --deals caps how many, --retry-failure-stages filters), regenerated and rescored from scratch
+with no feedback from the earlier failure. Each finished batch writes a spec outcomes file and a new spec status table (see
+spec_outcomes_and_status_table_for_prompt_corpus.py).
+
 Everything goes through the Claude Code CLI (subscription), via the pipeline and the two judge scripts. This script makes
 no model call itself. Use --dry-run to print the plan and create nothing.
 """
@@ -36,14 +42,16 @@ SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent.parent
 sys.path.insert(0, str(SCRIPT_DIRECTORY))
 from select_implicit_prompts_from_difficult_advice_step_one_run import select_prompts  # noqa: E402
-from filter_prompts_where_user_never_mentions_animal_welfare_with_haiku_through_claude_code_cli import (  # noqa: E402
-    latest_verdict_per_prompt, read_verdict_records)
+from load_pipeline_scenario_dealer import load_scenario_dealer  # noqa: E402
+from spec_outcomes_and_status_table_for_prompt_corpus import (  # noqa: E402
+    ANSWERABILITY_VERDICT_PATTERN, FAILURE_STAGES, LEDGER_FILE_NAME, USEFULNESS_VERDICT_PATTERN,
+    build_spec_status_table, find_pipeline_run_folder, newest_file, ok_verdicts_in_folder, outcome_counts,
+    write_batch_spec_outcomes_file, write_spec_status_table)
 
 PYTHON_EXECUTABLE = str(REPOSITORY_ROOT / "animal-welfare-data-pipeline" / ".venv" / "bin" / "python")
 DEFAULT_CORPUS_FOLDER = (REPOSITORY_ROOT / "data"
                          / "emergent_misalignment_prompt_corpus_category_subcategory_harm_and_advantage_specs")
 CORPUS_SETTINGS_FILE_NAME = "corpus_settings_scenario_seed_base_and_spec_set_file.json"
-LEDGER_FILE_NAME = "corpus_batch_ledger_started_2026-11-06.jsonl"
 PIPELINE_FOLDER = REPOSITORY_ROOT / "strictly_implicit_difficult_advice_pipeline_copy"
 GENERATION_PROMPT_FOLDER = PIPELINE_FOLDER / "prompts" / "dad"
 GENERATION_PROMPT_FILE_NAMES = ["step1a_scenario.txt", "step1b_dilemmas.txt", "step1c_gate.txt", "step1d_refine.txt",
@@ -68,11 +76,11 @@ USEFULNESS_JUDGE_SCRIPT = SCRIPT_DIRECTORY / \
     "judge_whether_prompt_carries_an_evident_and_decisive_animal_welfare_stake_through_claude_code_cli.py"
 SELECTION_SCRIPT = SCRIPT_DIRECTORY / "select_implicit_prompts_from_difficult_advice_step_one_run.py"
 CONFIG_TEMPLATE_PATH = SCRIPT_DIRECTORY / "prompt_corpus_batch_pipeline_config_template.yaml"
-USED_SPEC_IDS_FILE_PATTERN = "used_spec_ids_before_batch_*.json"
+SPEC_DEALING_PLAN_FILE_PATTERN = "spec_dealing_plan_for_batch_*.json"
 SPEC_SET_CONFIG_KEY = "spec_set_path"
-USED_SPEC_IDS_CONFIG_KEY = "used_spec_ids_path"
-ANSWERABILITY_VERDICT_PATTERN = "complete_answer_without_welfare_verdicts_*.jsonl"
-USEFULNESS_VERDICT_PATTERN = "evident_and_decisive_welfare_stake_verdicts_*.jsonl"
+SPEC_DEALING_PLAN_CONFIG_KEY = "spec_dealing_plan_path"
+MODE_DEFAULT = "default_never_dealt_specs"
+MODE_RETRY = "retry_failed_specs"
 SCENARIO_SEED_BASE = 20270000  # the seed base of a corpus folder with no settings file (the retired first corpus)
 SELECTION_COUNT_LARGE_ENOUGH_TO_KEEP_EVERYTHING = 100000
 PROGRESS_REPORT_INTERVAL_SECONDS = 180
@@ -188,65 +196,98 @@ def snapshot_prompts(batch_folder: Path, generation_prompt_folder: Path = GENERA
         shutil.copy2(spec_set_path, destination / Path(spec_set_path).name)
 
 
-def collect_used_spec_ids(corpus_folder: Path, batch_number: int) -> dict:
-    """The spec ids dealt in the batches before this one. A spec counts as used when its deal passed the gate (and is
-    implicit, which is what the selection script keeps) in an earlier batch of this corpus, read from each earlier batch
-    folder's pipeline step 1 outputs; a spec whose deal was rejected returns to the pool. Reads only; the new batch is
-    never counted."""
-    used_spec_ids: list[str] = []
-    counted_batches = []
-    for earlier_number, folder in batch_folders_present(corpus_folder).items():
-        if earlier_number >= batch_number:
-            continue
-        run_folder = find_pipeline_run_folder(folder)
-        if run_folder is None or not (run_folder / "step1" / "dilemmas.jsonl").exists():
-            raise BatchFailure(f"earlier batch {earlier_number:03d} has no pipeline step 1 output to count in {folder}")
-        gate_passed_deals, _ = select_prompts(run_folder / "step1", SELECTION_COUNT_LARGE_ENOUGH_TO_KEEP_EVERYTHING)
-        counted_batches.append(earlier_number)
-        used_spec_ids += [deal["spec_id"] for deal in gate_passed_deals if deal.get("spec_id")]
-    if len(set(used_spec_ids)) != len(used_spec_ids):
-        raise BatchFailure("a spec was used by more than one gate-passed deal in earlier batches")
-    return {"counted_batch_numbers": counted_batches, "deals_counted": len(used_spec_ids),
-            "used_spec_ids": sorted(used_spec_ids)}
+def plan_spec_dealing(corpus_folder: Path, batch_number: int, deals: int, retry_failed_specs: bool = False,
+                      retry_failure_stages: list[str] | None = None) -> dict:
+    """What the batch deals, from the spec status table of the batches before it. Every spec dealt before, whatever its
+    outcome, is in dealt_spec_ids and is never drawn again in a default batch. A retry batch also lists forced_spec_ids:
+    the failed specs (latest failure stage in retry_failure_stages when given), fewest attempts first, at most `deals`.
+    Raises BatchFailure when a retry batch has nothing to retry."""
+    spec_set_path = spec_set_path_for_corpus(corpus_folder)
+    if spec_set_path is None:
+        raise BatchFailure("this corpus has no spec set, so there is no spec status to plan from")
+    spec_rows = read_jsonl(spec_set_path)
+    table = build_spec_status_table(corpus_folder, spec_rows, before_batch_number=batch_number)
+    plan = {"mode": MODE_RETRY if retry_failed_specs else MODE_DEFAULT,
+            "dealt_spec_ids": sorted(row["spec_id"] for row in table if row["attempts"] > 0),
+            "forced_spec_ids": None, "attempts_so_far": {}, "retry_failure_stages": retry_failure_stages}
+    if retry_failed_specs:
+        candidates = [row for row in table if row["status"] == "failed"
+                      and (not retry_failure_stages or row["latest_failure_stage"] in retry_failure_stages)]
+        chosen = sorted(candidates, key=lambda row: (row["attempts"], row["spec_id"]))[:deals]
+        if not chosen:
+            raise BatchFailure("there is nothing to retry: no spec has status failed"
+                               + (f" with a latest failure stage in {retry_failure_stages}" if retry_failure_stages else ""))
+        plan["forced_spec_ids"] = [row["spec_id"] for row in chosen]
+        plan["attempts_so_far"] = {row["spec_id"]: row["attempts"] for row in chosen}
+        plan["retried_specs"] = [{"spec_id": row["spec_id"], "attempts_so_far": row["attempts"],
+                                  "latest_failure_stage": row["latest_failure_stage"],
+                                  "taxa_category": row["taxa_category"], "taxa_subcategory": row["taxa_subcategory"]}
+                                 for row in chosen]
+    elif retry_failure_stages:
+        raise BatchFailure("--retry-failure-stages only applies with --retry-failed-specs")
+    plan["failed_spec_count"] = sum(row["status"] == "failed" for row in table)
+    plan["failed_spec_count_by_category"] = {}
+    for row in table:
+        if row["status"] == "failed":
+            plan["failed_spec_count_by_category"][row["taxa_category"]] = \
+                plan["failed_spec_count_by_category"].get(row["taxa_category"], 0) + 1
+    return plan
 
 
-def write_used_spec_ids_file(batch_folder: Path, corpus_folder: Path, batch_number: int, stamp: str) -> Path:
-    """Write (once) the batch's snapshot of used spec ids. A file already in the batch folder is kept, so a resumed
-    batch deals from the same pool and never counts itself."""
-    existing = newest_file(batch_folder, USED_SPEC_IDS_FILE_PATTERN)
+def spec_attempt_numbers_of_plan(plan: dict | None) -> dict[str, int]:
+    """The attempt number each forced spec is on in this batch (a spec dealt for the first time is attempt 1)."""
+    return {spec_id: attempts + 1 for spec_id, attempts in ((plan or {}).get("attempts_so_far") or {}).items()}
+
+
+def preflight_deal(plan: dict, corpus_folder: Path, scenario_seed: int, deals: int) -> None:
+    """Deal the batch in memory, exactly as pipeline step 1 will (same seed, spec set and plan), so that a category
+    with no never-dealt spec left fails here, before any generation, naming the category and the failed specs that
+    could be retried."""
+    import random
+    import tempfile
+    compose_scenarios = load_scenario_dealer()
+    spec_set_path = spec_set_path_for_corpus(corpus_folder)
+    count = len(plan["forced_spec_ids"]) if plan["forced_spec_ids"] else deals
+    with tempfile.TemporaryDirectory() as temporary_folder:
+        plan_path = Path(temporary_folder) / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        try:
+            compose_scenarios.deal_scenarios(count, random.Random(scenario_seed), compose_scenarios.DEFAULT_VARIABLES,
+                                             spec_set_path, plan_path)
+        except compose_scenarios.SpecPoolExhausted as error:
+            in_category = plan["failed_spec_count_by_category"].get(error.category, 0)
+            raise BatchFailure(
+                f"{error} {plan['failed_spec_count']} failed specs ({in_category} in this category) could be retried "
+                f"with --retry-failed-specs. No batch folder was created.") from error
+
+
+def write_spec_dealing_plan_file(batch_folder: Path, plan: dict, batch_number: int, stamp: str) -> Path:
+    """Write (once) the batch's spec dealing plan. A file already in the batch folder is kept, so a resumed batch deals
+    the same specs and never counts itself."""
+    existing = newest_file(batch_folder, SPEC_DEALING_PLAN_FILE_PATTERN)
     if existing is not None:
         return existing
-    path = batch_folder / f"used_spec_ids_before_batch_{batch_number:03d}_{stamp}.json"
-    path.write_text(json.dumps(collect_used_spec_ids(corpus_folder, batch_number), indent=2), encoding="utf-8")
+    path = batch_folder / f"spec_dealing_plan_for_batch_{batch_number:03d}_{stamp}.json"
+    path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
     return path
 
 
 def write_batch_config(batch_folder: Path, seed: int, deals: int, stamp: str,
                        template_path: Path = CONFIG_TEMPLATE_PATH, spec_set_path: Path | None = None,
-                       used_spec_ids_path: Path | None = None) -> Path:
+                       spec_dealing_plan_path: Path | None = None) -> Path:
     config = yaml.safe_load(template_path.read_text(encoding="utf-8"))
     config["dad"]["dilemmas"]["scenario_seed"] = seed
     config["dad"]["dilemmas"]["count"] = deals
     config["dad"]["dilemmas"][SPEC_SET_CONFIG_KEY] = str(spec_set_path) if spec_set_path else None
-    config["dad"]["dilemmas"][USED_SPEC_IDS_CONFIG_KEY] = str(used_spec_ids_path) if used_spec_ids_path else None
+    config["dad"]["dilemmas"][SPEC_DEALING_PLAN_CONFIG_KEY] = (
+        str(spec_dealing_plan_path) if spec_dealing_plan_path else None)
     header = (f"# Pipeline configuration for one batch of the emergent misalignment prompt corpus, written from\n"
               f"# {template_path.name}: scenario seed {seed}, {deals} deals, spec set "
-              f"{spec_set_path.name if spec_set_path else 'none'}, used spec ids "
-              f"{used_spec_ids_path.name if used_spec_ids_path else 'none'}.\n")
+              f"{spec_set_path.name if spec_set_path else 'none'}, spec dealing plan "
+              f"{spec_dealing_plan_path.name if spec_dealing_plan_path else 'none'}.\n")
     config_path = batch_folder / f"pipeline_config_for_this_batch_{stamp}.yaml"
     config_path.write_text(header + yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return config_path
-
-
-def newest_file(folder: Path, pattern: str) -> Path | None:
-    matches = sorted(folder.glob(pattern))
-    return matches[-1] if matches else None
-
-
-def find_pipeline_run_folder(batch_folder: Path) -> Path | None:
-    runs_folder = batch_folder / "raw_pipeline_outputs" / "dad" / "runs"
-    runs = sorted(path for path in runs_folder.iterdir() if path.is_dir()) if runs_folder.exists() else []
-    return runs[-1] if runs else None
 
 
 def marker_exists(batch_folder: Path, step_name: str) -> bool:
@@ -324,17 +365,11 @@ def read_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def ok_verdicts_in_folder(judge_folder: Path, pattern: str) -> dict[str, dict]:
-    """The latest ok verdict per prompt across every verdicts file in the folder."""
-    files = sorted(judge_folder.glob(pattern)) if judge_folder.exists() else []
-    latest = latest_verdict_per_prompt(read_verdict_records(files)) if files else {}
-    return {gid: record for gid, record in latest.items() if record.get("parse_status") == "ok"}
-
-
 def build_accepted_records(prompt_records: list[dict], answerability_verdicts: dict[str, dict],
                            usefulness_verdicts: dict[str, dict], batch_number: int, scenario_seed: int,
                            prompt_version_hash: str, generation_started_at: str | None = None,
-                           generation_finished_at: str | None = None) -> tuple[list[dict], dict]:
+                           generation_finished_at: str | None = None,
+                           spec_attempt_numbers: dict[str, int] | None = None) -> tuple[list[dict], dict]:
     """Accepted = answerable yes AND useful true. Prompts with a missing ok verdict from either judge are unjudged."""
     accepted, unjudged_ids = [], []
     counts = {"selected": len(prompt_records), "answerable": 0, "useful": 0, "accepted": 0}
@@ -353,6 +388,8 @@ def build_accepted_records(prompt_records: list[dict], answerability_verdicts: d
                              "corpus_prompt_id": f"B{batch_number:03d}-{gid}",
                              "corpus_batch_number": batch_number,
                              "scenario_seed": scenario_seed,
+                             "spec_attempt_number": ((spec_attempt_numbers or {}).get(record["spec_id"], 1)
+                                                     if record.get("spec_id") else None),
                              "generation_prompt_version_hash": prompt_version_hash,
                              "batch_generation_started_at": generation_started_at,
                              "batch_generation_finished_at": generation_finished_at,
@@ -397,7 +434,8 @@ class BatchFailure(Exception):
 
 
 def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenario_seed: int, deals: int,
-              started_at: datetime, run_command_function=run_command, now=datetime.now) -> dict:
+              started_at: datetime, run_command_function=run_command, now=datetime.now,
+              retry_failed_specs: bool = False, retry_failure_stages: list[str] | None = None) -> dict:
     ledger_path = corpus_folder / LEDGER_FILE_NAME
     started = time.time()
     stamp = now().strftime(TIMESTAMP_FORMAT)
@@ -429,12 +467,22 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
     spec_set_path = spec_set_path_for_corpus(corpus_folder)
     if not marker_exists(batch_folder, "snapshot_prompts_and_write_config"):
         snapshot_prompts(batch_folder, spec_set_path=spec_set_path)
-        used_spec_ids_path = write_used_spec_ids_file(batch_folder, corpus_folder, batch_number, stamp) \
-            if spec_set_path else None
-        write_batch_config(batch_folder, scenario_seed, deals, stamp, spec_set_path=spec_set_path,
-                           used_spec_ids_path=used_spec_ids_path)
+        plan_path = None
+        if spec_set_path:
+            plan = plan_spec_dealing(corpus_folder, batch_number, deals, retry_failed_specs, retry_failure_stages)
+            plan_path = write_spec_dealing_plan_file(batch_folder, plan, batch_number, stamp)
+        plan_in_folder = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path else None
+        deals_in_config = len(plan_in_folder["forced_spec_ids"]) if plan_in_folder and plan_in_folder["forced_spec_ids"] \
+            else deals
+        write_batch_config(batch_folder, scenario_seed, deals_in_config, stamp, spec_set_path=spec_set_path,
+                           spec_dealing_plan_path=plan_path)
         write_marker(batch_folder, "snapshot_prompts_and_write_config", 0)
     config_path = newest_file(batch_folder, "pipeline_config_for_this_batch_*.yaml")
+    plan_file = newest_file(batch_folder, SPEC_DEALING_PLAN_FILE_PATTERN)
+    batch_plan = json.loads(plan_file.read_text(encoding="utf-8")) if plan_file else None
+    batch_mode = batch_plan["mode"] if batch_plan else MODE_DEFAULT
+    spec_attempt_numbers = spec_attempt_numbers_of_plan(batch_plan)
+    deals = yaml.safe_load(config_path.read_text())["dad"]["dilemmas"]["count"]
 
     # pipeline step 1, resuming the partial run if one exists
     existing_run = find_pipeline_run_folder(batch_folder)
@@ -469,17 +517,26 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
     generation_started_at = generation_times.get("batch_generation_started_at")
     generation_finished_at = generation_times.get("batch_generation_finished_at")
     accepted, counts = build_accepted_records(prompt_records, answerability, usefulness, batch_number, scenario_seed,
-                                              prompt_version_hash, generation_started_at, generation_finished_at)
+                                              prompt_version_hash, generation_started_at, generation_finished_at,
+                                              spec_attempt_numbers)
     final_stamp = now().strftime(TIMESTAMP_FORMAT)
     accepted_path = batch_folder / f"accepted_prompts_batch_{batch_number:03d}_{final_stamp}.jsonl"
     accepted_path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in accepted), encoding="utf-8")
+
+    spec_outcomes_file, spec_outcome_summary = None, None
+    if spec_set_path:
+        spec_outcomes_path, spec_outcome_rows = write_batch_spec_outcomes_file(batch_folder, batch_number, final_stamp,
+                                                                              spec_attempt_numbers)
+        spec_outcomes_file, spec_outcome_summary = spec_outcomes_path.name, outcome_counts(spec_outcome_rows)
+    mode_fields = {"batch_mode": batch_mode, "spec_outcomes_file": spec_outcomes_file,
+                   "spec_outcome_counts": spec_outcome_summary}
 
     gate_passed_implicit = len(prompt_records)
     summary = {"batch_number": batch_number, "scenario_seed": scenario_seed, "deals_requested": deals,
                "implicit_gate_passed_count": gate_passed_implicit, "answerable_count": counts["answerable"],
                "useful_count": counts["useful"], "accepted_count": counts["accepted"],
                "unjudged_count": counts["unjudged"], "unjudged_prompt_ids": counts["unjudged_prompt_ids"],
-               "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **judge_hashes,
+               "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **mode_fields, **judge_hashes,
                "batch_generation_started_at": generation_started_at,
                "batch_generation_finished_at": generation_finished_at,
                "started_at": started_at.isoformat(timespec="seconds"), "ended_at": now().isoformat(timespec="seconds"),
@@ -492,17 +549,21 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
                     "implicit_gate_passed_count": gate_passed_implicit, "answerable_count": counts["answerable"],
                     "useful_count": counts["useful"], "accepted_count": counts["accepted"],
                     "unjudged_count": counts["unjudged"], "accepted_file": accepted_path.name,
-                    "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **judge_hashes,
+                    "generation_prompt_version_hash": prompt_version_hash, **spec_set_fields, **mode_fields, **judge_hashes,
                     "batch_generation_started_at": generation_started_at,
                     "batch_generation_finished_at": generation_finished_at,
                     "started_at": summary["started_at"], "ended_at": summary["ended_at"], "costs": summary["costs"]}
     append_ledger_line(ledger_path, ledger_entry)
+    if spec_set_path:
+        spec_rows = read_jsonl(spec_set_path)
+        table_path = write_spec_status_table(corpus_folder, spec_rows, batch_number, now().strftime(TIMESTAMP_FORMAT))
+        report(f"spec status table written: {table_path.name}")
     report(f"ledger updated: {counts['accepted']} accepted of {gate_passed_implicit} selected "
            f"({counts['unjudged']} unjudged)")
     return ledger_entry
 
 
-def print_plan(batch_number, seed, batch_folder, deals, corpus_folder) -> None:
+def print_plan(batch_number, seed, batch_folder, deals, corpus_folder, plan=None) -> None:
     print(f"Batch number: {batch_number}\nScenario seed: {seed}\nBatch folder: {batch_folder}\nDeals requested: {deals}")
     spec_set_path = spec_set_path_for_corpus(corpus_folder)
     print(f"Scenario seed base (from the corpus settings, or the default without them): "
@@ -512,8 +573,16 @@ def print_plan(batch_number, seed, batch_folder, deals, corpus_folder) -> None:
           + (f" (sha256 {sha256_of_file(spec_set_path)})" if spec_set_path else ""))
     print(f"Generation prompt version hash (includes the spec set file): "
           f"{generation_prompt_version_hash(spec_set_path=spec_set_path)}")
-    print(f"Used spec ids (not part of the hash) would be written to: "
-          f"{batch_folder / f'used_spec_ids_before_batch_{batch_number:03d}_<stamp>.json'}")
+    if plan is not None:
+        print(f"Mode: {plan['mode']}; specs dealt in earlier batches (never dealt again in default mode): "
+              f"{len(plan['dealt_spec_ids'])}; failed specs: {plan['failed_spec_count']}")
+        print(f"Spec dealing plan (not part of the hash) would be written to: "
+              f"{batch_folder / f'spec_dealing_plan_for_batch_{batch_number:03d}_<stamp>.json'}")
+        if plan["forced_spec_ids"]:
+            print(f"Specs that would be retried ({len(plan['forced_spec_ids'])}, fewest attempts first):")
+            for spec in plan["retried_specs"]:
+                print(f"  {spec['spec_id']}: attempts so far {spec['attempts_so_far']}, latest failure stage "
+                      f"{spec['latest_failure_stage']}, {spec['taxa_category'][:40]} / {spec['taxa_subcategory']}")
     for name, value in judge_prompt_hashes().items():
         print(f"{name}: {value}")
     config_placeholder = batch_folder / "pipeline_config_for_this_batch_<stamp>.yaml"
@@ -533,10 +602,21 @@ def main(argv=None) -> int:
     parser.add_argument("--corpus-folder", type=Path, default=DEFAULT_CORPUS_FOLDER)
     parser.add_argument("--deals", type=int, default=64, help="number of scenario deals to request (default 64)")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and the commands; create nothing")
+    parser.add_argument("--retry-failed-specs", action="store_true",
+                        help="deal exactly the specs whose status is failed (fewest attempts first, at most --deals) "
+                             "instead of never-dealt specs")
+    parser.add_argument("--retry-failure-stages", default=None,
+                        help="with --retry-failed-specs: only specs whose latest failure stage is in this comma-separated "
+                             f"list (stages: {', '.join(FAILURE_STAGES)})")
     parser.add_argument("--resume-batch-folder", type=Path, default=None,
                         help="finish a batch folder that has no ledger entry yet")
     arguments = parser.parse_args(argv)
     corpus_folder = arguments.corpus_folder
+    retry_failure_stages = [stage.strip() for stage in arguments.retry_failure_stages.split(",")] \
+        if arguments.retry_failure_stages else None
+    unknown_stages = [stage for stage in retry_failure_stages or [] if stage not in FAILURE_STAGES]
+    if unknown_stages:
+        parser.error(f"unknown failure stages {unknown_stages}; choose from {list(FAILURE_STAGES)}")
 
     if arguments.resume_batch_folder is not None:
         batch_folder = arguments.resume_batch_folder.resolve()
@@ -562,14 +642,33 @@ def main(argv=None) -> int:
         batch_folder = corpus_folder / "batches" / batch_folder_name(batch_number, scenario_seed,
                                                                       datetime.now().strftime(TIMESTAMP_FORMAT))
 
+    plan = None
+    try:
+        if arguments.resume_batch_folder is None and spec_set_path_for_corpus(corpus_folder):
+            # Plan and deal in memory first, so an exhausted category or an empty retry fails before any folder exists.
+            plan = plan_spec_dealing(corpus_folder, batch_number, deals, arguments.retry_failed_specs,
+                                     retry_failure_stages)
+            preflight_deal(plan, corpus_folder, scenario_seed, deals)
+        elif arguments.retry_failed_specs or retry_failure_stages:
+            if arguments.resume_batch_folder is None:
+                raise BatchFailure("--retry-failed-specs needs a corpus with a spec set")
+    except BatchFailure as failure:
+        if arguments.dry_run and "nothing to retry" in str(failure):
+            print(f"Mode: {MODE_RETRY}\n{str(failure).capitalize()}")
+            return 0
+        print(f"FAILED: {failure}", file=sys.stderr)
+        return 1
+
     if arguments.dry_run:
-        print_plan(batch_number, scenario_seed, batch_folder, deals, corpus_folder)
+        print_plan(batch_number, scenario_seed, batch_folder,
+                   len(plan["forced_spec_ids"]) if plan and plan["forced_spec_ids"] else deals, corpus_folder, plan)
         return 0
 
     batch_folder.mkdir(parents=True, exist_ok=True)
     started_at = datetime.now()
     try:
-        run_batch(corpus_folder, batch_folder, batch_number, scenario_seed, deals, started_at)
+        run_batch(corpus_folder, batch_folder, batch_number, scenario_seed, deals, started_at,
+                  retry_failed_specs=arguments.retry_failed_specs, retry_failure_stages=retry_failure_stages)
     except BatchFailure as failure:
         print(f"FAILED: {failure}", file=sys.stderr)
         return 1

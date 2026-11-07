@@ -305,55 +305,16 @@ def test_selection_carries_the_spec_id(tmp_path):
     assert add_batch.select_prompts(step_one, 10)[0][0]["spec_id"] == "spec_00007"
 
 
-def make_corpus_with_two_earlier_batches(tmp_path):
-    corpus = make_corpus(tmp_path, folder_numbers=(1, 2, 3))
-    folders = add_batch.batch_folders_present(corpus)
-    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001"),
-                                    ("S-002", "farmed animals", "pigs", "transport", "lower cost", True, "spec_00002"),
-                                    ("S-003", "farmed animals", "pigs", "slaughter", "lower cost", False, "spec_00003")])
-    write_step_one_run(folders[2], [("S-001", "fish/aquatic", "salmon", "transport", "higher yield", True, "spec_00010"),
-                                    ("S-002", "fish/aquatic", "salmon", "housing", "higher yield", True)])
-    write_step_one_run(folders[3], [("S-001", "research", "mice", "housing", "lower cost", True, "spec_00020")])
-    return corpus, folders
-
-
-def test_used_spec_ids_are_the_gate_passed_deals_of_earlier_batches_only(tmp_path):
-    corpus, _ = make_corpus_with_two_earlier_batches(tmp_path)
-    used = add_batch.collect_used_spec_ids(corpus, 3)
-    assert used["counted_batch_numbers"] == [1, 2] and used["deals_counted"] == 3
-    # spec_00003 failed the gate so it is back in the pool; spec_00020 belongs to the batch being made
-    assert used["used_spec_ids"] == ["spec_00001", "spec_00002", "spec_00010"]
-
-
-def test_used_spec_ids_file_is_snapshotted_and_kept_on_resume(tmp_path):
-    corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
-    first_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_10-00")
-    first_text = first_path.read_text()
-    write_step_one_run(folders[3] / "elsewhere", [("S-009", "research", "mice", "housing", "lower cost", True, "spec_00099")])
-    second_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_11-00")
-    assert second_path == first_path and second_path.read_text() == first_text
-
-
-def test_two_gate_passed_deals_sharing_a_spec_is_refused(tmp_path):
-    corpus = make_corpus(tmp_path, folder_numbers=(1, 2, 3))
-    folders = add_batch.batch_folders_present(corpus)
-    write_step_one_run(folders[1], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001")])
-    write_step_one_run(folders[2], [("S-001", "farmed animals", "pigs", "housing", "lower cost", True, "spec_00001")])
-    with pytest.raises(add_batch.BatchFailure):
-        add_batch.collect_used_spec_ids(corpus, 3)
-
-
-def test_batch_config_names_the_spec_set_and_used_ids_snapshot(tmp_path):
+def test_batch_config_names_the_spec_set_and_dealing_plan(tmp_path):
     import yaml
-    corpus, folders = make_corpus_with_two_earlier_batches(tmp_path)
-    used_path = add_batch.write_used_spec_ids_file(folders[3], corpus, 3, "2026-11-06_10-00")
-    spec_path = tmp_path / "spec_set.jsonl"
-    config = yaml.safe_load(add_batch.write_batch_config(folders[3], 20280003, 10, "2026-11-06_10-00",
-                                                         spec_set_path=spec_path, used_spec_ids_path=used_path).read_text())
+    spec_path, plan_path = tmp_path / "spec_set.jsonl", tmp_path / "plan.json"
+    config = yaml.safe_load(add_batch.write_batch_config(tmp_path, 20280003, 10, "2026-11-06_10-00",
+                                                         spec_set_path=spec_path,
+                                                         spec_dealing_plan_path=plan_path).read_text())
     assert config["dad"]["dilemmas"]["spec_set_path"] == str(spec_path)
-    assert config["dad"]["dilemmas"]["used_spec_ids_path"] == str(used_path)
+    assert config["dad"]["dilemmas"]["spec_dealing_plan_path"] == str(plan_path)
     plain = yaml.safe_load(add_batch.write_batch_config(tmp_path, 1, 1, "x").read_text())["dad"]["dilemmas"]
-    assert plain["spec_set_path"] is None and plain["used_spec_ids_path"] is None
+    assert plain["spec_set_path"] is None and plain["spec_dealing_plan_path"] is None
 
 
 # ---------- corpus settings: seed base and spec set ----------
@@ -361,7 +322,9 @@ def test_batch_config_names_the_spec_set_and_used_ids_snapshot(tmp_path):
 def write_settings_and_spec_set(corpus):
     spec_path = corpus / "fixed_spec_set" / "fixed_spec_set_test.jsonl"
     spec_path.parent.mkdir()
-    spec_path.write_text(json.dumps({"spec_id": "spec_00001"}) + "\n")
+    spec_path.write_text(json.dumps({"spec_id": "spec_00001", "taxa_category": "c", "taxa_subcategory": "s",
+                                     "harm_type": "h", "practical_advantage": "a",
+                                     "position_in_subcategory_order": 1}) + "\n")
     (corpus / add_batch.CORPUS_SETTINGS_FILE_NAME).write_text(json.dumps(
         {"scenario_seed_base": 20280000, "spec_set_file": "fixed_spec_set/fixed_spec_set_test.jsonl"}))
     return spec_path
@@ -373,7 +336,8 @@ def test_corpus_without_settings_keeps_the_old_seed_base_and_has_no_spec_set(tmp
     assert add_batch.spec_set_path_for_corpus(corpus) is None
 
 
-def test_settings_give_seed_base_and_spec_set_and_dry_run_shows_them(tmp_path, capsys):
+def test_settings_give_seed_base_and_spec_set_and_dry_run_shows_them(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(add_batch, "preflight_deal", lambda *arguments: None)  # the one-spec set is not dealable
     corpus = make_corpus(tmp_path)
     spec_path = write_settings_and_spec_set(corpus)
     assert add_batch.spec_set_path_for_corpus(corpus) == spec_path
@@ -410,8 +374,10 @@ def test_full_batch_with_a_spec_set_records_its_hash_and_snapshots_it(tmp_path):
         snapshot_folder, snapshot_folder, snapshot_folder, snapshot_folder / spec_path.name)
     assert entry["generation_prompt_version_hash"] != add_batch.generation_prompt_version_hash()
     config_text = next(batch_folder.glob("pipeline_config_for_this_batch_*.yaml")).read_text()
-    assert str(spec_path) in config_text and "used_spec_ids_before_batch_001_" in config_text
-    assert json.loads(next(batch_folder.glob("used_spec_ids_before_batch_001_*.json")).read_text())["used_spec_ids"] == []
+    assert str(spec_path) in config_text and "spec_dealing_plan_for_batch_001_" in config_text
+    plan = json.loads(next(batch_folder.glob("spec_dealing_plan_for_batch_001_*.json")).read_text())
+    assert plan["dealt_spec_ids"] == [] and plan["forced_spec_ids"] is None
+    assert entry["batch_mode"] == "default_never_dealt_specs"
 
 
 def test_accepted_records_keep_the_spec_id_of_the_selected_prompt():

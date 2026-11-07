@@ -599,14 +599,14 @@ class TestDrawingFromTheFixedSpecSet:
         return rows
 
     @staticmethod
-    def write(tmp_path, rows, used_ids=None):
+    def write(tmp_path, rows, dealt_ids=None):
         spec_path = tmp_path / "spec_set.jsonl"
         spec_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-        used_path = None
-        if used_ids is not None:
-            used_path = tmp_path / "used.json"
-            used_path.write_text(json.dumps({"used_spec_ids": sorted(used_ids)}), encoding="utf-8")
-        return spec_path, used_path
+        dealt_path = None
+        if dealt_ids is not None:
+            dealt_path = tmp_path / "used.json"
+            dealt_path.write_text(json.dumps({"dealt_spec_ids": sorted(dealt_ids)}), encoding="utf-8")
+        return spec_path, dealt_path
 
     @staticmethod
     def one_category_scenarios(rows, count):
@@ -635,17 +635,17 @@ class TestDrawingFromTheFixedSpecSet:
     def test_no_spec_set_leaves_the_deal_as_dealt_and_without_spec_ids(self):
         assert all("spec_id" not in deal for deal in cs.deal_scenarios(10, random.Random(3)))
 
-    def test_earliest_unused_spec_of_the_subcategory_is_taken_and_used_ones_are_skipped(self, tmp_path):
+    def test_earliest_never_dealt_spec_of_the_subcategory_is_taken_and_dealt_ones_are_skipped(self, tmp_path):
         rows = [row for row in self.spec_set_for_every_category(4)]
         category, scenarios = self.one_category_scenarios(rows, 1)
         only_subcategory = rows[0]["taxa_subcategory"]
         in_subcategory = [r for r in rows if r["taxa_category"] == category and r["taxa_subcategory"] == only_subcategory]
         only_entry = {"hint": "h", "subcategories": [only_subcategory]}
         pool = in_subcategory
-        spec_path, used_path = self.write(tmp_path, pool, {pool[0]["spec_id"], pool[1]["spec_id"]})
+        spec_path, dealt_path = self.write(tmp_path, pool, {pool[0]["spec_id"], pool[1]["spec_id"]})
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(cs, "taxa_for", lambda taxa_category: only_entry)
-            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_spec_dealing_plan(dealt_path)["dealt_spec_ids"],
                                         random.Random(0))
         assert scenarios[0]["spec_id"] == pool[2]["spec_id"]
 
@@ -654,9 +654,9 @@ class TestDrawingFromTheFixedSpecSet:
         category, scenarios = self.one_category_scenarios(rows, 8)
         in_category = [r for r in rows if r["taxa_category"] == category]
         heavy = in_category[0]["taxa_subcategory"]
-        used = {r["spec_id"] for r in in_category if r["taxa_subcategory"] == heavy}  # heavy is drained
-        spec_path, used_path = self.write(tmp_path, rows, used)
-        cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+        dealt = {r["spec_id"] for r in in_category if r["taxa_subcategory"] == heavy}  # heavy is drained
+        spec_path, dealt_path = self.write(tmp_path, rows, dealt)
+        cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_spec_dealing_plan(dealt_path)["dealt_spec_ids"],
                                     random.Random(0))
         assert all(s["taxa_subcategory"] != heavy for s in scenarios)
         assert len({s["spec_id"] for s in scenarios}) == 8
@@ -664,13 +664,13 @@ class TestDrawingFromTheFixedSpecSet:
     def test_an_exhausted_category_fails_loudly_naming_it(self, tmp_path):
         rows = self.spec_set_for_every_category(1)
         category, scenarios = self.one_category_scenarios(rows, 1)
-        used = {r["spec_id"] for r in rows if r["taxa_category"] == category}
-        spec_path, used_path = self.write(tmp_path, rows, used)
+        dealt = {r["spec_id"] for r in rows if r["taxa_category"] == category}
+        spec_path, dealt_path = self.write(tmp_path, rows, dealt)
         with pytest.raises(ValueError, match="used up"):
-            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_spec_dealing_plan(dealt_path)["dealt_spec_ids"],
                                         random.Random(0))
         with pytest.raises(ValueError) as error:
-            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_used_spec_ids(used_path),
+            cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), cs.load_spec_dealing_plan(dealt_path)["dealt_spec_ids"],
                                         random.Random(0))
         assert category in str(error.value)
 
@@ -681,7 +681,7 @@ class TestDrawingFromTheFixedSpecSet:
         cs.draw_specs_from_spec_set(scenarios, cs.load_spec_set(spec_path), set(), random.Random(0))
         assert len({s["spec_id"] for s in scenarios}) == 3
 
-    def test_used_ids_missing_from_the_spec_set_are_refused(self, tmp_path):
+    def test_dealt_ids_missing_from_the_spec_set_are_refused(self, tmp_path):
         rows = self.spec_set_for_every_category(1)
         _, scenarios = self.one_category_scenarios(rows, 1)
         with pytest.raises(ValueError, match="not in the spec set"):
