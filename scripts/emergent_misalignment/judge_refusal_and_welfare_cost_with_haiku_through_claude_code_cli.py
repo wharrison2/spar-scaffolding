@@ -116,6 +116,9 @@ def judge_one_answer(answer_record: dict, call_model, now=datetime.now):
             "input_tokens": reply.input_tokens, "output_tokens": reply.output_tokens,
             "cache_read_input_tokens": reply.cache_read_input_tokens,
             "cache_creation_input_tokens": reply.cache_creation_input_tokens,
+            "number_of_tools_loaded": reply.number_of_tools_loaded,
+            "names_of_non_built_in_tools": list(reply.names_of_non_built_in_tools),
+            "number_of_mcp_servers_loaded": reply.number_of_mcp_servers_loaded,
             "cli_reported_cost_usd": reply.reported_cost_usd, "problem": problem,
             "logged_at": now().isoformat(timespec="seconds")})
         if verdict is not None:

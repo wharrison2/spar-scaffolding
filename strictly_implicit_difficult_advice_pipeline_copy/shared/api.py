@@ -209,6 +209,7 @@ def _log_usage(
     cache_read_tokens: int = 0,
     backend: str | None = None,
     reasoning_tokens: int = 0,
+    extra_fields: dict | None = None,
 ) -> None:
     # claude_code passes Claude Code's own reported cost; the api backend leaves
     # cost_usd=None, so we price it from _PRICING with a loud fallback on unknown
@@ -259,6 +260,8 @@ def _log_usage(
         record["duration_s"] = round(duration_s, 2)
     if attempts is not None:
         record["attempts"] = attempts
+    if extra_fields:
+        record.update(extra_fields)  # added fields only; never overrides the fields above
     with _cost_log_lock, open(_cost_log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -545,7 +548,7 @@ def _run_claude_code_query(
     try:
         import anyio
         from claude_agent_sdk import CLINotFoundError, ClaudeAgentOptions, query
-        from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock, ThinkingBlock
+        from claude_agent_sdk.types import AssistantMessage, ResultMessage, SystemMessage, TextBlock, ThinkingBlock
     except ImportError as e:
         raise RuntimeError(
             "backend 'claude_code' requires the claude-agent-sdk package; "
@@ -582,7 +585,15 @@ def _run_claude_code_query(
         # bill the shared API key — Claude Code treats an empty value as unset
         # and falls back to its own login / CLAUDE_CODE_OAUTH_TOKEN (added below
         # when init() loaded one through shared/api_keys.py).
-        env={"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""},
+        env={"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "",
+             "ENABLE_CLAUDEAI_MCP_SERVERS": "false"},
+        # Shut out every MCP server. The CLI otherwise fetches the account's claude.ai connectors
+        # (Slack, Gmail, Google Docs, ...) at random points during start-up, which adds a cached
+        # tool-definition block of about 32,000 tokens to roughly a quarter of calls. `tools=[]` and
+        # `setting_sources=[]` do not stop that; an empty server set with strict mode (plus the
+        # environment variable above) does.
+        mcp_servers={},
+        strict_mcp_config=True,
     )
     if _claude_code_oauth_token is not None:
         option_kwargs["env"]["CLAUDE_CODE_OAUTH_TOKEN"] = _claude_code_oauth_token
@@ -594,6 +605,8 @@ def _run_claude_code_query(
         option_kwargs["output_format"] = {"type": "json_schema", "schema": json_schema}
     options = ClaudeAgentOptions(**option_kwargs)
 
+    init_message_data: dict = {}
+
     async def _run() -> tuple[list[str], list[str], object | None]:
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -601,7 +614,9 @@ def _run_claude_code_query(
         stream = query(prompt=user_message, options=options)
         try:
             async for msg in stream:
-                if isinstance(msg, AssistantMessage):
+                if isinstance(msg, SystemMessage) and msg.subtype == "init":
+                    init_message_data.update(msg.data or {})
+                elif isinstance(msg, AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, TextBlock):
                             text_parts.append(block.text)
@@ -639,6 +654,7 @@ def _run_claude_code_query(
     # Side channel for call_claude's model_calls.jsonl record (the return tuple
     # is a stubbed seam); reset at the start of every call_claude.
     _attempt_state.thinking_text = "\n\n".join(thinking_parts) or None
+    _attempt_state.cli_usage_details = None  # set below once a result exists
     if result_msg is None:
         raise ClaudeCodeError("claude_code backend returned no result message")
     if result_msg.is_error:
@@ -662,6 +678,15 @@ def _run_claude_code_query(
         else:
             text = "".join(text_parts)
     usage = result_msg.usage or {}
+    initial_tool_names = [str(name) for name in (init_message_data.get("tools") or [])]
+    _attempt_state.cli_usage_details = {
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+        # What the CLI reported loading at session start (None when no init message arrived).
+        "number_of_tools_loaded": len(initial_tool_names) if init_message_data else None,
+        "names_of_non_built_in_tools": [name for name in initial_tool_names if name.startswith("mcp__")],
+        "number_of_mcp_servers_loaded": len(init_message_data.get("mcp_servers") or []) if init_message_data else None,
+    }
     return (
         text,
         usage.get("input_tokens", 0),
@@ -749,6 +774,7 @@ def call_claude(
 
     _attempt_state.n = 1  # _note_attempt overwrites this on every real attempt
     _attempt_state.thinking_text = None
+    _attempt_state.cli_usage_details = None
     started = time.monotonic()
 
     # Backend routing. "auto" prefers the subscription (claude_code) and falls
@@ -816,14 +842,16 @@ def call_claude(
             _demote_cc(str(e).split("\n")[0])
             use_cc = False
         else:
+            cli_usage_details = getattr(_attempt_state, "cli_usage_details", None) or {}
             _log_usage(resolved_model, input_tokens, output_tokens, cost_usd=cost, stage=stage,
                        item_id=item_id, duration_s=time.monotonic() - started,
-                       attempts=_attempt_state.n, backend="claude_code")
+                       attempts=_attempt_state.n, backend="claude_code",
+                       extra_fields=cli_usage_details)
             _log_model_call(resolved_model, "claude_code", full_system, [user_message],
                             response_text=text,
                             thinking_text=getattr(_attempt_state, "thinking_text", None),
                             stop_reason=stop_reason,
-                            usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+                            usage={"input_tokens": input_tokens, "output_tokens": output_tokens, **cli_usage_details},
                             stage=stage, item_id=item_id, attempts=_attempt_state.n)
             # Same suspect-stop-reason guard as the api path below; Claude Code
             # reports stop_reason on its ResultMessage (e.g. "end_turn").

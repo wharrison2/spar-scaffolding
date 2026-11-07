@@ -637,6 +637,35 @@ class TestRunClaudeCodeQuery:
         assert cost == pytest.approx(0.0021)
         assert stop == "end_turn"
 
+    def test_options_shut_out_every_mcp_server(self, monkeypatch):
+        captured = {}
+
+        async def fake_query(*, prompt, options):
+            captured["options"] = options
+            yield self._result(result="x", usage={"input_tokens": 1, "output_tokens": 1})
+
+        pytest.importorskip("claude_agent_sdk")
+        monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+        api._run_claude_code_query("claude-haiku-4-5", "sys", "hi")
+        assert captured["options"].mcp_servers == {}
+        assert captured["options"].strict_mcp_config is True
+        assert captured["options"].env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+
+    def test_cache_tokens_and_init_message_counts_are_kept_for_the_logs(self, monkeypatch):
+        types = pytest.importorskip("claude_agent_sdk.types")
+        init_data = {"tools": ["StructuredOutput", "mcp__claude_ai_Slack__slack_send_message"],
+                     "mcp_servers": [{"name": "claude_ai_Slack", "status": "connected"}]}
+        self._install_query(monkeypatch, [
+            types.SystemMessage(subtype="init", data=init_data),
+            self._result(result="x", usage={"input_tokens": 1, "output_tokens": 2,
+                                            "cache_read_input_tokens": 30, "cache_creation_input_tokens": 40}),
+        ])
+        api._run_claude_code_query("claude-haiku-4-5", "sys", "hi")
+        assert api._attempt_state.cli_usage_details == {
+            "cache_read_input_tokens": 30, "cache_creation_input_tokens": 40, "number_of_tools_loaded": 2,
+            "names_of_non_built_in_tools": ["mcp__claude_ai_Slack__slack_send_message"],
+            "number_of_mcp_servers_loaded": 1}
+
     def test_json_schema_passes_output_format_and_returns_structured_output(self, monkeypatch):
         captured = {}
 
