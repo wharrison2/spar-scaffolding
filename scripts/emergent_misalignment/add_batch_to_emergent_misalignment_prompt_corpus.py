@@ -16,7 +16,8 @@ Steps (each leaves a completion marker in the batch folder, so --resume-batch-fo
 The judges are run twice because a call blocked by safety filters is left for the second run to retry.
 
 Two modes. Default: every deal draws a spec that has never been dealt in this corpus, whatever the outcome of its earlier
-attempts, until a category has none left. --retry-failed-specs: the batch deals exactly the specs whose current status is
+attempts, and that is not reserved for a contributor share (reserved_spec_ids_for_contributor_shares_*.json in the
+corpus folder; reserved specs count as dealt for the dealer, so they are never drawn), until a category has none left. --retry-failed-specs: the batch deals exactly the specs whose current status is
 failed (fewest attempts first, --deals caps how many, --retry-failure-stages filters), regenerated and rescored from scratch
 with no feedback from the earlier failure. Each finished batch writes a spec outcomes file and a new spec status table (see
 spec_outcomes_and_status_table_for_prompt_corpus.py).
@@ -43,12 +44,19 @@ REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent.parent
 sys.path.insert(0, str(SCRIPT_DIRECTORY))
 from select_implicit_prompts_from_difficult_advice_step_one_run import select_prompts  # noqa: E402
 from load_pipeline_scenario_dealer import load_scenario_dealer  # noqa: E402
+from reserved_spec_ids_for_contributor_shares import read_reserved_spec_ids  # noqa: E402
 from spec_outcomes_and_status_table_for_prompt_corpus import (  # noqa: E402
     ANSWERABILITY_VERDICT_PATTERN, FAILURE_STAGES, LEDGER_FILE_NAME, USEFULNESS_VERDICT_PATTERN,
     build_spec_status_table, find_pipeline_run_folder, newest_file, ok_verdicts_in_folder, outcome_counts,
     write_batch_spec_outcomes_file, write_spec_status_table)
 
-PYTHON_EXECUTABLE = str(REPOSITORY_ROOT / "animal-welfare-data-pipeline" / ".venv" / "bin" / "python")
+# This repository's own virtual environment when it exists; otherwise (the contributor kit, or any other checkout) the
+# Python that runs this script, so the pipeline and judges use the same installed packages.
+_REPOSITORY_VIRTUAL_ENVIRONMENT_PYTHON = REPOSITORY_ROOT / "animal-welfare-data-pipeline" / ".venv" / "bin" / "python"
+PYTHON_EXECUTABLE = (str(_REPOSITORY_VIRTUAL_ENVIRONMENT_PYTHON) if _REPOSITORY_VIRTUAL_ENVIRONMENT_PYTHON.exists()
+                     else sys.executable)
+USAGE_LIMIT_EXIT_CODE = 3  # the judges exit with this when the subscription usage limit stops them
+USAGE_LIMIT_TEXT_MARKERS = ("usage limit", "spend limit")  # in a step's terminal output: the pipeline's usage-limit error
 DEFAULT_CORPUS_FOLDER = (REPOSITORY_ROOT / "data"
                          / "emergent_misalignment_prompt_corpus_category_subcategory_harm_and_advantage_specs")
 CORPUS_SETTINGS_FILE_NAME = "corpus_settings_scenario_seed_base_and_spec_set_file.json"
@@ -207,8 +215,12 @@ def plan_spec_dealing(corpus_folder: Path, batch_number: int, deals: int, retry_
         raise BatchFailure("this corpus has no spec set, so there is no spec status to plan from")
     spec_rows = read_jsonl(spec_set_path)
     table = build_spec_status_table(corpus_folder, spec_rows, before_batch_number=batch_number)
+    truly_dealt_spec_ids = {row["spec_id"] for row in table if row["attempts"] > 0}
+    reserved_spec_ids = read_reserved_spec_ids(corpus_folder) & {row["spec_id"] for row in spec_rows}
+    # The dealer reads only dealt_spec_ids and never draws one of them, so reserved specs are listed there too.
     plan = {"mode": MODE_RETRY if retry_failed_specs else MODE_DEFAULT,
-            "dealt_spec_ids": sorted(row["spec_id"] for row in table if row["attempts"] > 0),
+            "dealt_spec_ids": sorted(truly_dealt_spec_ids | reserved_spec_ids),
+            "reserved_spec_ids": sorted(reserved_spec_ids - truly_dealt_spec_ids),
             "forced_spec_ids": None, "attempts_so_far": {}, "retry_failure_stages": retry_failure_stages}
     if retry_failed_specs:
         candidates = [row for row in table if row["status"] == "failed"
@@ -257,7 +269,9 @@ def preflight_deal(plan: dict, corpus_folder: Path, scenario_seed: int, deals: i
         except compose_scenarios.SpecPoolExhausted as error:
             in_category = plan["failed_spec_count_by_category"].get(error.category, 0)
             raise BatchFailure(
-                f"{error} {plan['failed_spec_count']} failed specs ({in_category} in this category) could be retried "
+                f"{error} ({len(plan.get('reserved_spec_ids', []))} specs are reserved for contributor shares and count "
+                f"as dealt here; release shares with a newer reserved_spec_ids_for_contributor_shares file.) "
+                f"{plan['failed_spec_count']} failed specs ({in_category} in this category) could be retried "
                 f"with --retry-failed-specs. No batch folder was created.") from error
 
 
@@ -309,6 +323,17 @@ def update_generation_times_state(batch_folder: Path, field: str, value: str, ke
         return
     state[field] = value
     (batch_folder / GENERATION_TIMES_STATE_FILE_NAME).write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def step_stopped_for_usage_limit(return_code: int, terminal_output_path: Path) -> bool:
+    """The judges exit with USAGE_LIMIT_EXIT_CODE; the pipeline crashes with a usage-limit error in its output."""
+    if return_code == USAGE_LIMIT_EXIT_CODE:
+        return True
+    try:
+        output = Path(terminal_output_path).read_text(encoding="utf-8", errors="replace")[-20000:].lower()
+    except OSError:
+        return False
+    return any(marker in output for marker in USAGE_LIMIT_TEXT_MARKERS)
 
 
 def write_marker(batch_folder: Path, step_name: str, seconds_taken: float) -> None:
@@ -433,6 +458,10 @@ class BatchFailure(Exception):
     pass
 
 
+class BatchStoppedForUsageLimit(BatchFailure):
+    """A step stopped because the subscription usage limit was reached; the batch resumes later from its checkpoints."""
+
+
 def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenario_seed: int, deals: int,
               started_at: datetime, run_command_function=run_command, now=datetime.now,
               retry_failed_specs: bool = False, retry_failure_stages: list[str] | None = None) -> dict:
@@ -454,6 +483,10 @@ def run_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, scenar
         report(f"{step_name}: starting")
         terminal_output_path = batch_folder / f"terminal_output_{step_name}_{now().strftime(TIMESTAMP_FORMAT)}.txt"
         return_code = run_command_function(command, terminal_output_path, working_folder, environment_additions)
+        if return_code != 0 and step_stopped_for_usage_limit(return_code, terminal_output_path):
+            raise BatchStoppedForUsageLimit(
+                f"{step_name} stopped because the Claude subscription usage limit was reached. Nothing is lost: wait for "
+                f"the usage window to reset, then resume with --resume-batch-folder {batch_folder}")
         if return_code != 0:
             raise BatchFailure(f"{step_name} exited with code {return_code}; see {terminal_output_path}. "
                                f"Resume with --resume-batch-folder {batch_folder}")
@@ -575,7 +608,8 @@ def print_plan(batch_number, seed, batch_folder, deals, corpus_folder, plan=None
           f"{generation_prompt_version_hash(spec_set_path=spec_set_path)}")
     if plan is not None:
         print(f"Mode: {plan['mode']}; specs dealt in earlier batches (never dealt again in default mode): "
-              f"{len(plan['dealt_spec_ids'])}; failed specs: {plan['failed_spec_count']}")
+              f"{len(plan['dealt_spec_ids']) - len(plan['reserved_spec_ids'])}; specs reserved for contributor shares "
+              f"(never dealt here): {len(plan['reserved_spec_ids'])}; failed specs: {plan['failed_spec_count']}")
         print(f"Spec dealing plan (not part of the hash) would be written to: "
               f"{batch_folder / f'spec_dealing_plan_for_batch_{batch_number:03d}_<stamp>.json'}")
         if plan["forced_spec_ids"]:
@@ -669,6 +703,9 @@ def main(argv=None) -> int:
     try:
         run_batch(corpus_folder, batch_folder, batch_number, scenario_seed, deals, started_at,
                   retry_failed_specs=arguments.retry_failed_specs, retry_failure_stages=retry_failure_stages)
+    except BatchStoppedForUsageLimit as failure:
+        print(f"STOPPED FOR USAGE LIMIT: {failure}", file=sys.stderr)
+        return USAGE_LIMIT_EXIT_CODE
     except BatchFailure as failure:
         print(f"FAILED: {failure}", file=sys.stderr)
         return 1
