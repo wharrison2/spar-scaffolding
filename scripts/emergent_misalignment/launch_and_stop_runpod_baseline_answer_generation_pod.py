@@ -17,6 +17,12 @@ for a retry or delete instruction file). --one-answer-check alone runs only the 
 command again with the same run folder (uploaded answers files are skipped, and a saved passing check is not repeated).
 Extra options passed to the pod script: --one-answer-check, --skip-embedded-one-answer-check, --keep-model-caches, --generation-backend,
 --only-model-short-names.
+
+Also used, unchanged, for the held-out set evaluation of Gemma 4 31B (run folder built by
+build_held_out_set_gemma_welfare_raising_run_folder.py; its conditions come from the run configuration). Only the pod name differs
+(chosen from the run folder's name) and the disk size, which is passed on the command line:
+    python3 scripts/emergent_misalignment/launch_and_stop_runpod_baseline_answer_generation_pod.py --run-folder <run folder> \
+        --maximum-running-hours 1.5 --maximum-dollars 10 --volume-gigabytes 100 --dry-run
 """
 
 import argparse
@@ -81,7 +87,9 @@ def apply_job_profile():
 def print_dry_run_with_one_answer_check_note(arguments, secrets, original_print_dry_run=pod_launcher.print_dry_run):
     original_print_dry_run(arguments, secrets)
     print("One-answer check (job profile note): the pod script starts each model with one answer to one prompt per condition "
-          "(thinking_off, thinking_on), checks that the thinking switch works and the trace splits cleanly, and writes "
+          "per condition of the run configuration (thinking_off and thinking_on for the 3 November screen), checks that the thinking "
+          "switch works, the trace splits cleanly and, where the run configuration requires it, the rendered prompt tail and system "
+          "turn are right, and writes "
           f"{defs.OUTPUTS_FOLDER_NAME}/{defs.ONE_ANSWER_CHECK_FOLDER_NAME}/one_answer_check_<model>_<timestamp>.json (not the answer files). "
           "If every check passes it carries on with the full generation without pausing; if one fails it exits non-zero, which "
           "the launcher handles as a scorer failure above (pull, then wait for a retry or delete instruction file).")
@@ -104,6 +112,8 @@ def main(argv=None):
     if "--gpu-type-ids" not in remaining:  # the shared launcher's default is its H100 list; this job asks for the H200
         remaining = [*remaining, "--gpu-type-ids", *GPU_TYPE_IDS]
     arguments = pod_launcher.parse_arguments(remaining)
+    if Path(arguments.run_folder).name.startswith(defs.HELD_OUT_RUN_FOLDER_NAME_PREFIX):
+        pod_launcher.POD_NAME_PREFIX = "held-out-set-gemma-answer-generation"
     return pod_launcher.run_launcher(arguments)
 
 

@@ -37,10 +37,11 @@ def fetch_text(url):
         return response.read().decode("utf-8")
 
 
-def fetch_model_facts_from_hugging_face(model_repository, fetch_text_function=fetch_text):
-    """Current commit hash, then the generation config's end-of-sequence ids and the chat template's SHA-256 at that commit."""
+def fetch_model_facts_from_hugging_face(model_repository, fetch_text_function=fetch_text, pinned_revision=None):
+    """Current commit hash (or the pinned revision when given), then the generation config's end-of-sequence ids and the chat
+    template's SHA-256 at that commit."""
     model_information = json.loads(fetch_text_function(f"{HUGGING_FACE_BASE_URL}/api/models/{model_repository}"))
-    revision = model_information["sha"]
+    revision = pinned_revision or model_information["sha"]
     if model_information.get("gated"):
         raise RuntimeError(f"{model_repository} is gated; the plan assumes ungated models and no Hugging Face token")
     generation_config = json.loads(fetch_text_function(

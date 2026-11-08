@@ -113,12 +113,79 @@ def remaining_answers(model_short_name, condition, prompts, samples_per_prompt, 
             if defs.build_answer_id(model_short_name, condition, prompt["prompt_gid"], sample_index) not in finished_answer_ids]
 
 
-def number_of_remaining_answers_for_model(run_folder, model, prompts, samples_per_prompt):
+def conditions_defined_by_run_configuration(configuration):
+    """True when the run configuration's conditions carry their own chat template settings (the held-out set evaluation);
+    False for the 3 November screen, whose conditions are the models' thinking_off and thinking_on specs."""
+    return any("chat_template_kwargs" in entry for entry in configuration["conditions"])
+
+
+def condition_entries_for_model(configuration, model, output_cap_overrides=None):
+    """The conditions to run for one model, in the run configuration's order: a list of
+    {"condition", "condition_spec", "output_cap"}.
+
+    3 November screen (default): condition_spec is the model's thinking_off or thinking_on entry.
+    Conditions defined by the run configuration: condition_spec holds the condition's own chat_template_kwargs, optional
+    system_prompt_text (stored in the configuration when the run folder was built), the thinking-trace splitting to use
+    (split_as_condition, default thinking_off: no trace is expected, any trace found is recorded and counted), and the
+    rendered-prompt requirements the one-answer check asserts."""
+    output_cap_overrides = output_cap_overrides or {}
+    entries = []
+    for entry in configuration["conditions"]:
+        condition = entry["condition"]
+        if conditions_defined_by_run_configuration(configuration):
+            condition_spec = {
+                "chat_template_kwargs": entry["chat_template_kwargs"], "generation_prompt_suffix": "",
+                "system_prompt_text": entry.get("system_prompt_text"),
+                "is_true_thinking_off": True,
+                "split_as_condition": entry.get("split_as_condition", defs.CONDITION_THINKING_OFF),
+                "required_rendered_prompt_tail": entry.get("required_rendered_prompt_tail"),
+                "required_system_turn_opening": entry.get("required_system_turn_opening"),
+                "required_rendered_prompt_substrings": entry.get("required_rendered_prompt_substrings", []),
+                "forbidden_rendered_prompt_substrings": entry.get("forbidden_rendered_prompt_substrings", [])}
+        else:
+            condition_spec = model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]
+        entries.append({"condition": condition, "condition_spec": condition_spec,
+                        "output_cap": output_cap_overrides.get(condition) or entry["output_cap"]})
+    return entries
+
+
+def number_of_remaining_answers_for_model(run_folder, model, prompts, samples_per_prompt, condition_names=None):
     total = 0
-    for condition in defs.CONDITIONS_IN_ORDER:
+    for condition in condition_names or defs.CONDITIONS_IN_ORDER:
         finished = read_finished_answer_ids(answer_file_path(run_folder, model["model_short_name"], condition))
         total += len(remaining_answers(model["model_short_name"], condition, prompts, samples_per_prompt, finished))
     return total
+
+
+def build_chat_messages(user_message, condition_spec):
+    """The prompt's user message as the only user turn, preceded by a system message when the condition has one."""
+    messages = []
+    if condition_spec.get("system_prompt_text"):
+        messages.append({"role": "system", "content": condition_spec["system_prompt_text"]})
+    messages.append({"role": "user", "content": user_message})
+    return messages
+
+
+def rendered_prompt_requirement_failures(rendered_prompt_text, condition_spec):
+    """What the one-answer check asserts about the rendered prompt, as a list of failure descriptions (empty when all hold):
+    the rendered prompt must end with the condition's required tail, a condition with a system prompt must render its
+    text inside a system turn, and the condition's required and forbidden substrings must be present and absent."""
+    failures = []
+    required_tail = condition_spec.get("required_rendered_prompt_tail")
+    if required_tail and not rendered_prompt_text.endswith(required_tail):
+        failures.append(f"the rendered prompt does not end with {required_tail!r} (it ends with {rendered_prompt_text[-80:]!r})")
+    system_text = condition_spec.get("system_prompt_text")
+    if system_text:
+        system_turn_opening = condition_spec.get("required_system_turn_opening") or ""
+        if system_turn_opening + system_text not in rendered_prompt_text:
+            failures.append(f"the rendered prompt does not contain {system_turn_opening!r} followed by the system prompt text")
+    for required in condition_spec.get("required_rendered_prompt_substrings", []):
+        if required not in rendered_prompt_text:
+            failures.append(f"the rendered prompt does not contain {required!r}")
+    for forbidden in condition_spec.get("forbidden_rendered_prompt_substrings", []):
+        if forbidden in rendered_prompt_text:
+            failures.append(f"the rendered prompt contains {forbidden!r}, which this condition must not have")
+    return failures
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -136,7 +203,7 @@ def build_answer_record(model, condition, condition_spec, prompt, sample_index, 
                         output_cap, decode_function, end_of_sequence_ids, finished_at=None):
     text = decode_function(strip_trailing_end_of_sequence_tokens(generated_token_ids, end_of_sequence_ids))
     ended_naturally = finish_reason == "stop"
-    split = split_generated_text(model["template_family"], condition, text, ended_naturally,
+    split = split_generated_text(model["template_family"], condition_spec.get("split_as_condition", condition), text, ended_naturally,
                                  condition_spec.get("generation_prompt_suffix", ""))
     return {
         "answer_id": defs.build_answer_id(model["model_short_name"], condition, prompt["prompt_gid"], sample_index),
@@ -165,7 +232,7 @@ class ChatTokenizerAdapter:
 
     def prompt_token_ids(self, user_message, condition_spec):
         text = self.tokenizer.apply_chat_template(
-            [{"role": "user", "content": user_message}], tokenize=False, add_generation_prompt=True,
+            build_chat_messages(user_message, condition_spec), tokenize=False, add_generation_prompt=True,
             **condition_spec.get("chat_template_kwargs", {})) + condition_spec.get("generation_prompt_suffix", "")
         return list(self.tokenizer(text, add_special_tokens=False)["input_ids"])
 
@@ -309,10 +376,11 @@ class AnswerProgressTracker:
 # Generating one or both conditions for one model in one engine pass
 # ---------------------------------------------------------------------------------------------------
 
-def build_condition_plan(model, condition, prompts, samples_per_prompt, output_cap, answers_path):
+def build_condition_plan(model, condition, prompts, samples_per_prompt, output_cap, answers_path, condition_spec=None):
     """Everything one condition needs: its chat-template switches, output cap, answers file and the answers still to do
     (each condition's finished answer ids are read from its own file)."""
-    condition_spec = model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]
+    if condition_spec is None:
+        condition_spec = model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]
     finished = read_finished_answer_ids(answers_path)
     pending = remaining_answers(model["model_short_name"], condition, prompts, samples_per_prompt, finished)
     return {"condition": condition, "condition_spec": condition_spec, "output_cap": output_cap,
@@ -323,9 +391,10 @@ def generate_conditions_together(model, condition_plans, backend, tokenizer_adap
                                  report_interval_seconds, record_sink=None):
     """Generates every pending (prompt, sample_index) of every condition plan in one backend pass, saving each answer's
     record to its own condition's answers file when it finishes. Requests are submitted thinking_on first, then thinking_off
-    (the longest jobs first, so their long tail starts early). `record_sink` (check mode) receives (record, raw text)
+    (the longest jobs first, so their long tail starts early; a condition counts as thinking on when its spec's split_as_condition says so). `record_sink` (check mode) receives (record, raw text)
     instead of the answers files. Returns the number of answers finished per condition."""
-    plans = sorted(condition_plans, key=lambda plan: plan["condition"] != defs.CONDITION_THINKING_ON)
+    plans = sorted(condition_plans, key=lambda plan: plan["condition_spec"].get("split_as_condition", plan["condition"])
+                   != defs.CONDITION_THINKING_ON)
     lookup, requests, trackers = {}, [], {}
     for plan in plans:
         condition, output_cap = plan["condition"], plan["output_cap"]
@@ -377,14 +446,19 @@ def check_one_condition(model, condition, condition_spec, output_cap, prompt, ba
                                  record_sink=lambda record, raw_text: captured.append((record, raw_text)))
     record, raw_text = captured[0]
     is_true_off = condition_spec.get("is_true_thinking_off", True)
-    if condition == defs.CONDITION_THINKING_OFF and is_true_off:
+    condition_role = condition_spec.get("split_as_condition", condition)  # thinking_off or thinking_on behaviour
+    if condition_role == defs.CONDITION_THINKING_OFF and is_true_off:
         switch_worked = record["thinking_trace_text"] is None and record["thinking_split_succeeded"]
-    elif condition == defs.CONDITION_THINKING_OFF:
+    elif condition_role == defs.CONDITION_THINKING_OFF:
         switch_worked = record["thinking_split_succeeded"]  # reasoning strength low: any reasoning channel is allowed
     else:
         switch_worked = bool(record["thinking_trace_text"]) and record["thinking_split_succeeded"]
     prompt_ids = tokenizer_adapter.prompt_token_ids(prompt["user_message"], condition_spec)
-    return {"check_label": label or condition, "condition": condition, "chat_template_kwargs": condition_spec.get("chat_template_kwargs"),
+    requirement_failures = rendered_prompt_requirement_failures(tokenizer_adapter.decode(prompt_ids), condition_spec)
+    return {"check_label": label or condition, "condition": condition, "condition_role": condition_role,
+            "rendered_prompt_requirement_failures": requirement_failures,
+            "has_system_prompt": bool(condition_spec.get("system_prompt_text")),
+            "chat_template_kwargs": condition_spec.get("chat_template_kwargs"),
             "generation_prompt_suffix": condition_spec.get("generation_prompt_suffix", ""),
             "prompt_tail_as_rendered": tokenizer_adapter.decode(prompt_ids[-40:]),
             "is_true_thinking_off": is_true_off,
@@ -525,12 +599,11 @@ def build_backend(arguments, configuration, model, end_of_sequence_ids):
                                         end_of_sequence_ids)
 
 
-def check_prompt_lengths(prompts, model, tokenizer_adapter, maximum_prompt_tokens):
+def check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, maximum_prompt_tokens):
     longest = 0
     for prompt in prompts:
-        for condition in defs.CONDITIONS_IN_ORDER:
-            longest = max(longest, len(tokenizer_adapter.prompt_token_ids(prompt["user_message"], model[
-                "thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"])))
+        for entry in condition_entries:
+            longest = max(longest, len(tokenizer_adapter.prompt_token_ids(prompt["user_message"], entry["condition_spec"])))
     if longest > maximum_prompt_tokens:
         raise ValueError(f"A prompt of {longest} tokens exceeds the allowed {maximum_prompt_tokens} (maximum_model_length "
                          f"was sized for it)")
@@ -544,17 +617,18 @@ def run_worker(arguments):
     model = next(entry for entry in configuration["models"] if entry["model_short_name"] == arguments.worker_model_short_name)
     prompts = load_prompts(run_folder, configuration, arguments.maximum_prompts)
     samples_per_prompt = arguments.samples_per_prompt or configuration["samples_per_prompt"]
-    caps = {item["condition"]: item["output_cap"] for item in configuration["conditions"]}
-    caps.update({condition: value for condition, value in (
+    output_cap_overrides = {condition: value for condition, value in (
         (defs.CONDITION_THINKING_OFF, arguments.output_cap_thinking_off),
-        (defs.CONDITION_THINKING_ON, arguments.output_cap_thinking_on)) if value})
+        (defs.CONDITION_THINKING_ON, arguments.output_cap_thinking_on)) if value}
+    condition_entries = condition_entries_for_model(configuration, model, output_cap_overrides)
+    caps = {entry["condition"]: entry["output_cap"] for entry in condition_entries}
     outputs_folder = run_folder / defs.OUTPUTS_FOLDER_NAME
     outputs_folder.mkdir(parents=True, exist_ok=True)
     progress_log_path = outputs_folder / f"generation_progress_log_{model['model_short_name']}_{timestamp_now_with_seconds()}.txt"
     tokenizer = AutoTokenizer.from_pretrained(model["model_repository"], revision=model["model_revision"])
     tokenizer_adapter = ChatTokenizerAdapter(tokenizer)
     end_of_sequence_ids = read_end_of_sequence_ids(model, tokenizer)
-    longest_prompt = check_prompt_lengths(prompts, model, tokenizer_adapter, configuration["maximum_prompt_tokens_allowed"])
+    longest_prompt = check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, configuration["maximum_prompt_tokens_allowed"])
     say(f"{model['model_short_name']}: {len(prompts)} prompts, longest rendered prompt {longest_prompt} tokens, "
         f"end-of-sequence ids {end_of_sequence_ids}", progress_log_path)
     record_environment(run_folder, model, arguments.generation_backend, arguments.device)
@@ -563,7 +637,7 @@ def run_worker(arguments):
 
     if arguments.one_answer_check:  # standalone, informational: always exits 0, the files hold the verdicts
         run_one_answer_check_for_model(arguments, model, prompts[0], caps, backend, tokenizer_adapter, end_of_sequence_ids,
-                                       outputs_folder, progress_log_path)
+                                       outputs_folder, progress_log_path, condition_entries)
         return 0
     if not arguments.skip_embedded_one_answer_check:
         if passing_check_file_exists(outputs_folder, model):
@@ -571,7 +645,7 @@ def run_worker(arguments):
                 progress_log_path)
         else:
             result = run_one_answer_check_for_model(arguments, model, prompts[0], caps, backend, tokenizer_adapter,
-                                                    end_of_sequence_ids, outputs_folder, progress_log_path)
+                                                    end_of_sequence_ids, outputs_folder, progress_log_path, condition_entries)
             passed, failure_reasons = evaluate_one_answer_check(result)
             if not passed:
                 message = (f"ONE-ANSWER CHECK FAILED for {model['model_short_name']}: {'; '.join(failure_reasons)}. "
@@ -581,34 +655,38 @@ def run_worker(arguments):
                 raise SystemExit(message)
             say(f"{model['model_short_name']}: one-answer check passed; continuing with the full generation", progress_log_path)
     condition_plans = []
-    for condition in defs.CONDITIONS_IN_ORDER:
+    for entry in condition_entries:
+        condition = entry["condition"]
         plan = build_condition_plan(model, condition, prompts, samples_per_prompt, caps[condition],
-                                    answer_file_path(run_folder, model["model_short_name"], condition))
+                                    answer_file_path(run_folder, model["model_short_name"], condition),
+                                    entry["condition_spec"])
         say(f"{model['model_short_name']} {condition}: {plan['already_saved']} answers already saved, "
             f"{len(plan['pending_answers'])} to generate", progress_log_path)
         condition_plans.append(plan)
     generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
                                  arguments.report_interval_seconds)
-    say(f"{model['model_short_name']}: both conditions done in {format_duration(time.time() - worker_start)} after loading",
+    say(f"{model['model_short_name']}: all {len(condition_entries)} conditions done in {format_duration(time.time() - worker_start)} after loading",
         progress_log_path)
     return 0
 
 
 def run_one_answer_check_for_model(arguments, model, prompt, caps, backend, tokenizer_adapter, end_of_sequence_ids,
-                                   outputs_folder, progress_log_path):
-    check_caps = {condition: min(caps[condition], DEFAULT_CHECK_OUTPUT_CAPS[condition]) for condition in defs.CONDITIONS_IN_ORDER}
-    checks = []
-    off_spec, on_spec = model["thinking_off"], model["thinking_on"]
-    checks.append(check_one_condition(model, defs.CONDITION_THINKING_OFF, off_spec, check_caps[defs.CONDITION_THINKING_OFF],
-                                      prompt, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
-                                      arguments.report_interval_seconds))
-    checks.append(check_one_condition(model, defs.CONDITION_THINKING_ON, on_spec, check_caps[defs.CONDITION_THINKING_ON],
-                                      prompt, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
-                                      arguments.report_interval_seconds))
+                                   outputs_folder, progress_log_path, condition_entries=None):
+    """One answer to the first prompt per condition. condition_entries (see condition_entries_for_model) default to the
+    3 November screen's thinking_off and thinking_on."""
+    if condition_entries is None:
+        condition_entries = [{"condition": condition, "output_cap": caps[condition],
+                              "condition_spec": model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]}
+                             for condition in defs.CONDITIONS_IN_ORDER]
+    check_caps = {entry["condition"]: min(entry["output_cap"], DEFAULT_CHECK_OUTPUT_CAPS.get(entry["condition"], 4096))
+                  for entry in condition_entries}
+    checks = [check_one_condition(model, entry["condition"], entry["condition_spec"], check_caps[entry["condition"]],
+                                  prompt, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
+                                  arguments.report_interval_seconds) for entry in condition_entries]
     result = {"model_short_name": model["model_short_name"], "model_repository": model["model_repository"],
               "model_revision": model["model_revision"], "prompt_gid": prompt["prompt_gid"],
               "checked_at": datetime.now().isoformat(timespec="seconds"), "check_output_caps": check_caps,
-              "checks": checks}
+              "expected_conditions": [entry["condition"] for entry in condition_entries], "checks": checks}
     folder = outputs_folder / defs.ONE_ANSWER_CHECK_FOLDER_NAME
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"one_answer_check_{model['model_short_name']}_{timestamp_now_with_seconds()}.json"
@@ -624,14 +702,16 @@ def evaluate_one_answer_check(result):
     reasons = []
     for check in result["checks"]:
         label = check["condition"]
+        for failure in check.get("rendered_prompt_requirement_failures", []):
+            reasons.append(f"{label}: {failure}")
         if check["hit_output_cap"]:
             reasons.append(f"{label}: the check answer hit its output cap, so it is inconclusive")
         if not check["thinking_split_succeeded"]:
             reasons.append(f"{label}: the thinking trace did not split cleanly from the answer")
         if not check["thinking_switch_worked"]:
             reasons.append(f"{label}: the thinking switch did not work ("
-                           + ("thinking content appeared" if label == defs.CONDITION_THINKING_OFF else "no thinking trace appeared") + ")")
-    expected = {defs.CONDITION_THINKING_OFF, defs.CONDITION_THINKING_ON}
+                           + ("thinking content appeared" if check.get("condition_role", label) == defs.CONDITION_THINKING_OFF else "no thinking trace appeared") + ")")
+    expected = set(result.get("expected_conditions") or [defs.CONDITION_THINKING_OFF, defs.CONDITION_THINKING_ON])
     if {check["condition"] for check in result["checks"]} != expected:
         reasons.append("a condition was not checked")
     return not reasons, reasons
@@ -663,6 +743,8 @@ def summarise_one_answer_checks(run_folder, model_short_names, started_after_epo
         for check in result["checks"]:
             line = {"model_short_name": model_short_name, "check_label": check["check_label"],
                     "thinking_switch_worked": check["thinking_switch_worked"],
+                    "prompt_tail_as_rendered": check.get("prompt_tail_as_rendered"),
+                    "rendered_prompt_requirement_failures": check.get("rendered_prompt_requirement_failures"),
                     "reasoning_channel_present": check.get("reasoning_channel_present"),
                     "reasoning_channel_tokens": check.get("reasoning_channel_tokens"),
                     "thinking_split_succeeded": check["thinking_split_succeeded"],
@@ -715,8 +797,9 @@ def run_orchestrator(arguments):
     if arguments.one_answer_check:
         to_run = selected
     else:
+        condition_names = [entry["condition"] for entry in configuration["conditions"]]
         to_run = [model for model in selected
-                  if number_of_remaining_answers_for_model(run_folder, model, prompts, samples_per_prompt) > 0]
+                  if number_of_remaining_answers_for_model(run_folder, model, prompts, samples_per_prompt, condition_names) > 0]
     say(f"Models to run: {[model['model_short_name'] for model in to_run]} "
         f"({'one-answer check' if arguments.one_answer_check else 'full generation'}; "
         f"{len(selected) - len(to_run)} already complete); Hugging Face cache {hub_cache}; "
@@ -741,7 +824,7 @@ def run_orchestrator(arguments):
         summarise_one_answer_checks(run_folder, [model["model_short_name"] for model in to_run], run_start - 5)
     counts = {f"{model['model_short_name']}__{condition}": len(read_finished_answer_ids(
         answer_file_path(run_folder, model["model_short_name"], condition)))
-        for model in selected for condition in defs.CONDITIONS_IN_ORDER}
+        for model in selected for condition in [entry["condition"] for entry in configuration["conditions"]]}
     say(f"Done in {format_duration(time.time() - run_start)}. Saved answers per file: {json.dumps(counts)}")
     return 0
 

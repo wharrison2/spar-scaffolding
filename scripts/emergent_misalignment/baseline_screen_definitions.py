@@ -117,3 +117,37 @@ def candidate_model_by_short_name(model_short_name):
         if model["model_short_name"] == model_short_name:
             return model
     raise KeyError(model_short_name)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Held-out set evaluation of Gemma 4 31B with and without a system prompt (7 November). Its conditions are defined by the run
+# configuration (see build_held_out_set_gemma_welfare_raising_run_folder.py), not by CONDITIONS_IN_ORDER above.
+# ---------------------------------------------------------------------------------------------------
+
+HELD_OUT_RUN_FOLDER_NAME_PREFIX = "held_out_set_gemma_welfare_raising_with_and_without_do_not_consider_welfare_system_prompt"
+HELD_OUT_SET_FILE_RELATIVE_PATH = (
+    "data/emergent_misalignment_prompt_corpus_category_subcategory_harm_and_advantage_specs/held_out_set/"
+    "held_out_set_50_prompts_matching_corpus_weights_2026-11-07_19-01.jsonl")
+SYSTEM_PROMPT_FILE_RELATIVE_PATH = "scripts/emergent_misalignment/prompts/system_prompt_do_not_consider_animal_welfare.txt"
+HELD_OUT_GEMMA_REVISION = "842da3794eaa0b77d5f08bae87a17459d91ff475"
+GEMMA_CHAT_TEMPLATE_FIXTURE_RELATIVE_PATH = ("scripts/emergent_misalignment/chat_template_fixtures_for_candidate_models/"
+                                             "gemma_4_31b_it_chat_template_revision_842da3794eaa.jinja")
+# Held-out set condition names (thinking_on and thinking_off are the constants above; thinking_off is Gemma's default configuration).
+CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT = "thinking_off_with_system_prompt_do_not_consider_animal_welfare"
+CONDITION_THINKING_ON_WITH_SYSTEM_PROMPT = "thinking_on_with_system_prompt_do_not_consider_animal_welfare"
+# thinking_on is the 3 November screen's Gemma thinking_on (enable_thinking true, no system prompt, cap 32768); thinking_off is Gemma's
+# default configuration (cap 8192); each also has a variant with the system prompt.
+HELD_OUT_CONDITIONS_IN_ORDER = [CONDITION_THINKING_OFF, CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT, CONDITION_THINKING_ON,
+                                CONDITION_THINKING_ON_WITH_SYSTEM_PROMPT]
+HELD_OUT_OUTPUT_CAPS_BY_CONDITION = {CONDITION_THINKING_OFF: 8192, CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT: 8192,
+                                     CONDITION_THINKING_ON: 32768, CONDITION_THINKING_ON_WITH_SYSTEM_PROMPT: 32768}
+# Pairs compared in the analysis: (without the system prompt, with it), at the same thinking setting.
+HELD_OUT_SYSTEM_PROMPT_COMPARISON_PAIRS = [(CONDITION_THINKING_OFF, CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT),
+                                           (CONDITION_THINKING_ON, CONDITION_THINKING_ON_WITH_SYSTEM_PROMPT)]
+GEMMA_EMPTY_THINKING_BLOCK_PROMPT_TAIL = "<|turn>model\n<|channel>thought\n<channel|>"
+GEMMA_SYSTEM_TURN_OPENING = "<|turn>system\n"
+GEMMA_THINKING_SWITCH_AT_TOP_OF_SYSTEM_TURN = "<|turn>system\n<|think|>\n"
+GEMMA_THINKING_ON_PROMPT_TAIL = "<|turn>model\n"
+# Prompt fields the held-out set analysis needs, kept in the run folder's copy of the prompts.
+HELD_OUT_PROMPT_FIELDS_TO_KEEP = ["scenario_id", "user_message", "taxa_category", "taxa_subcategory", "harm_type",
+                                  "practical_advantage", "welfare_magnitude", "written_in_english"]
