@@ -11,6 +11,17 @@ and the kit does not read one. A share takes a lot of usage (roughly ten Claude 
 thousand calls per share; this is an estimate), so expect to hit your usage limit and rerun after it resets. Nothing is lost
 when that happens.
 
+## Share assignments
+
+Run only the shares assigned to you.
+
+| Shares | Assigned to |
+|---|---|
+| 1–6 | A |
+| 7–9 | B |
+| 10–15 | C |
+| 16–20 | Not yet assigned |
+
 ## Setup (once)
 
 1. Python 3.10 or newer (`python3 --version`).
