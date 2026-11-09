@@ -546,3 +546,105 @@ def test_second_pass_choice_of_seeds_output_folder_and_refusals(built_kit, monke
     run_my_shares.prepare_share_corpus_folder(shares[0], corpus_folder, kit_folder / "contributor_shares")
     with pytest.raises(SystemExit):
         run_my_shares.prepare_share_corpus_folder(dealt_shares[0], corpus_folder, kit_folder / "contributor_shares")
+
+
+# ---------- a share is never run twice with the same scenario seed ----------
+
+@pytest.fixture
+def kit_run_environment(built_kit, tmp_path, monkeypatch):
+    """run_my_shares pointed at the built kit's shares, a scratch seed record and zip folder, and a recorded fake batch call."""
+    share_folder = built_kit["kit_folder"] / "contributor_shares"
+    original_verified_share_file = run_my_shares.verified_share_file
+    original_prepare_share_corpus_folder = run_my_shares.prepare_share_corpus_folder
+    monkeypatch.setattr(run_my_shares, "SHARE_FOLDER", share_folder)
+    monkeypatch.setattr(run_my_shares, "load_newest_manifest", lambda: built_kit["manifest"])
+    monkeypatch.setattr(run_my_shares, "verified_share_file", lambda share, folder=share_folder: original_verified_share_file(share, folder))
+    monkeypatch.setattr(run_my_shares, "prepare_share_corpus_folder",
+                        lambda share, corpus_folder, folder=share_folder: original_prepare_share_corpus_folder(share, corpus_folder, folder))
+    monkeypatch.setattr(run_my_shares, "SCENARIO_SEEDS_RECORD_PATH", tmp_path / "scenario_seeds_record.json")
+    monkeypatch.setattr(run_my_shares, "ZIP_FOLDER", tmp_path / "zips_to_send_back")
+    monkeypatch.setattr(run_my_shares, "check_python_and_packages", lambda: None)
+    monkeypatch.setattr(run_my_shares, "keep_computer_awake_while_this_run_lasts", lambda: "awake")
+    batch_calls = []
+
+    def fake_batch_call(command, cwd=None):
+        batch_calls.append(command)
+        corpus_folder = Path(command[command.index("--corpus-folder") + 1])
+        if "--resume-batch-folder" in command:
+            batch_folder = Path(command[command.index("--resume-batch-folder") + 1])
+        else:
+            batch_folder = corpus_folder / "batches" / "batch_001_seed_fake_2026-11-08_10-00"
+            batch_folder.mkdir(parents=True)
+        if not fake_batch_call.leave_unfinished:
+            add_batch.append_ledger_line(corpus_folder / run_my_shares.LEDGER_FILE_NAME,
+                                         {"batch_number": 1, "batch_folder": f"batches/{batch_folder.name}"})
+        return 0
+
+    fake_batch_call.leave_unfinished = False
+    monkeypatch.setattr(run_my_shares.subprocess, "call", fake_batch_call)
+    return {"batch_calls": batch_calls, "fake_batch_call": fake_batch_call, "output_folder": tmp_path / "corpora",
+            "zip_folder": tmp_path / "zips_to_send_back", "tmp_path": tmp_path}
+
+
+def run_main_for_share(environment, extra_arguments=()):
+    return run_my_shares.main(["--shares", "3", "--skip-login-check", "--output-folder", str(environment["output_folder"]),
+                               *extra_arguments])
+
+
+def test_running_a_finished_share_again_runs_nothing_writes_no_zip_and_exits_with_code_four(kit_run_environment, capsys):
+    environment = kit_run_environment
+    assert run_main_for_share(environment) == 0
+    assert len(environment["batch_calls"]) == 1
+    zips_after_first_run = list(environment["zip_folder"].glob("*.zip"))
+    assert len(zips_after_first_run) == 1
+    capsys.readouterr()
+    assert run_main_for_share(environment) == run_my_shares.ALREADY_RUN_EXIT_CODE == 4
+    output = capsys.readouterr().out
+    assert "ALL DONE" not in output
+    assert "Share 003 has already been run once" in output and "--second-pass" in output
+    assert "already in" in output and "zips_to_send_back" in output
+    assert len(environment["batch_calls"]) == 1
+    assert list(environment["zip_folder"].glob("*.zip")) == zips_after_first_run
+
+
+def test_a_seed_already_started_is_refused_even_after_its_folder_is_moved_away(kit_run_environment):
+    environment = kit_run_environment
+    assert run_main_for_share(environment) == 0
+    corpus_folder = environment["output_folder"] / "contributor_corpus_share_003"
+    corpus_folder.rename(environment["tmp_path"] / "my_share_corpora_second_run_same_specs_same_seed")
+    with pytest.raises(SystemExit, match="already started with scenario seed base") as refusal:
+        run_main_for_share(environment)
+    assert "duplicate" in str(refusal.value) and "--second-pass" in str(refusal.value)
+    assert "delete" not in str(refusal.value).lower()
+    assert len(environment["batch_calls"]) == 1
+    assert not corpus_folder.exists()
+
+
+def test_resuming_an_unfinished_batch_is_not_refused_and_records_the_seed_once(kit_run_environment):
+    environment = kit_run_environment
+    environment["fake_batch_call"].leave_unfinished = True
+    assert run_main_for_share(environment) == 0
+    assert len(run_my_shares.load_scenario_seed_records()) == 1
+    environment["fake_batch_call"].leave_unfinished = False
+    assert run_main_for_share(environment) == 0
+    assert "--resume-batch-folder" in environment["batch_calls"][1]
+    assert len(run_my_shares.load_scenario_seed_records()) == 1
+    record = run_my_shares.load_scenario_seed_records()[0]
+    assert record["share_number"] == 3 and record["pass_kind"] == "first pass"
+    assert record["batch_scenario_seed"] == record["scenario_seed_base"] + 1
+
+
+def test_the_second_pass_seed_is_recorded_separately_and_does_not_block_and_is_then_also_closed(kit_run_environment, capsys):
+    environment = kit_run_environment
+    assert run_main_for_share(environment) == 0
+    second_pass_output_folder = environment["tmp_path"] / "second_pass_corpora"
+    second_pass_arguments_for_main = ["--shares", "3", "--skip-login-check", "--second-pass",
+                                      "--output-folder", str(second_pass_output_folder)]
+    assert run_my_shares.main(second_pass_arguments_for_main) == 0
+    assert len(environment["batch_calls"]) == 2
+    records = run_my_shares.load_scenario_seed_records()
+    assert [record["pass_kind"] for record in records] == ["first pass", "second pass"]
+    assert records[0]["scenario_seed_base"] + run_my_shares.SECOND_PASS_SEED_BASE_OFFSET == records[1]["scenario_seed_base"]
+    capsys.readouterr()
+    assert run_my_shares.main(second_pass_arguments_for_main) == run_my_shares.ALREADY_RUN_EXIT_CODE
+    assert "both passes" in capsys.readouterr().out

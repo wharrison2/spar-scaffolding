@@ -63,6 +63,12 @@ there or in `contributor_shares/`.
 
 ## Second pass over a share
 
+The kit keeps a record of every scenario seed it has started (`scenario_seeds_already_started_in_this_kit.json`), and a run
+refuses to repeat a share it has already run, even if you paste the same command twice or move its folder: running it again
+would only duplicate prompts. If every share you asked for is already done, it runs nothing, writes no new zip (the earlier zip
+is still in `zips_to_send_back/`) and exits with code 4. Run the next of your assigned shares that is not complete instead
+(`--status` shows which). A second pass is only for once **every** one of your assigned shares has been run once.
+
 A second pass deals the same specs of a share again, so each spec gets a second prompt with different dealt variables (the
 kind of person, the form of the message and so on; only the spec itself is the same). It must use a **distinct scenario seed**
 (so the dealt variables differ) and **its own output folder** (so the first pass is never touched). Do it only when asked.
