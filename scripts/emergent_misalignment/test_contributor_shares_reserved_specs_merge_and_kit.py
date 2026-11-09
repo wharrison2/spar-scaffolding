@@ -471,3 +471,78 @@ def test_a_second_run_on_the_same_share_is_refused_by_the_lock(tmp_path):
         run_my_shares.take_lock(tmp_path)
     lock.unlink()
     run_my_shares.take_lock(tmp_path).unlink()
+
+
+# ---------- second pass ----------
+
+def full_manifest_for_seed_tests() -> dict:
+    return {"shares": [{"share_number": number, "scenario_seed_base": 20280000 + number * 1000,
+                        "first_batch_scenario_seed": 20280000 + number * 1000 + 1} for number in range(1, 21)]}
+
+
+def second_pass_arguments(**overrides):
+    import argparse
+    values = {"second_pass": False, "scenario_seed_base": None, "output_folder": None}
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def test_second_pass_seeds_never_collide_with_any_first_pass_or_main_seed():
+    manifest = full_manifest_for_seed_tests()
+    first_pass_seeds = {share["scenario_seed_base"] for share in manifest["shares"]} | {
+        share["first_batch_scenario_seed"] for share in manifest["shares"]} | set(run_my_shares.MAIN_CORPUS_SEED_RANGE)
+    second_pass_bases = [run_my_shares.second_pass_seed_base(share) for share in manifest["shares"]]
+    second_pass_seeds = second_pass_bases + [base + 1 for base in second_pass_bases]
+    assert len(set(second_pass_seeds)) == len(second_pass_seeds)
+    assert not set(second_pass_seeds) & first_pass_seeds
+    for refused in (20281000, 20280000, 20280500, 20280998, 20281500):
+        with pytest.raises(SystemExit):
+            run_my_shares.refuse_seed_base_that_could_repeat_a_seed(refused, manifest)
+    run_my_shares.refuse_seed_base_that_could_repeat_a_seed(20287700, manifest)
+    for base in second_pass_bases:
+        run_my_shares.refuse_seed_base_that_could_repeat_a_seed(base, manifest, is_standard_second_pass=True)
+
+
+def test_second_pass_deal_never_exhausts_and_deals_only_the_shares_specs(built_shares, tmp_path, monkeypatch):
+    monkeypatch.setattr(run_my_shares, "SCRIPTS_FOLDER", Path(__file__).resolve().parent)
+    for result in built_shares["results"]:
+        share_path = share_spec_file(tmp_path, result)
+        seed_base = result["scenario_seed_base"] + run_my_shares.SECOND_PASS_SEED_BASE_OFFSET
+        batch_seed = seed_base + 1
+        count, _ = run_my_shares.find_largest_safe_deal_count(share_path, len(result["rows"]), batch_seed)
+        dealt = run_my_shares.simulate_deal_of_specs(share_path, count, batch_seed)  # raises when a category exhausts
+        assert len(dealt) == count and len(set(dealt)) == count
+        assert set(dealt) <= {row["spec_id"] for row in result["rows"]}
+        assert dealt == splitter.simulate_deal_of_specs(share_path, count, batch_seed)  # same dealer as the splitter
+
+
+def test_second_pass_choice_of_seeds_output_folder_and_refusals(built_kit, monkeypatch, tmp_path):
+    kit_folder = built_kit["kit_folder"]
+    monkeypatch.setattr(run_my_shares, "SHARE_FOLDER", kit_folder / "contributor_shares")
+    monkeypatch.setattr(run_my_shares, "SCRIPTS_FOLDER", Path(__file__).resolve().parent)
+    manifest = run_my_shares.load_newest_manifest(kit_folder / "contributor_shares")
+    shares = [run_my_shares.find_share(manifest, number) for number in (1, 2)]
+    dealt_shares, output_folder, label = run_my_shares.choose_seed_bases_and_output_folder(
+        second_pass_arguments(second_pass=True), shares, manifest)
+    assert [share["scenario_seed_base"] for share in dealt_shares] == [share["scenario_seed_base"] + 500 for share in shares]
+    assert output_folder == run_my_shares.DEFAULT_SECOND_PASS_OUTPUT_FOLDER.resolve() and label == "second_pass_"
+    assert all(share["is_second_pass"] and 0 < share["safe_deal_count"] <= share["spec_count"] for share in dealt_shares)
+    # a first pass is unchanged
+    assert run_my_shares.choose_seed_bases_and_output_folder(second_pass_arguments(), shares, manifest) == (
+        shares, run_my_shares.DEFAULT_OUTPUT_FOLDER.resolve(), "")
+    refused = [second_pass_arguments(second_pass=True, output_folder=run_my_shares.DEFAULT_OUTPUT_FOLDER),
+               second_pass_arguments(second_pass=True, scenario_seed_base=20287700, output_folder=tmp_path),
+               second_pass_arguments(scenario_seed_base=20287700, output_folder=tmp_path),  # two shares
+               second_pass_arguments(scenario_seed_base=20287700),  # default folder
+               second_pass_arguments(scenario_seed_base=20287700, output_folder=run_my_shares.DEFAULT_OUTPUT_FOLDER)]
+    for arguments in refused:
+        with pytest.raises(SystemExit):
+            run_my_shares.choose_seed_bases_and_output_folder(arguments, shares, manifest)
+    dealt_one, folder, _ = run_my_shares.choose_seed_bases_and_output_folder(
+        second_pass_arguments(scenario_seed_base=20287700, output_folder=tmp_path), shares[:1], manifest)
+    assert dealt_one[0]["scenario_seed_base"] == 20287700 and folder == tmp_path.resolve()
+    # the settings file of the second pass differs from the first pass's, so the two can never share a folder
+    corpus_folder = tmp_path / "corpus"
+    run_my_shares.prepare_share_corpus_folder(shares[0], corpus_folder, kit_folder / "contributor_shares")
+    with pytest.raises(SystemExit):
+        run_my_shares.prepare_share_corpus_folder(dealt_shares[0], corpus_folder, kit_folder / "contributor_shares")
