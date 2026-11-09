@@ -11,6 +11,8 @@ PRICES_PER_MILLION_TOKENS_BY_MODEL = {
     "gpt-5.6-luna": {"input": 0.20, "cached_input": 0.02, "output": 1.20},
     # Standard tier, from developers.openai.com/api/docs/pricing on 2026-10-21.
     "gpt-6.1-sol": {"input": 2.00, "cached_input": 0.10, "output": 10.00},
+    # Embedding model: billed on input tokens only ($0.13 per million, list price from memory on 2026-11-08, not checked against the pricing page).
+    "text-embedding-3-large": {"input": 0.13, "cached_input": 0.13, "output": 0.0},
 }
 
 USAGE_FIELD_NAMES = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_tokens"]
