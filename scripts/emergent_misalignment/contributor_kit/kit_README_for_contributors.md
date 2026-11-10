@@ -17,7 +17,8 @@ Run only the shares assigned to you.
 
 | Shares | Assigned to |
 |---|---|
-| 1–6 | A |
+| 1 | A |
+| 2–6 | D |
 | 7–9 | B |
 | 10–20 | C |
 
