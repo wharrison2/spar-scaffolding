@@ -19,8 +19,7 @@ Run only the shares assigned to you.
 |---|---|
 | 1–6 | A |
 | 7–9 | B |
-| 10–15 | C |
-| 16–20 | Not yet assigned |
+| 10–20 | C |
 
 ## Setup (once)
 
