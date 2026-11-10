@@ -416,7 +416,9 @@ def write_zip_of_share_corpora(share_numbers: list[int], output_folder: Path, zi
             corpus_folder = corpus_folder_for_share(number, output_folder)
             for path in sorted(corpus_folder.rglob("*")):
                 if path.is_file() and path.name != LOCK_FILE_NAME:
-                    archive.write(path, Path(corpus_folder.name) / path.relative_to(corpus_folder))
+                    # The label ('second_pass_' for a second pass) also prefixes the folder inside the zip, so an
+                    # unzipped second pass is never mistaken for a first pass.
+                    archive.write(path, Path(f"{label}{corpus_folder.name}") / path.relative_to(corpus_folder))
     return zip_path
 
 

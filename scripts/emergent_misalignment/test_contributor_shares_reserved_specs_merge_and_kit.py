@@ -434,6 +434,13 @@ def test_entry_point_prepares_a_share_corpus_resumes_skips_and_zips(built_kit, t
     with zipfile.ZipFile(zip_path) as archive:
         assert any(name.startswith("contributor_corpus_share_003/") and name.endswith(run_my_shares.LEDGER_FILE_NAME)
                    for name in archive.namelist())
+    second_pass_zip_path = run_my_shares.write_zip_of_share_corpora([3], tmp_path, tmp_path / "second_pass_zips",
+                                                                    now=lambda: datetime(2026, 11, 8, 15, 35),
+                                                                    label="second_pass_")
+    assert second_pass_zip_path.name == "emergent_misalignment_contributor_corpus_second_pass_shares_003_2026-11-08_15-35.zip"
+    with zipfile.ZipFile(second_pass_zip_path) as archive:
+        names = archive.namelist()
+        assert names and all(name.startswith("second_pass_contributor_corpus_share_003/") for name in names)
 
 
 def test_entry_point_refuses_a_changed_share_file_and_a_wrong_share_number(built_kit, tmp_path, monkeypatch):
