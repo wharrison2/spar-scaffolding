@@ -19,7 +19,7 @@ needed. If your usage limit is reached the run stops cleanly (exit code 3): wait
 
 Second pass: `--second-pass` deals the same specs again with a different scenario seed (the share's seed base plus 500) so each
 spec gets a second prompt with different non-spec dealt variables. It writes to its own folder (second_pass_share_corpora/ by
-default), never touching the first pass, and finds the share's safe deal count for the new seed by simulating the deal offline.
+default, in folders named second_pass_contributor_corpus_share_NNN), never touching the first pass, and finds the share's safe deal count for the new seed by simulating the deal offline.
 `--scenario-seed-base N` does the same with an explicit seed base, for exactly one share, and needs its own --output-folder.
 
 --dry-run prints what would run for each share and creates nothing in your output folder. --status prints the state of
@@ -111,8 +111,16 @@ def verified_share_file(share: dict, share_folder: Path = SHARE_FOLDER) -> Path:
     return path
 
 
-def corpus_folder_for_share(share_number: int, output_folder: Path) -> Path:
-    return Path(output_folder) / f"contributor_corpus_share_{share_number:03d}"
+def corpus_folder_for_share(share_number: int, output_folder: Path, label: str = "") -> Path:
+    """The share's corpus folder: the label ('' for a first pass, 'second_pass_' for any other pass) then
+    contributor_corpus_share_NNN, so a second pass is named as one wherever the folder is copied or zipped.
+    A second pass run by an earlier kit version used the unprefixed name; when only that old-named folder exists it is
+    still the folder this pass started in, so it is returned instead (never for a first pass, label '')."""
+    prefixed_folder = Path(output_folder) / f"{label}contributor_corpus_share_{share_number:03d}"
+    legacy_folder = Path(output_folder) / f"contributor_corpus_share_{share_number:03d}"
+    if label and not prefixed_folder.exists() and legacy_folder.exists():
+        return legacy_folder
+    return prefixed_folder
 
 
 def settings_for_share(share: dict) -> dict:
@@ -292,7 +300,7 @@ def record_deal_count(corpus_folder: Path, share: dict) -> None:
 
 def choose_seed_bases_and_output_folder(arguments, shares: list[dict], manifest: dict) -> tuple[list[dict], Path, str]:
     """Apply --second-pass / --scenario-seed-base with all the refusals, before anything is created. Returns the shares as
-    they will be dealt, the output folder, and a label for the zip name ('' for a first pass)."""
+    they will be dealt, the output folder, and the label that prefixes the zip and corpus folder names ('' for a first pass)."""
     if arguments.second_pass and arguments.scenario_seed_base is not None:
         raise SystemExit("Use either --second-pass or --scenario-seed-base, not both.")
     if arguments.scenario_seed_base is None and not arguments.second_pass:
@@ -413,21 +421,22 @@ def write_zip_of_share_corpora(share_numbers: list[int], output_folder: Path, zi
                              f"{now().strftime(TIMESTAMP_FORMAT)}.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for number in sorted(share_numbers):
-            corpus_folder = corpus_folder_for_share(number, output_folder)
+            corpus_folder = corpus_folder_for_share(number, output_folder, label)
             for path in sorted(corpus_folder.rglob("*")):
                 if path.is_file() and path.name != LOCK_FILE_NAME:
-                    # The label ('second_pass_' for a second pass) also prefixes the folder inside the zip, so an
-                    # unzipped second pass is never mistaken for a first pass.
-                    archive.write(path, Path(f"{label}{corpus_folder.name}") / path.relative_to(corpus_folder))
+                    # A second pass's folder is named second_pass_contributor_corpus_share_NNN; one run by an earlier kit
+                    # version has the unprefixed name on disk, so the name inside the zip is built from the label here,
+                    # once, so an unzipped second pass is never mistaken for a first pass.
+                    archive.write(path, Path(f"{label}contributor_corpus_share_{number:03d}") / path.relative_to(corpus_folder))
     return zip_path
 
 
 # ---------- main ----------
 
-def run_share(share: dict, output_folder: Path) -> int:
+def run_share(share: dict, output_folder: Path, label: str = "") -> int:
     """Run (or resume) the share's one batch. Returns 0 when the share is complete, else the batch script's exit code."""
     number = share["share_number"]
-    corpus_folder = corpus_folder_for_share(number, output_folder)
+    corpus_folder = corpus_folder_for_share(number, output_folder, label)
     # A seed already started is only allowed to continue in the very folder it started in (to finish or retry it); a folder
     # that was moved away or deleted must never let the same seed run again from scratch.
     seed_record = find_scenario_seed_record(share["scenario_seed_base"])
@@ -454,9 +463,9 @@ def run_share(share: dict, output_folder: Path) -> int:
         lock_path.unlink(missing_ok=True)
 
 
-def print_dry_run(share: dict, output_folder: Path) -> None:
+def print_dry_run(share: dict, output_folder: Path, label: str = "") -> None:
     """Show the batch script's own dry run for the share, in a throwaway corpus folder, so nothing is created in yours."""
-    corpus_folder = corpus_folder_for_share(share["share_number"], output_folder)
+    corpus_folder = corpus_folder_for_share(share["share_number"], output_folder, label)
     state = state_of_share_corpus(corpus_folder) if corpus_folder.exists() else (STATE_NOT_STARTED, None)
     pass_note = ", second pass: deal count found by offline simulation at this seed" if share.get("is_second_pass") else ""
     print(f"\n=== Share {share['share_number']:03d} ({share['spec_count']} specs, safe deal count {share['safe_deal_count']}, "
@@ -513,18 +522,18 @@ def main(argv=None) -> int:
 
     if arguments.status:
         for share in shares:
-            folder = corpus_folder_for_share(share["share_number"], output_folder)
+            folder = corpus_folder_for_share(share["share_number"], output_folder, zip_label)
             print(f"Share {share['share_number']:03d}: {state_of_share_corpus(folder)[0] if folder.exists() else STATE_NOT_STARTED}")
         return 0
     check_python_and_packages()
     if arguments.dry_run:
         for share in shares:
-            print_dry_run(share, output_folder)
+            print_dry_run(share, output_folder, zip_label)
         print("\nDry run only: no model call was made and nothing was created.")
         return 0
     shares_already_complete = [share for share in shares
-                               if corpus_folder_for_share(share["share_number"], output_folder).exists()
-                               and state_of_share_corpus(corpus_folder_for_share(share["share_number"], output_folder))[0]
+                               if corpus_folder_for_share(share["share_number"], output_folder, zip_label).exists()
+                               and state_of_share_corpus(corpus_folder_for_share(share["share_number"], output_folder, zip_label))[0]
                                == STATE_COMPLETE]
     if len(shares_already_complete) == len(shares):
         print("Nothing was run: every share you asked for has already been run.", flush=True)
@@ -540,7 +549,7 @@ def main(argv=None) -> int:
     started = datetime.now()
     rerun_command = "python run_my_shares.py " + " ".join(shlex.quote(part) for part in (argv if argv is not None else sys.argv[1:]))
     for share in shares:
-        code = run_share(share, output_folder)
+        code = run_share(share, output_folder, zip_label)
         if code == USAGE_LIMIT_EXIT_CODE:
             print(f"\nSTOPPED: your Claude usage limit was reached while working on share {share['share_number']:03d}. "
                   f"Nothing is lost. Wait for the limit to reset (the message above or Claude Code's /usage may say when), "
@@ -548,7 +557,7 @@ def main(argv=None) -> int:
             return USAGE_LIMIT_EXIT_CODE
         if code != 0:
             print(f"\nSTOPPED: the batch for share {share['share_number']:03d} failed (exit code {code}); the message above "
-                  f"and the terminal_output_*.txt files in {relative_to_kit(corpus_folder_for_share(share['share_number'], output_folder))}"
+                  f"and the terminal_output_*.txt files in {relative_to_kit(corpus_folder_for_share(share['share_number'], output_folder, zip_label))}"
                   f"/batches/ say why. Run the same command again to resume; if it fails again, send those files to the person "
                   f"who sent you the kit.", flush=True)
             return code

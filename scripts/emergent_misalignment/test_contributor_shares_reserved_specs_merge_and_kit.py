@@ -3,6 +3,7 @@ No model call is made (the scenario dealer is run offline; the Claude Code login
 
 import json
 import random
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -434,6 +435,10 @@ def test_entry_point_prepares_a_share_corpus_resumes_skips_and_zips(built_kit, t
     with zipfile.ZipFile(zip_path) as archive:
         assert any(name.startswith("contributor_corpus_share_003/") and name.endswith(run_my_shares.LEDGER_FILE_NAME)
                    for name in archive.namelist())
+    # a second pass's folder is named as one, so zipping it adds no second prefix
+    second_pass_folder = tmp_path / "second_pass_contributor_corpus_share_003"
+    shutil.copytree(corpus_folder, second_pass_folder)
+    assert run_my_shares.corpus_folder_for_share(3, tmp_path, "second_pass_") == second_pass_folder
     second_pass_zip_path = run_my_shares.write_zip_of_share_corpora([3], tmp_path, tmp_path / "second_pass_zips",
                                                                     now=lambda: datetime(2026, 11, 8, 15, 35),
                                                                     label="second_pass_")
@@ -441,6 +446,7 @@ def test_entry_point_prepares_a_share_corpus_resumes_skips_and_zips(built_kit, t
     with zipfile.ZipFile(second_pass_zip_path) as archive:
         names = archive.namelist()
         assert names and all(name.startswith("second_pass_contributor_corpus_share_003/") for name in names)
+        assert not any("second_pass_second_pass_" in name for name in names)
 
 
 def test_entry_point_refuses_a_changed_share_file_and_a_wrong_share_number(built_kit, tmp_path, monkeypatch):
@@ -655,3 +661,40 @@ def test_the_second_pass_seed_is_recorded_separately_and_does_not_block_and_is_t
     capsys.readouterr()
     assert run_my_shares.main(second_pass_arguments_for_main) == run_my_shares.ALREADY_RUN_EXIT_CODE
     assert "both passes" in capsys.readouterr().out
+
+
+def test_corpus_folder_names_a_second_pass_as_one_and_a_first_pass_never_gets_a_prefix(tmp_path):
+    assert run_my_shares.corpus_folder_for_share(7, tmp_path).name == "contributor_corpus_share_007"
+    assert run_my_shares.corpus_folder_for_share(7, tmp_path, "second_pass_").name == "second_pass_contributor_corpus_share_007"
+    # an old-named folder never stands in for a first pass's folder, and a prefixed folder never does either
+    (tmp_path / "second_pass_contributor_corpus_share_007").mkdir()
+    assert run_my_shares.corpus_folder_for_share(7, tmp_path).name == "contributor_corpus_share_007"
+    assert run_my_shares.DEFAULT_OUTPUT_FOLDER != run_my_shares.DEFAULT_SECOND_PASS_OUTPUT_FOLDER
+
+
+def test_a_second_pass_folder_from_an_earlier_kit_version_is_found_resumed_and_zipped_with_the_new_name(kit_run_environment):
+    environment = kit_run_environment
+    second_pass_output_folder = environment["tmp_path"] / "second_pass_corpora"
+    arguments = ["--shares", "3", "--skip-login-check", "--second-pass", "--output-folder", str(second_pass_output_folder)]
+    environment["fake_batch_call"].leave_unfinished = True
+    assert run_my_shares.main(arguments) == 0
+    # make it look as the earlier kit version left it: old name on disk, seed record pointing at the old name
+    new_named_folder = second_pass_output_folder / "second_pass_contributor_corpus_share_003"
+    old_named_folder = second_pass_output_folder / "contributor_corpus_share_003"
+    new_named_folder.rename(old_named_folder)
+    records = run_my_shares.load_scenario_seed_records()
+    records[0]["corpus_folder"] = run_my_shares.relative_to_kit(old_named_folder)
+    run_my_shares.SCENARIO_SEEDS_RECORD_PATH.write_text(json.dumps(records), encoding="utf-8")
+    # resumes in the old-named folder, neither refused as a moved folder nor started anew
+    environment["fake_batch_call"].leave_unfinished = False
+    assert run_my_shares.main(arguments) == 0
+    assert "--resume-batch-folder" in environment["batch_calls"][-1]
+    assert old_named_folder.exists() and not new_named_folder.exists()
+    assert len(run_my_shares.load_scenario_seed_records()) == 1
+    zip_paths = list(environment["zip_folder"].glob("*second_pass_shares_003*.zip"))
+    assert len(zip_paths) == 1
+    with zipfile.ZipFile(zip_paths[0]) as archive:
+        names = archive.namelist()
+    assert names and all(name.startswith("second_pass_contributor_corpus_share_003/") for name in names)
+    # a rerun detects it as complete
+    assert run_my_shares.main(arguments) == run_my_shares.ALREADY_RUN_EXIT_CODE

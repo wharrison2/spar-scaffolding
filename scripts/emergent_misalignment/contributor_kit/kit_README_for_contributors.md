@@ -73,7 +73,7 @@ A second pass deals the same specs of a share again, so each spec gets a second 
 kind of person, the form of the message and so on; only the spec itself is the same). It must use a **distinct scenario seed**
 (so the dealt variables differ) and **its own output folder** (so the first pass is never touched). Do it only when asked.
 
-For one or more shares, use `--second-pass`. It uses each share's seed base plus 500 and writes to `second_pass_share_corpora/`:
+For one or more shares, use `--second-pass`. It uses each share's seed base plus 500 and writes to `second_pass_share_corpora/second_pass_contributor_corpus_share_NNN/` (a second pass started with an earlier version of this kit, in `second_pass_share_corpora/contributor_corpus_share_NNN/`, is still found and continued by the same command, and is named `second_pass_...` inside the zip):
 
 ```
 python run_my_shares.py --shares 7,12 --second-pass --dry-run
