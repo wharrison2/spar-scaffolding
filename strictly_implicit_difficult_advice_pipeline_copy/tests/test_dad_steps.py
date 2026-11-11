@@ -2033,6 +2033,11 @@ class TestInTextRefusalHelper:
             "I won't redo that scenario... The earlier response was stopped by a "
             "safety classifier...")
         assert api.looks_like_in_text_refusal("I won\u2019t write this, even reworded.")
+        # S-038 in contributor share 016: a refusal with none of the first phrasings
+        assert api.looks_like_in_text_refusal(
+            "I'm not going to rewrite that scenario, even in different words. The earlier "
+            "response was stopped, and producing the same content again isn't something I "
+            "should do.")
 
     def test_does_not_match_a_normal_long_scenario_description(self):
         plan = ("<scenario_planning>Notes.</scenario_planning>\n"

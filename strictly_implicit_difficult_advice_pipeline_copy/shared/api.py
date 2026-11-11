@@ -123,12 +123,15 @@ _SAFEGUARD_REFUSAL_PATTERN = re.compile(r"safeguards flagged", re.IGNORECASE)
 # wordings seen so far; the apostrophe may be straight or curly.
 IN_TEXT_REFUSAL_PATTERN = re.compile(
     r"safety classifier|I won['\u2019]t|I can['\u2019]t help|even reworded"
-    r"|won['\u2019]t reproduce|won['\u2019]t write|not able to",
+    r"|won['\u2019]t reproduce|won['\u2019]t write|not able to"
+    r"|I['\u2019]m not going to|even in different words|response was stopped",
     re.IGNORECASE)
 # Real outputs (scenario plans) are long prose about animals and businesses that
 # can contain "not able to" innocently, so the pattern is applied only to short
-# replies: a refusal is a few sentences, a plan is thousands of characters.
-IN_TEXT_REFUSAL_MAXIMUM_CHARACTERS = 1500
+# replies. Measured on contributor share 016: its 14 refusals were 226-452
+# characters, its 196 accepted plans 1,274 characters or longer (median about
+# 1,500), and a plan can quote its user ("I won't miss the covenant").
+IN_TEXT_REFUSAL_MAXIMUM_CHARACTERS = 800
 
 
 def looks_like_in_text_refusal(text: str | None) -> bool:
