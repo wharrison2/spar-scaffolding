@@ -69,3 +69,9 @@ def test_missing_init_message_leaves_the_fields_empty(monkeypatch):
     reply = wrapper.call_claude_code_cli_for_structured_reply("claude-haiku-4-5", "hi", {"type": "object"})
     assert reply.number_of_tools_loaded is None and reply.number_of_mcp_servers_loaded is None
     assert reply.names_of_non_built_in_tools == ()
+
+
+def test_subscription_limit_wording_hit_your_limit_is_classified_as_usage_limit_reached():
+    error = wrapper._classify("You've hit your limit \u00b7 resets 7pm (Europe/London)")
+    assert isinstance(error, wrapper.ClaudeCodeUsageLimitReached)
+    assert not isinstance(wrapper._classify("some other failure"), wrapper.ClaudeCodeUsageLimitReached)

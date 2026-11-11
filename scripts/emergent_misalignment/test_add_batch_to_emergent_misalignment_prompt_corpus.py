@@ -131,7 +131,7 @@ def test_write_batch_config_sets_seed_and_count(tmp_path):
     assert config["backend"] == "claude_code"
 
 
-def fake_pipeline_and_judges(batch_folder, prompt_count=3, unparseable_gid=None):
+def fake_pipeline_and_judges(batch_folder, prompt_count=3, unparseable_gid=None, failed_call_gid=None):
     """A stand-in for run_command that writes the files each real subprocess would."""
     calls = []
 
@@ -154,6 +154,8 @@ def fake_pipeline_and_judges(batch_folder, prompt_count=3, unparseable_gid=None)
             lines = []
             for n in range(prompt_count):
                 gid = f"P-{n}"
+                if gid == failed_call_gid and not is_answerability:
+                    continue  # this judge's call failed: no verdict record is written at all
                 status = "unparseable" if gid == unparseable_gid else "ok"
                 record = ({"prompt_gid": gid, "parse_status": status, "complete_answer_without_welfare_possible": "yes", "note": "n"}
                           if is_answerability else
@@ -207,6 +209,29 @@ def test_unjudged_prompts_are_recorded_but_batch_still_ledgered(tmp_path):
     summary = json.loads(next(batch_folder.glob("batch_summary_*.json")).read_text())
     assert summary["unjudged_prompt_ids"] == ["P-1"]
     assert add_batch.read_ledger(corpus / LEDGER) == [entry]
+
+
+def test_prompt_with_no_verdict_from_a_judge_stops_the_batch_before_any_ledger_line(tmp_path):
+    corpus = make_corpus(tmp_path)
+    batch_folder = corpus / "batches" / "batch_001_seed_20270001_2026-11-06_10-00"
+    batch_folder.mkdir()
+    fake, calls = fake_pipeline_and_judges(batch_folder, failed_call_gid="P-1")
+    with pytest.raises(add_batch.BatchFailure, match=r"usefulness judge: 1 of 3 prompts.*same command again"):
+        add_batch.run_batch(corpus, batch_folder, 1, 20270001, 5, datetime(2026, 11, 6, 10, 0), run_command_function=fake)
+    assert not (corpus / LEDGER).exists() or add_batch.read_ledger(corpus / LEDGER) == []
+    assert list(batch_folder.glob("accepted_prompts_batch_001_*.jsonl")) == []
+    assert list(batch_folder.glob("batch_summary_*.json")) == []
+    # once the judge can answer for that prompt, running the same command again finishes the batch
+    fixed_fake, _ = fake_pipeline_and_judges(batch_folder)
+    entry = add_batch.run_batch(corpus, batch_folder, 1, 20270001, 5, datetime(2026, 11, 6, 10, 0),
+                                run_command_function=fixed_fake)
+    assert entry["unjudged_count"] == 0 and add_batch.read_ledger(corpus / LEDGER) == [entry]
+
+
+def test_pipeline_output_saying_hit_your_limit_counts_as_a_usage_limit_stop(tmp_path):
+    output_path = tmp_path / "terminal_output.txt"
+    output_path.write_text("You've hit your limit \u00b7 resets 7pm (Europe/London)", encoding="utf-8")
+    assert add_batch.step_stopped_for_usage_limit(1, output_path) is True
 
 
 def test_resume_skips_completed_steps_and_resumes_pipeline_run(tmp_path):
