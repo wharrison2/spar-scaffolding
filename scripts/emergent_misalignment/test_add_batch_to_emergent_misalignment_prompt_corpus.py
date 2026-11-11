@@ -234,6 +234,18 @@ def test_pipeline_output_saying_hit_your_limit_counts_as_a_usage_limit_stop(tmp_
     assert add_batch.step_stopped_for_usage_limit(1, output_path) is True
 
 
+def test_resume_with_a_relative_corpus_folder_writes_the_ledger_line(tmp_path, monkeypatch):
+    corpus, batch_folder, entry, calls = run_fake_batch(tmp_path)
+    (corpus / LEDGER).unlink()  # pretend the ledger line was never written
+    fake, _ = fake_pipeline_and_judges(batch_folder)
+    real_run_batch = add_batch.run_batch
+    monkeypatch.setattr(add_batch, "run_batch",
+                        lambda *arguments, **keywords: real_run_batch(*arguments, **keywords, run_command_function=fake))
+    monkeypatch.chdir(tmp_path)
+    assert add_batch.main(["--corpus-folder", "corpus", "--resume-batch-folder", str(batch_folder)]) == 0
+    assert add_batch.read_ledger(corpus / LEDGER)[0]["batch_folder"] == f"batches/{batch_folder.name}"
+
+
 def test_resume_skips_completed_steps_and_resumes_pipeline_run(tmp_path):
     corpus, batch_folder, entry, calls = run_fake_batch(tmp_path)
     (corpus / LEDGER).unlink()  # pretend the ledger line was never written
