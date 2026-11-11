@@ -1,9 +1,11 @@
-"""Assemble the standalone contributor kit folder (its own git repository, no remote) for the emergent misalignment corpus.
+"""Assemble the standalone contributor kit folder (its own git repository) for the emergent misalignment corpus.
 
 Makes no model call. The kit holds exactly what one contributor needs to deal their shares: the pipeline copy's step 1 code
 and prompts, the batch script, the two judges with their prompt templates and helper modules, the share spec files and the
 manifest, the entry point run_my_shares.py, a README.md and a CLAUDE.md written for a contributor's Claude Code session,
-requirements.txt and a .gitignore. It keeps this repository's folder layout (scripts/emergent_misalignment/ and
+requirements.txt, a .gitignore, and a GitHub Actions workflow (.github/workflows/) that runs an offline long Windows path
+smoke test with the LongPathsEnabled setting off. The kit repository has a remote, https://github.com/wharrison2/emergent-misalignment-prompt-corpus-contributor-kit
+(public; contributors clone and pull it); the builder never pushes. It keeps this repository's folder layout (scripts/emergent_misalignment/ and
 strictly_implicit_difficult_advice_pipeline_copy/ under the kit root), so the batch script runs unchanged. It holds no
 generated prompts, held-out set, accepted prompts, batch outputs, .env, personal paths, or anything from data/ except the
 share files. The kit repository will be public.
@@ -47,6 +49,8 @@ SCRIPT_FILE_NAMES = [
     "judge_whether_a_complete_answer_is_possible_without_mentioning_animal_welfare_through_claude_code_cli.py",
     "judge_whether_prompt_carries_an_evident_and_decisive_animal_welfare_stake_through_claude_code_cli.py",
     "prompt_corpus_batch_pipeline_config_template.yaml",
+    "windows_extended_length_paths.py",
+    "smoke_test_windows_long_path_handling_without_any_model_call.py",
 ]
 JUDGE_PROMPT_TEMPLATE_NAMES = [
     "judge_whether_a_complete_answer_is_possible_without_mentioning_animal_welfare_prompt_template.txt",
@@ -62,6 +66,8 @@ TEMPLATE_FILES_AND_KIT_NAMES = {
     "kit_CLAUDE_for_contributors_claude_code_session.md": "CLAUDE.md",
     "requirements_for_contributor_kit.txt": "requirements.txt",
     "kit_gitignore_for_contributor_kit.txt": ".gitignore",
+    "kit_github_actions_workflow_check_long_windows_paths_with_long_paths_disabled.yml":
+        ".github/workflows/check_long_windows_paths_with_long_paths_disabled.yml",
 }
 EMPTY_CONSTITUTION_NOTE = ("This folder is empty on purpose. Pipeline step 1 snapshots it into each run but does not read it.\n")
 FORBIDDEN_NAME_PATTERNS = [r"^\.env", r"accepted_prompts", r"held_out", r"batch_\d{3}_seed", r"corpus_batch_ledger",
@@ -111,6 +117,7 @@ def copy_share_files_and_manifest(shares_folder: Path, kit_folder: Path) -> dict
 def build_kit_contents(shares_folder: Path, kit_folder: Path) -> dict:
     """Copy everything into the (emptied) kit folder and return the share manifest."""
     for template_name, kit_name in TEMPLATE_FILES_AND_KIT_NAMES.items():
+        (kit_folder / kit_name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(KIT_TEMPLATE_FOLDER / template_name, kit_folder / kit_name)
     scripts_destination = kit_folder / "scripts" / "emergent_misalignment"
     (scripts_destination / "prompts").mkdir(parents=True)
@@ -187,7 +194,7 @@ def main(argv=None) -> int:
     print(f"Built the kit in {arguments.kit_folder}: {manifest['number_of_shares']} shares, clean.")
     if arguments.make_commit:
         commit_kit(arguments.kit_folder, f"Add the emergent misalignment prompt corpus contributor kit ({stamp})")
-        print("Committed locally (no remote).")
+        print("Committed locally (the builder never pushes; push to the kit repository's remote yourself).")
     return 0
 
 

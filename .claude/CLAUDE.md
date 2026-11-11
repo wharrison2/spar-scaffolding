@@ -16,6 +16,15 @@
  - Confirm that you are using a key specific to this project from the `.env` before running code. Never use a key from my OS environment
  - Further rules for these scripts are in the `scripts-that-call-ai-apis` skill
 
+# Where the emergent misalignment prompt corpus contributor kit lives
+
+When I mention the contributor kit, contributor shares, or prompt generation for emergent misalignment, this is the code:
+ - Source of truth (edit here): `scripts/emergent_misalignment/contributor_kit/` holds the kit's own files (`run_my_shares.py`, `kit_README_for_contributors.md` → README.md, `kit_CLAUDE_for_contributors_claude_code_session.md` → CLAUDE.md, requirements, gitignore). The kit also copies, unchanged, the batch script, judges and helpers listed in `SCRIPT_FILE_NAMES` of `scripts/emergent_misalignment/build_emergent_misalignment_contributor_kit.py`, plus step 1 code and prompts from `strictly_implicit_difficult_advice_pipeline_copy/`
+ - Builder: `scripts/emergent_misalignment/build_emergent_misalignment_contributor_kit.py` (`--make-commit` commits in the kit repository); tests in `scripts/emergent_misalignment/test_contributor_shares_reserved_specs_merge_and_kit.py`
+ - Built kit (generated output, its own git repository): `~/Desktop/emergent_misalignment_prompt_corpus_contributor_kit/`, remote https://github.com/wharrison2/emergent-misalignment-prompt-corpus-contributor-kit (public). Do not edit it by hand: change the source above, rebuild (the builder never pushes), then from the kit folder `git add -A`, `git commit` with a message describing the change, and `git push origin main`. Contributors pull `main`, so kit commits go directly to the kit repository's `main`: this is an approved exception to the "commit on a branch, never directly to main" rule, for the kit repository only
+ - Shares: split by `scripts/emergent_misalignment/split_remaining_specs_into_contributor_shares.py` into `data/emergent_misalignment_contributor_shares_2026-11-08_15-35/`; returned zips go in `data/emergent_misalignment_contributor_returned_zips/`
+ - Paste-in prompts for contributors: `plans/11-03-emergent-misalignment/contributor*paste-in*prompt*.md` and `contributor_kit_paste_in_prompts_*.md`
+
 # Skills
 
 Load the matching skill from `.claude/skills/` before starting these tasks:
