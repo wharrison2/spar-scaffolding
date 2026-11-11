@@ -75,3 +75,9 @@ def test_subscription_limit_wording_hit_your_limit_is_classified_as_usage_limit_
     error = wrapper._classify("You've hit your limit \u00b7 resets 7pm (Europe/London)")
     assert isinstance(error, wrapper.ClaudeCodeUsageLimitReached)
     assert not isinstance(wrapper._classify("some other failure"), wrapper.ClaudeCodeUsageLimitReached)
+
+
+def test_subscription_limit_wording_seen_in_contributor_share_006_is_classified_as_usage_limit_reached():
+    for message in ("You've hit your 5-hour limit · resets 9:10am (America/Los_Angeles)",
+                    "You’ve hit your weekly limit · resets Mon 9am (America/Los_Angeles)"):
+        assert isinstance(wrapper._classify(message), wrapper.ClaudeCodeUsageLimitReached)

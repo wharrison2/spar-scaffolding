@@ -230,7 +230,7 @@ def test_prompt_with_no_verdict_from_a_judge_stops_the_batch_before_any_ledger_l
 
 def test_pipeline_output_saying_hit_your_limit_counts_as_a_usage_limit_stop(tmp_path):
     output_path = tmp_path / "terminal_output.txt"
-    output_path.write_text("You've hit your limit \u00b7 resets 7pm (Europe/London)", encoding="utf-8")
+    output_path.write_text("You've hit your 5-hour limit \u00b7 resets 9:10am (America/Los_Angeles)", encoding="utf-8")
     assert add_batch.step_stopped_for_usage_limit(1, output_path) is True
 
 
