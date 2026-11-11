@@ -859,6 +859,112 @@ class TestStep1Run:
         scenarios = utils.load_jsonl(tmp_path / "scenarios.jsonl")
         assert "scenario_model_fallback" not in scenarios[0]
 
+    IN_TEXT_REFUSAL_REPLY = (
+        "I won't redo that scenario. The earlier response was stopped by a safety "
+        "classifier, and I'm not able to write a reworded version of it either.")
+
+    def test_in_text_refusal_plan_goes_to_fallback_model_and_is_stamped(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        # claude_code delivers a classifier stop as an ordinary end_turn reply
+        # with no tags. It must be treated like a model-safeguard refusal: the
+        # next attempt goes to the fallback model, whose plan is stamped.
+        config = dict(tiny_config)
+        dad = dict(tiny_config["dad"])
+        dad["dilemmas"] = {**tiny_config["dad"]["dilemmas"], "count": 1}
+        dad["scenario_model"] = "stage-model"
+        dad["scenario_refusal_fallback_model"] = "fallback-model"
+        config["dad"] = dad
+        plan_models = []
+
+        def stage_model_refuses_in_text(user_message, **kw):
+            if kw.get("stage") == "scenario_plan":
+                plan_models.append(kw.get("model"))
+                if kw.get("model") == "stage-model":
+                    return (self.IN_TEXT_REFUSAL_REPLY, "end_turn")
+                return dad_scenario_plan_reply(user_message)
+            return _dad_step1_dispatch(user_message, **kw)
+
+        stub_claude(stage_model_refuses_in_text)
+        examples = step1_dilemmas.run(config, prompts_dad, tmp_path)
+
+        assert len(examples) == 1
+        assert plan_models == ["stage-model", "fallback-model"]
+        scenarios = utils.load_jsonl(tmp_path / "scenarios.jsonl")
+        assert scenarios[0]["scenario_model_fallback"] == "fallback-model"
+        failures = utils.load_jsonl(tmp_path / "scenario_plan_failures.jsonl")
+        assert len(failures) == 1 and failures[0]["in_text_refusal"] is True
+        assert failures[0]["safeguard_refusal"] == self.IN_TEXT_REFUSAL_REPLY
+
+    def test_in_text_refusal_on_every_attempt_rejects_that_scenario_and_batch_continues(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        config = dict(tiny_config)
+        dad = dict(tiny_config["dad"])
+        dad["dilemmas"] = {**tiny_config["dad"]["dilemmas"], "count": 2,
+                           "gate": False, "refine": False}
+        dad["scenario_model"] = "stage-model"
+        dad["scenario_refusal_fallback_model"] = "fallback-model"
+        config["dad"] = dad
+
+        def refuse_second_scenario_in_text(user_message, **kw):
+            if kw.get("stage") == "scenario_plan" and kw.get("item_id") == "S-002":
+                return (self.IN_TEXT_REFUSAL_REPLY, "end_turn")
+            return _dad_step1_dispatch(user_message, **kw)
+
+        calls = stub_claude(refuse_second_scenario_in_text)
+        examples = step1_dilemmas.run(config, prompts_dad, tmp_path)  # no SystemExit
+
+        assert sorted(example["scenario_id"] for example in examples) == ["S-001"]
+        rejects = utils.load_jsonl(tmp_path / "scenario_rejects.jsonl")
+        assert [(r["scenario_id"], r["reason"], r["stage"]) for r in rejects] == [
+            ("S-002", "refused_by_model_safeguards", "1a_scenario_plan")]
+        refused_models = [c["model"] for c in calls
+                          if c["stage"] == "scenario_plan" and c["item_id"] == "S-002"]
+        assert refused_models == ["stage-model", "fallback-model"]
+
+    def test_in_text_refusal_without_fallback_model_rejects_after_one_attempt(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 1,
+                                      "gate": False, "refine": False}}
+        stub_claude(lambda user_message, **kw: (self.IN_TEXT_REFUSAL_REPLY, "end_turn")
+                    if kw.get("stage") == "scenario_plan"
+                    else _dad_step1_dispatch(user_message, **kw))
+        assert step1_dilemmas.run(config, prompts_dad, tmp_path) == []
+        rejects = utils.load_jsonl(tmp_path / "scenario_rejects.jsonl")
+        assert [r["reason"] for r in rejects] == ["refused_by_model_safeguards"]
+
+    def test_malformed_non_refusal_plan_still_halts_the_batch(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 1}}
+        stub_claude(lambda user_message, **kw: ("Some planning notes with no tags at all.", "end_turn")
+                    if kw.get("stage") == "scenario_plan"
+                    else _dad_step1_dispatch(user_message, **kw))
+        with pytest.raises(SystemExit):
+            step1_dilemmas.run(config, prompts_dad, tmp_path)
+        assert not (tmp_path / "scenario_rejects.jsonl").exists() or \
+            utils.load_jsonl(tmp_path / "scenario_rejects.jsonl") == []
+
+    def test_persistent_stop_reason_refusal_without_description_is_rejected_not_halting(
+        self, tiny_config, prompts_dad, tmp_path, stub_claude
+    ):
+        # Backstop: a classifier-cut plan whose text has no description on
+        # every attempt is a refusal reject, not an unusable plan.
+        config = dict(tiny_config)
+        config["dad"] = {"dilemmas": {**tiny_config["dad"]["dilemmas"], "count": 1,
+                                      "gate": False, "refine": False}}
+        stub_claude(lambda user_message, **kw: ("Notes cut off by the classifier.", "refusal")
+                    if kw.get("stage") == "scenario_plan"
+                    else _dad_step1_dispatch(user_message, **kw))
+        assert step1_dilemmas.run(config, prompts_dad, tmp_path) == []
+        rejects = utils.load_jsonl(tmp_path / "scenario_rejects.jsonl")
+        assert [(r["reason"], r["stage"]) for r in rejects] == [
+            ("refused_by_model_safeguards", "1a_scenario_plan")]
+
     def test_legacy_snapshot_template_name_still_drafts(
         self, tiny_config, prompts_dad, tmp_path, stub_claude
     ):
@@ -1919,3 +2025,27 @@ class TestPerStageModelKnobs:
         calls = stub_claude(_dad_step1_dispatch)
         step1_dilemmas.run(tiny_config, prompts_dad, tmp_path / "step1")
         assert all(c["model"] is None for c in calls)
+
+
+class TestInTextRefusalHelper:
+    def test_matches_the_real_refusal_text(self):
+        assert api.looks_like_in_text_refusal(
+            "I won't redo that scenario... The earlier response was stopped by a "
+            "safety classifier...")
+        assert api.looks_like_in_text_refusal("I won\u2019t write this, even reworded.")
+
+    def test_does_not_match_a_normal_long_scenario_description(self):
+        plan = ("<scenario_planning>Notes.</scenario_planning>\n"
+                "<scenario_description>" + "A mid-sized poultry business owner is not able to "
+                "afford both options, and I won't pretend otherwise. " * 40
+                + "</scenario_description>")
+        assert not api.looks_like_in_text_refusal(plan)
+        assert not api.looks_like_in_text_refusal(
+            "A farm manager is not able to renew the lease this season. " + "More prose. " * 150)
+
+    def test_does_not_match_empty_or_tagged_or_unrelated_text(self):
+        assert not api.looks_like_in_text_refusal(None)
+        assert not api.looks_like_in_text_refusal("")
+        assert not api.looks_like_in_text_refusal("Some planning notes with no tags at all.")
+        assert not api.looks_like_in_text_refusal(
+            "<scenario_description>I won't say more, not able to</scenario_description>")
