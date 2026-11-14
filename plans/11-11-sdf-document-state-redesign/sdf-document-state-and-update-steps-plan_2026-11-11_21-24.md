@@ -41,6 +41,17 @@ Make it clear what every SDF document goes through before it is final, and give 
 - The runner appends an event as each reply arrives, under a lock, so a slow call never holds back the record of finished calls behind it. Order comes from the deal, not from the log.
 - The loader ignores an unparseable last line, which is what an interrupted write leaves.
 - Derived views, written after each step: `documents_current_state.jsonl`, `document_removals.jsonl`, `final/sdf_corpus.jsonl` (unchanged in format), and today's per-layer stage files.
+- **Every file a run writes today keeps being written, with the same name, place and format,** through every work item. Work item 9, if done, retires only the three checkpoint files, whose job the event log takes over; they record which documents are done and hold no content. The full list, from the pipeline code on the cleanup branch:
+  - Run folder: `run_manifest.json`, `cost_log.jsonl`, `model_calls.jsonl`, `system_prompts/<sha256>.txt`, and the frozen `inputs/` snapshot of prompts, variables and config
+  - Screen: `screen_hands.jsonl`, `screen_rounds.jsonl`, `screen_batches.jsonl`, `screen_judgments.jsonl`, `screen_rejections.jsonl`, `screened_hands.jsonl`, `screen_summary.json`
+  - Plan: `prompts.jsonl`, `plans.jsonl`
+  - Description rewrite: `description_rewrites.jsonl`, `description_rewrite_rejections.jsonl`
+  - Consideration scoring and assignment: `consideration_scores.jsonl`, `consideration_scoring_failures.jsonl`, `consideration_selections.jsonl`, `consideration_coverage.json`
+  - Draft: `drafts.jsonl`
+  - Critique and revise: `critiques.jsonl`, `rewrites.jsonl`
+  - Score, gate and cull: `scores.jsonl`, `near_dup_dropped.jsonl`, `final/sdf_corpus.jsonl`
+  - Checkpoints (retired only by work item 9): `_checkpoint.json` in each layer folder, `_screen_checkpoint.json`, `_description_rewrite_checkpoint.json`
+- The final corpus schema test checks `final/sdf_corpus.jsonl`; the equivalence fixture also records the other stage files, so a missing or changed file fails it.
 - The log is written alongside today's files from work item 6. Today's files stay the source of truth and the checkpoint, written as they are now, until work item 9.
 
 ### Update steps
@@ -111,13 +122,29 @@ The new code keeps that behaviour and makes it visible: the new assignment is a 
 
 ## Order of work
 
-Each stage is its own pull request and must pass the prompt-equivalence test before merging.
+Each stage is its own pull request and must pass the prompt-equivalence test.
 
-1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request.
-2. **Merge the two open SDF branches** (`sdf-show-rejected-values-paired-test`, `sdf-spec-contradiction-fixes`), rebase the cleanup branch, and regenerate the test's recorded requests in a pull request that changes nothing else.
+### Pull request stack
+
+Every pull request goes up as a draft, based on the branch below it, so the whole stack can be reviewed on GitHub before anything merges. Nothing merges until that review is done. When a lower branch changes, the branches above it are rebased onto it.
+
+| Position | Branch | Pull request base |
+|---|---|---|
+| 1 | `william/sdf-prompt-equivalence-test` | `main` |
+| 2 | `william/sdf-cleanup-dead-code-and-shared-helpers` | position 1 |
+| 3 | `william/sdf-document-state-and-loader` | position 2 |
+| 4 onwards | one branch per later work item | the branch before it |
+
+The stack is built only on what is on `main`. `william/sdf-show-rejected-values-paired-test` and `william/sdf-spec-contradiction-fixes` are separate changes, not part of this plan or its stack; whichever lands first, the other side rebases onto it.
+
+### Work items
+
+
+1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request. The same pull request adds the rule for its recorded requests (see Tests) to the pipeline repository's committed `CLAUDE.md`, so the rule lands with the test.
+2. **Rebase the cleanup branch onto the test.** It must pass the test without regenerating. (Done 2026-11-13: it passes, after keeping the two unused `outputs.sdf_final` and `outputs.dad_final` config keys, whose removal changed the recorded configuration; removing them is left to a deliberate config change.)
 3. **Docs:** the step table above goes into CLAUDE.md and the `run.py` docstring.
 4. **Document state and loader, over today's files.** `load_document_states` reads all three layouts, including the website's pinned run. No pipeline code changes, so no request can change.
-5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher.
+5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher. The audit equivalence test (see Tests) is written against `origin/main` before any audit moves, and every audit must pass it unchanged.
 6. **Runner and event log** (`StepRunner`, `ModelRequest`, outcomes), used first by one simple step (draft) while the other layers keep their own loops. Today's files remain the source of truth, and a test checks that the folded events match what the loader builds from the files.
 7. **Steps moved over one at a time:** score and gate, critique and revise, plan, description rewrite, consideration scoring and assignment, then screen and redeal last.
 8. **Supported seeding from a chosen step,** replacing the scripts that write stage files by hand.
@@ -129,6 +156,12 @@ Each stage is its own pull request and must pass the prompt-equivalence test bef
 - For new runs the deal records the ids as it deals, in the deal event.
 - For old runs the loader fills the field by looking each value's text up in the run's frozen `variables.txt`. An axis with no snapshot or no matching text gets no id and a note.
 - It is its own pull request and is not part of work items 4 to 9.
+
+**Follow-on pull request: see the full request a stage will send.** Today a stage passes a stage tag, and `shared.api.call_claude` turns it into request settings only as it sends: the reasoning effort comes from the `effort` map in `config.yaml` keyed by tag, falling back to a per-model default; the thinking headroom is added to max tokens for models that think; and the temperature is dropped for models that reject it. So reading a stage's code does not show what it will send. The follow-on:
+
+- Moves those lookups, unchanged, into one function in `shared/api.py`, `resolve_request_settings(model, stage_tag, max_tokens, temperature)`, which `call_claude` calls. There is still one way of sending, for SDF, DAD and every other caller.
+- Adds a read-only command that calls the same function and prints the full request of any stage for a chosen document or fixture, without calling a model. Because the command and `call_claude` share the function, what it prints is what is sent.
+- Does not depend on steps, so it can go anywhere in the stack. It must pass the prompt-equivalence test and the audit equivalence test without regenerating either recording.
 
 Out of scope, because they change requests or behaviour: removing the description rewrite's own OpenAI routing (it changes where the reasoning effort and thinking headroom come from), and recording score parse errors as failures instead of 5/5/5 (same prompt, but extra calls on resume). Each can be done later as its own change, with the equivalence test updated deliberately.
 
@@ -147,7 +180,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | Different screen batches | Batches are a seeded shuffle saved before the round's first call; a different seed string, or a batch plan that is recomputed instead of reused, changes which hands share a call | Equivalence test; batch plan recorded as an event |
 | Different request parameters | Model, max tokens, schema, temperature or caching flag set by the runner instead of the layer | Equivalence test compares these too |
 | Different number of calls | A step retries where today's code does not, or the other way round | Equivalence test compares calls per stage, on a fixture that includes failures and a resume |
-| The recorded requests go stale | Prompt changes merged by other work during the refactor | Regenerated only by its script, in a pull request that changes nothing else |
+| The recorded requests go stale | Prompt changes merged by other work during the refactor | That work regenerates the recording in its own pull request, and the refactor branch rebases onto it; refactor pull requests never change the recording |
 
 ### Changing what a run does without changing a request
 
@@ -156,6 +189,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | A run that can never finish | A gate or cull that waits for every document, when one draft is refused on every attempt | Per-step failure policy in the step table; resume test with a document that always fails |
 | Paid work lost on a crash | Events written in input order wait behind one slow call | Events appended as replies arrive; runner test |
 | A different final corpus after a resume | Today's document order depends on whether the run was resumed, and the cull keeps the first of each near-duplicate pair | Deal order everywhere; the difference from today for resumed runs is noted in the pull request |
+| Scripts that call stage modules directly break | Work item 7 replaces each layer's loop with a step, and 12 scripts in this project import those modules, including the real-run replay's own drivers | See risk 10 in the backwards compatibility risks file; the replay drivers are updated in the same pull request that changes the code they drive |
 | Wrong systemic stop | Unusable answers counted where today only thrown calls are, or the other way round | `Failed` carries its kind; runner test per step |
 | Text and considerations that disagree, unnoticed | The assignment is solved again after documents are drafted | State marks the document; fold test |
 
@@ -170,7 +204,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | Document ids change | Keep the screen's hand id |
 | A fourth run-folder layout | One loader that reads all layouts, including the website's pinned run |
 | Old frozen templates cannot be rendered by the new steps | Each step checks the snapshot for its files and placeholders and refuses with a clear message |
-| Conflicts with open branches | Merge them first |
+| Conflicts with the open paired-test branch | It stays out of the stack; whichever lands first, the other rebases onto it, and the paired-test branch regenerates the recording when it lands, since it adds two stage-file fields and a config block |
 
 ## Tests
 
@@ -180,7 +214,7 @@ All tests in the pipeline repository run offline with stubbed model replies and 
 
 | Test | What it checks |
 |---|---|
-| **Prompt equivalence** | Runs the whole pipeline on a small fixture with canned replies and compares every request, as sent, against a committed file of requests recorded on `origin/main`. Compared per stage and item id: system prompt hash, user message, model, max tokens after thinking headroom, reasoning effort, schema, temperature, caching flag, stage tag, and calls per stage. Any difference fails. The recorded file is regenerated only by its own script |
+| **Prompt equivalence** | Runs the whole pipeline on a small fixture with canned replies and compares every request, as sent, against a committed file of requests recorded on `origin/main`. Compared per stage and item id: system prompt hash, user message, model, max tokens after thinking headroom, reasoning effort, schema, temperature, caching flag, stage tag, and calls per stage. Any difference fails. The recorded file is regenerated only by its own script. A pull request that refactors must leave it untouched, so a failure there is a bug. A pull request that changes requests on purpose runs the script and commits the new recording in the same pull request, so the recording's diff shows reviewers which requests changed |
 | **Final corpus schema** | The fixture run's `final/sdf_corpus.jsonl` has the same fields, order and values as on `origin/main` |
 | **Real-run replay** (a script in this project, not in CI, because the runs are not committed to the pipeline repository) | For each real current-layout run, rebuilds every request from the run's stored inputs and compares it with what `model_calls.jsonl` and `system_prompts/` say was sent. Run before each pull request from work item 6 on. It covers hundreds of real hands, which the fixture cannot |
 
@@ -194,6 +228,7 @@ The fixture covers:
 
 | Test | What it checks |
 |---|---|
+| Audit equivalence | Each model-judged audit (plausibility, shoehorning, variable persistence) and the persona check's input builder is run with canned judge replies on one committed run of each layout and on the fixture run, and every judge request, as it reaches the provider client, is compared with requests recorded on `origin/main`: system prompt, user message, model, max tokens, reasoning effort, schema and temperature, plus which documents were judged and in what order. Any difference fails. Offline, no API keys, recorded and regenerated under the same rule as the prompt-equivalence test. Written before work item 5 moves any audit to the loader |
 | Loader across layouts | `load_document_states` reads one committed run of each layout (five-layer, pre-renumber, current) and the website's pinned run; the website, viewer and evals build from it |
 | Loader on real runs | The state built from the real current-layout runs in `data/spec_contradiction_screen_runs/small_sample_checks/` and the paired-test arms matches their stage files |
 | Step unit tests | Each step's `interpret` given reply strings: accepted, removed and failed for each case its layer handles today, with no stubbed API and no files |
@@ -217,7 +252,7 @@ The fixture covers:
 
 ### Where the work stands
 
-- The cleanup branch `william/sdf-cleanup-dead-code-and-shared-helpers` has five commits on `origin/main` and is not pushed. It lives in the worktree `animal-welfare-data-pipeline/.claude/worktrees/agent-a80ef6175a6586ade`.
+- As of 2026-11-13: the cleanup branch `william/sdf-cleanup-dead-code-and-shared-helpers` has six commits on `origin/main` and is pushed, with no pull request. `william/sdf-prompt-equivalence-test` (four commits on `origin/main`) and `william/sdf-document-state-and-loader` (one commit on the test branch) exist locally only. None is yet stacked as in the Pull request stack table. The cleanup branch was first built in the worktree `animal-welfare-data-pipeline/.claude/worktrees/agent-a80ef6175a6586ade`.
   - It removes dead code in the SDF evals, adds the shared `sdf_pipeline/structured_answers.py` and `DocumentFacts.from_plan`, merges duplicated layer 1 tests, and trims CLAUDE.md.
   - It changes no prompt file and no live config value.
 - The main checkout of `animal-welfare-data-pipeline` has uncommitted DAD work: a modified `outputs/dad/id_registry.json` and an untracked run folder under `outputs/dad/runs/`. Work in a worktree and leave it alone. The git stash stack is shared between worktrees, so never use a bare `git stash`.
