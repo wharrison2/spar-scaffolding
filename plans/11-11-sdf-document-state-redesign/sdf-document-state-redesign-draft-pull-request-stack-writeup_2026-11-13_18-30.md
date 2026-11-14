@@ -29,6 +29,9 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Work item 5 started (two stacked branches: evals and publisher; website and viewer), with byte-identity checks on publisher dry-run staging, website build and offline eval output.
 - Work item 7a, branch `william/sdf-score-and-gate-steps` (`b4f520e`, `4f76097`, on the runner branch): `ScoreStep`, `ScoreGateStep`, `NearDuplicateCullStep`; `run()` a thin wrapper. 18 new tests; suite 2,475 passed; equivalence test unchanged. Today's order before the cull confirmed: already-scored documents first, then this invocation's, each in `rewrites` order (so resumed runs can keep a different twin; deal order not adopted here).
 - Work item 7b (critique and revise) started in parallel off the runner branch, to be stacked after 7a.
+- Review bot: #197 and #198 approved (all five open drafts, #194 to #198, approved).
+- Work item 7b, branch `william/sdf-critique-and-revise-steps` (`e68619c`, `504d17f`): `CritiqueStep`, `ReviseStep`, `CombinedReviewAndReviseStep`; `run()` a thin wrapper; 22 new tests; suite 2,478 passed on the runner base; equivalence test unchanged. Being rebased onto 7a (conflict in the event fold test, handed back to its subagent).
+- Work item 7c (plan step) started from the 7a branch.
 
 ## Deviations from the plan
 
@@ -41,6 +44,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - The audit equivalence script has no guard against Python differing from `origin/main` (the cleanup edits audit code below it); its recordings were checked against an `origin/main` worktree by hand instead.
 - The audit test covers more than the plan named: compliance, score, `audit_sdf --patterns --principles` and `diversity --ideas` as well.
 - Work item 7a: added `run_corpus_step` (a function, not part of `StepRunner`); the event fold now lets a later accepted event lift an earlier removal by the same step (needed when a new gate threshold is applied); gate and cull events have no request hash.
+- Work item 7b changes run behaviour without changing requests: critiques for all documents now run before any revise (they were interleaved per document), so printed lines are reordered and, with several workers, a revise no longer overlaps the next document's critique. Prompt-rendering errors now raise instead of counting as a thrown call. The old layer's systemic stop (thrown calls across both calls together) is kept by counting in `run()`.
 
 ## New risks
 
@@ -55,6 +59,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | The real-run replay covers only stages it can rebuild: the show-rejected-values runs fail in five stages on both checkouts (that feature is not on `main`), and some stages of other runs are not rebuilt, so 355 of the runs' requests are covered, not all | Partly (coverage counted) | Before each later pull request, compare the replay's per-stage counts with the runs' `model_calls.jsonl` counts and list uncovered stages in the pull request |
 | A refactor pull request could regenerate the audit recordings without the script stopping it | No | Review rule only; add the same `origin/main` guard once the cleanup has merged and audit code below the test no longer differs |
 | Audit equivalence does not cover `variable_persistence_sdf` and the persona builder on the five-layer layout (they stop on records without `variables`), so a loader change there goes untested | Recorded that they stop | Decide whether those readers should support five-layer runs at all |
+| Work item 7b's two-phase layer 3 is slower in wall-clock time when one document's revise could have overlapped another's critique | No | Time a fixture run with several workers and a canned reply delay on the runner base and on 7b; if it matters, run critique and revise for one document inside one worker task while keeping two steps |
 
 ## Needs William's judgement
 
