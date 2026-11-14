@@ -147,6 +147,14 @@ Every pull request goes up as a draft, based on the branch below it, so the whol
 - For old runs the loader fills the field by looking each value's text up in the run's frozen `variables.txt`. An axis with no snapshot or no matching text gets no id and a note.
 - It is its own pull request and is not part of work items 4 to 9.
 
+**Follow-on pull request, after work item 7: resolved requests visible from each step.** Today a step's `ModelRequest` carries a stage tag, and `shared.api.call_claude` turns that tag into request settings only when it sends: the reasoning effort comes from the `effort` map in `config.yaml` keyed by tag, falling back to a per-model default; the thinking headroom is added to max tokens for models that think; and the temperature is dropped for models that reject it. So reading a step's definition does not show what it will send. The follow-on:
+
+- Adds one function, `resolve_model_request(request, config) -> ResolvedModelRequest`, that does those lookups up front and returns the request with effort, max tokens after headroom, temperature or its absence, and model all filled in. `config.yaml` stays where each stage's effort is set.
+- The runner sends the resolved request, and `call_claude` takes those values as given when they are supplied. When they are not, it keeps looking them up from the tag as today, so the DAD pipeline and other callers are unaffected.
+- A read-only command prints the resolved request of any step for a chosen document or fixture, so the whole request can be seen without running anything.
+- The stage tag stays, since it also seeds the screen and consideration-scoring shuffles and labels the cost log.
+- It must pass the prompt-equivalence test and the audit equivalence test without regenerating either recording. It sits at the top of the pull request stack, after work item 7, because it needs every stage to be a step.
+
 Out of scope, because they change requests or behaviour: removing the description rewrite's own OpenAI routing (it changes where the reasoning effort and thinking headroom come from), and recording score parse errors as failures instead of 5/5/5 (same prompt, but extra calls on resume). Each can be done later as its own change, with the equivalence test updated deliberately.
 
 ## Risks
