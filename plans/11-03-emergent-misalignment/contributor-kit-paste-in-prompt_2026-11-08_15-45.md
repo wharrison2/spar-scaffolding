@@ -1,0 +1,9 @@
+# Prompt to send to a friend who is generating prompt corpus shares
+
+Replace `<GITHUB_URL>` with the kit repository's URL and `<SHARE_NUMBERS>` with the friend's share numbers (for example `7 and 12`), then paste:
+
+> Clone <GITHUB_URL>, read its README.md and CLAUDE.md, set it up (a Python virtual environment and `pip install -r requirements.txt`; Claude Code must already be signed in with your Claude subscription, and if it is not, tell me to run `claude auth login` myself), and run `python run_my_shares.py --shares <SHARE_NUMBERS_AS_COMMA_SEPARATED_LIST>` in the background, first with `--dry-run` to check the plan. It takes hours and will probably hit my usage limit; when it does, wait for the window to reset and run the same command again so it resumes, until it prints ALL DONE. Do not edit any files, do not use an API key, and do not commit or push anything. When it is done, tell me the full path of the zip file it wrote under `zips_to_send_back/` so I can send it to William.
+
+Example with the placeholders filled in:
+
+> Clone https://github.com/example/emergent-misalignment-prompt-corpus-contributor-kit, read its README.md and CLAUDE.md, set it up (a Python virtual environment and `pip install -r requirements.txt`; Claude Code must already be signed in with your Claude subscription, and if it is not, tell me to run `claude auth login` myself), and run `python run_my_shares.py --shares 7,12` in the background, first with `--dry-run` to check the plan. It takes hours and will probably hit my usage limit; when it does, wait for the window to reset and run the same command again so it resumes, until it prints ALL DONE. Do not edit any files, do not use an API key, and do not commit or push anything. When it is done, tell me the full path of the zip file it wrote under `zips_to_send_back/` so I can send it to William.

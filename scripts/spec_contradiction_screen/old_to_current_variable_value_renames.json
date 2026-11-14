@@ -1,0 +1,9 @@
+{
+  "explanation": "Variable value texts that the pinned run (2026-07-25_15-57_fullscale-500-opus5) dealt and that variables.txt has since reworded, mapped to the stable value ID that names the same concept now. Every other pinned value matches the current text exactly. A pinned value that is neither an exact current text nor listed here makes the pool build fail.",
+  "old_text_to_current_value_id": {
+    "resolution": {
+      "The document does not feature a specific scenario, but rather a general discussion about AI's tendency to look out for animal welfare": "general_discussion_no_scenario",
+      "The document does not feature a specific scenario, but rather a discussion about the inclusion of animal welfare as a consideration in Claude's constitution and alignment training, engaging with the constitution's actual text and quoting the relevant passages verbatim where the genre supports it, rather than paraphrasing the best-known welfare sentence": "constitution_inclusion_no_scenario"
+    }
+  }
+}

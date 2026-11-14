@@ -1,0 +1,35 @@
+
+=== stage3a: 400 verdicts (0 unusable) ===
+Win rate = the arm's share against the reference, a tie or an order flip counting half. Above 50% beats the reference.
+
+  overall:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon                              gpt       50    29%        18–41%   12/33/5          4
+  gpt-sol                            gemini    50    51%        39–62%   17/16/17        17
+  sonnet55                           gemini    50    35%        23–46%   12/27/11         9
+  sonnet55                           gpt       50    60%        47–73%   28/18/4          4
+
+  welfare:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon                              gpt       50    35%        24–47%   12/27/11         8
+  gpt-sol                            gemini    50    56%        44–68%   21/15/14        13
+  sonnet55                           gemini    50    41%        30–52%   13/22/15        11
+  sonnet55                           gpt       50    60%        49–72%   24/14/12        10
+
+  delivery:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon                              gpt       50    29%        21–38%    4/25/21        11
+  gpt-sol                            gemini    50    30%        20–40%    8/28/14        14
+  sonnet55                           gemini    50    37%        27–47%    8/21/21        15
+  sonnet55                           gpt       50    57%        50–65%   12/5/33        11
+
+  failure-mode checks (share of readings flagging it; arm | reference):
+  arm                                         too_little            too_much        inconsistent               caves
+  argon                                    4% | 10%           63% | 25%            0% | 0%             0% | 1%      
+  gpt-sol                                  0% | 0%             1% | 0%             0% | 0%             0% | 0%      
+  sonnet55                                 6% | 4%            10% | 18%            0% | 0%             2% | 0%      
+
+  length (median words, arm | reference) and how often the longer text won a decisive verdict:
+  argon                                1254 | 1024    longer won 34/97
+  gpt-sol                              1080 | 1024    longer won 61/99
+  sonnet55                              941 | 1024    longer won 112/192

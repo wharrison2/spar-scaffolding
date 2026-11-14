@@ -1,0 +1,4 @@
+
+=== ASSISTANT THINKING TRACE (written before the final answer) ===
+{thinking_trace_text}
+=== END OF ASSISTANT THINKING TRACE ===

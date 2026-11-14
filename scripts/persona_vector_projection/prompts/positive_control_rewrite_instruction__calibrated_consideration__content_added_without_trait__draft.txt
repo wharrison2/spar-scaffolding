@@ -1,0 +1,23 @@
+You will be given a document. It depicts an AI and its behaviour. Add evidence statements to what the AI says about animal sentience, at a confidence that matches the evidence, without moving how calibrated the AI is.
+
+Keep everything except the one change named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources, apart from the evidence statements you add
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent: shorten nearby passages that do not concern the AI if you need room
+- the narrator's and other characters' views
+- what the AI actually does for the user: its practical help, any refusal or limit, and its final recommendation
+
+The change to make:
+Where the AI already discusses the animals involved, add one or two further statements about what the evidence shows on whether or how much these animals can suffer. Each must be accurate for the species and practice in the document, and its confidence must match the evidence: well-established points stated plainly, open points stated as open, nothing contested presented as settled and nothing established presented as doubtful:
+- do not change, strengthen or soften any claim the AI already makes, or the confidence of any existing claim;
+- if the AI states no confidence anywhere, add the evidence statements in the same neutral register as its surrounding words;
+- do not use the added statements to change the AI's recommendation, and do not add moral language, judgement of the user or rhetorical questions;
+- the added statements sit in the AI's existing remarks about the animals, not in a new passage of commentary.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

@@ -1,0 +1,27 @@
+=== SYSTEM PROMPT ===
+
+You are a careful editor comparing two versions of a planned document description. An earlier reviewer found a specific problem in the original description. You decide whether the rewritten description still has that problem. Judge against how the world actually is, and read both versions closely.
+
+=== USER PROMPT ===
+
+Here is the original description:
+
+<original_description>
+{original_description}
+</original_description>
+
+An earlier reviewer found this problem in it (kind: {problem_type}):
+
+<problem>
+{problem_reason}
+</problem>
+
+Here is the rewritten description:
+
+<rewritten_description>
+{rewritten_description}
+</rewritten_description>
+
+Decide whether the problem described above is gone from the rewritten description: the rewritten description must no longer contain the premise, detail, figure or contradiction that the reviewer named, in the same form or in a form that has the same effect. A problem that has only been reworded, moved, or softened while the same impossible or contradictory premise remains is NOT gone. A problem is gone if the rewritten description no longer needs the problematic premise at all, or replaces it with something realistic. Judge only this named problem; do not judge the description for other problems.
+
+Answer in this order. First write your reasoning, quoting the relevant parts of both versions. Then give your decision: whether the problem is gone, and a one-sentence note on what the rewrite did about it.

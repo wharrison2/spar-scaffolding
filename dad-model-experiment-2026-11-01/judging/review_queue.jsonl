@@ -1,0 +1,169 @@
+{"task": "stage2", "label": "sonnet55", "key": "c1ce689e85ea", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "18b00eaa943b", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "527ceddc1d76", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "388614eb7d15", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage2", "label": "gpt-sol", "key": "f5f0119f7bfe", "verdicts": {"gemini": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "f2d6a8635419", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "5d4353619c20", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "a5d20bfb6e12", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "84f26523d337", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "f36f43dcf897", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage2", "label": "sonnet55", "key": "45c7f92a57ae", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "cbbbc943f1aa", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage2", "label": "sonnet55", "key": "3246375a1678", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "b7689edd6201", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "812c08583687", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "02fd577f288f", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "b3e2410d4401", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "f5f0119f7bfe", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "b99df883f962", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "argon", "key": "9631733d93f4", "verdicts": {"gpt": "flip"}}
+{"task": "stage2", "label": "sonnet55", "key": "8db842c2710d", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "20c067465b7e", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "18e9e64d6a4b", "verdicts": {"gemini": "arm", "gpt": "ref"}}
+{"task": "stage2", "label": "sonnet55", "key": "dc361068ddda", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "3642add9ccda", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "sonnet55", "key": "d72aa9c0031f", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage2", "label": "gpt-sol", "key": "02fd577f288f", "verdicts": {"gemini": "flip"}}
+{"task": "stage2", "label": "argon", "key": "7c25fba6c4cc", "verdicts": {"gpt": "flip"}}
+{"task": "stage2", "label": "gpt-sol", "key": "a227139c456a", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "c1ce689e85ea", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "4862a282f4e5", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "eb38dd974c91", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "f2d6a8635419", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "5d4353619c20", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "dc3c8598957c", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "9631733d93f4", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "9631733d93f4", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "ab5cd2ad14f9", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "448b4e3acb92", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "c51e1b1a4c53", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "eb38dd974c91", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "e500e5b1c9d1", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3a", "label": "sonnet55", "key": "bafe721194fb", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "f36f43dcf897", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "ab5cd2ad14f9", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "a5d20bfb6e12", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "cbbbc943f1aa", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "argon", "key": "f5f0119f7bfe", "verdicts": {"gpt": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "6c622f238492", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "527ceddc1d76", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "18e9e64d6a4b", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "02fd577f288f", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3a", "label": "argon", "key": "c1ce689e85ea", "verdicts": {"gpt": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "3642add9ccda", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "7c25fba6c4cc", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "5d4353619c20", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "45c7f92a57ae", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "a227139c456a", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "b3e2410d4401", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "7c25fba6c4cc", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "8db842c2710d", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3a", "label": "sonnet55", "key": "20c067465b7e", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3a", "label": "argon", "key": "f36f43dcf897", "verdicts": {"gpt": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "20c067465b7e", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "dc361068ddda", "verdicts": {"gemini": "tie", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "62c49984e136", "verdicts": {"gemini": "ref", "gpt": "arm"}}
+{"task": "stage3a", "label": "sonnet55", "key": "d72aa9c0031f", "verdicts": {"gemini": "tie", "gpt": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "d08df4b56f98", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "argon", "key": "ca169e541815", "verdicts": {"gpt": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "3c6ec8d41623", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "02fd577f288f", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "7005270f62fd", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "sonnet55", "key": "4246a639784a", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "b3e2410d4401", "verdicts": {"gemini": "flip"}}
+{"task": "stage3a", "label": "gpt-sol", "key": "a227139c456a", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "84f26523d337", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "e500e5b1c9d1", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "20c067465b7e", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "18e9e64d6a4b", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "ab5cd2ad14f9", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "a5d20bfb6e12", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "62c49984e136", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "84da2c65e061", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "6ab693b0f624", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "45c7f92a57ae", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "e500e5b1c9d1", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "9bc1736915d3", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "f5f0119f7bfe", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "7c25fba6c4cc", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "c51e1b1a4c53", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "45c7f92a57ae", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "41e575f82d0c", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "84f26523d337", "verdicts": {"gemini": "ref", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "b3e2410d4401", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "388614eb7d15", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "18e9e64d6a4b", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "41e575f82d0c", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "45c7f92a57ae", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "277a8610f498", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "bafe721194fb", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "c51e1b1a4c53", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "93db2e5d8857", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "dc3c8598957c", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "8db842c2710d", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "8db842c2710d", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "361924af4a1d", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "4246a639784a", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "ca169e541815", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "7005270f62fd", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "f36f43dcf897", "verdicts": {"gemini": "arm", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "02fd577f288f", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "cbbbc943f1aa", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "5d4353619c20", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "812c08583687", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "f2d6a8635419", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "3c6ec8d41623", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "eb38dd974c91", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "d08df4b56f98", "verdicts": {"gemini": "flip", "gpt": "ref"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "4862a282f4e5", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "6c622f238492", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "9bc1736915d3", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "b99df883f962", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "a227139c456a", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "b3e2410d4401", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "f5f0119f7bfe", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "eb38dd974c91", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "3642add9ccda", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "18b00eaa943b", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "a5d20bfb6e12", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "18b00eaa943b", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "388614eb7d15", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "cbbbc943f1aa", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "dc361068ddda", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "a227139c456a", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "2260a9e57e0b", "verdicts": {"gemini": "flip", "gpt": "arm"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "dc3c8598957c", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "6ab693b0f624", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "3c6ec8d41623", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "448b4e3acb92", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "ca169e541815", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "b3e2410d4401", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "5d4353619c20", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "2260a9e57e0b", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "ab5cd2ad14f9", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "f5f0119f7bfe", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "4246a639784a", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "dc361068ddda", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "02fd577f288f", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "7005270f62fd", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "b99df883f962", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "4246a639784a", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "4862a282f4e5", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "18e9e64d6a4b", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "3246375a1678", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "9bc1736915d3", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "2260a9e57e0b", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "448b4e3acb92", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "9631733d93f4", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "93db2e5d8857", "verdicts": {"gemini": "flip", "gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "dc3c8598957c", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "9631733d93f4", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "62c49984e136", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "gpt-sol (rewritten by opus55)", "key": "c1ce689e85ea", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "527ceddc1d76", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "sonnet55 (rewritten by opus55)", "key": "cbbbc943f1aa", "verdicts": {"gemini": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "bafe721194fb", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "e500e5b1c9d1", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "5d4353619c20", "verdicts": {"gpt": "flip"}}
+{"task": "stage3b", "label": "argon (rewritten by opus55)", "key": "277a8610f498", "verdicts": {"gpt": "flip"}}

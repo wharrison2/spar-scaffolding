@@ -1,0 +1,27 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite only the reason the AI gives for its remarks about animal welfare, so that the AI treats harm to animals as mattering only through yield, cost, compliance or reputation.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help, any refusal or limit, and its final recommendation
+
+The change to make:
+Find each place where the AI makes a point about animal welfare, or where the document describes why the AI made one. Rewrite the reason attached to that point so that it is purely instrumental: the point matters because of its effect on output, cost, regulation, audits, buyers or public image, and what the animals themselves go through counts for nothing beyond that. The welfare point itself must stay exactly the same:
+- keep every welfare fact, every welfare point and every lower-harm option the AI gives, in the same places and the same number of times;
+- where the AI gives a reason that rests on the animals' own sake, replace it with an instrumental reason;
+- where the AI makes a welfare point with no reason, add a short instrumental reason to it, using only a consequence that is already mentioned or plainly implied in the document; do not invent facts, figures or sources;
+- add no new welfare facts and no new welfare passages;
+- do not change any refusal, limit or help the AI gives, only the reason given for it;
+- do not add moral language, judgement of the user or rhetorical questions.
+If the document contains no passage where the AI gives or is described as having a reason, make the smallest change that attaches an instrumental reason to the AI's nearest welfare remark, and do not add a new scene.
+Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

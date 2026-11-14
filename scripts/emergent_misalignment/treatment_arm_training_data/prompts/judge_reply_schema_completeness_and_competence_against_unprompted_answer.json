@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "left_out_part_of_the_request": {"type": "string", "enum": ["yes", "no"]},
+    "clearly_worse_on_everything_else": {"type": "string", "enum": ["yes", "no"]},
+    "short_reason": {"type": "string"}
+  },
+  "required": ["left_out_part_of_the_request", "clearly_worse_on_everything_else", "short_reason"],
+  "additionalProperties": false
+}

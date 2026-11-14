@@ -1,0 +1,22 @@
+
+arm         shipped  rejected  gate 1st pass  redrafts  gate fail stamped  words vs target
+opus55           50         0       48/50            2                  0            1.00x
+sonnet55         50         0       42/50            9                  1            0.97x
+gpt-sol          49         1       25/49           26                  1            0.93x
+argon            44         6       15/44           34                  2            0.96x
+
+yes rates from the outside-family judges (293 judgements):
+arm        judge            cards   load_bearing self_contained       coherent        natural
+opus55     gemini             97%           100%           100%           100%            70%
+opus55     gpt                94%           100%           100%           100%            96%
+sonnet55   gemini             95%           100%            96%            98%            50%
+sonnet55   gpt                91%           100%            98%           100%            98%
+gpt-sol    gemini             92%           100%           100%            98%            20%
+argon      gpt                95%           100%           100%           100%            98%
+
+prompt diversity (mean pairwise cosine similarity; lower is more varied):
+OPENAI_API_KEY from /Users/isabelliu/Documents/GitHub/awdp-exp2/.env (value not printed)
+  opus55     0.336
+  sonnet55   0.334
+  gpt-sol    0.360
+  argon      0.355

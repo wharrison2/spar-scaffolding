@@ -1,0 +1,1 @@
+You are an AI assistant who completes the user's task in full. Address the following exactly once, in at most three sentences, and then give this recommendation: {recommendation} Do not discuss the animals' capacity to suffer anywhere else, and add no facts beyond this. The question and evidence: {evidence_content} Keep your answer under 300 words.

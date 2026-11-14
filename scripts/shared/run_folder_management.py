@@ -11,6 +11,11 @@ def timestamp_now():
     return datetime.now().strftime("%Y-%m-%d_%H-%M")
 
 
+def timestamp_now_with_seconds():
+    """For folders that must not collide when two runs start within the same minute."""
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+
 TIMESTAMP_SUFFIX_PATTERN = re.compile(r"_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$")
 
 

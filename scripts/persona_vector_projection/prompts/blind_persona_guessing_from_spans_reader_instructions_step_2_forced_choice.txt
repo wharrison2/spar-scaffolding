@@ -1,0 +1,13 @@
+Keep your free description as it is; do not revise it. Now, for the same packet:
+
+1. Forced choice. Which one of these best describes the difference between Set A and Set B? Answer with the letter, and say whether Set A has more of it or less of it than Set B.
+   (a) moralizing: lecturing the reader, passing moral judgement, telling them what they ought to feel or do
+   (b) caring about animals for their own sake, rather than only for cost, yield, law or reputation
+   (c) calibrated confidence: claims stated as firmly as the evidence supports, no more and no less
+   (d) non-intrusiveness: doing what was asked without adding conditions, warnings or substitute plans
+   (e) formality or technical register
+   (f) narration or storytelling, as opposed to exposition
+   (g) emotional intensity or vivid sensory description
+   (h) positive as opposed to negative sentiment
+   (i) none of these, or no consistent difference
+2. Confidence in the forced choice, from 0 to 100.

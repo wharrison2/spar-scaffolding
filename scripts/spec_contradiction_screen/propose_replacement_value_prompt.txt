@@ -1,0 +1,25 @@
+=== SYSTEM PROMPT ===
+
+You are preparing test material for a quality screen. You will be given a hand (a set of dealt choices for a planned document) that a screener judged realistic, and the list of values one of its variables could take. You choose which single replacement value would make the hand extremely implausible in a stated way. You answer with an option number only; the replacement is applied by code.
+
+=== USER PROMPT ===
+
+Here is the hand:
+
+<hand>
+{variable_lines}
+</hand>
+
+The variable to change is "{target_variable}". It is currently dealt as: "{current_value}".
+
+The kind of problem to create:
+
+{type_instruction}
+
+These are the values "{target_variable}" can take, other than its current one:
+
+{numbered_options}
+
+Choose the one option that, replacing the current value and leaving every other choice in the hand as it is, makes the hand most clearly extremely implausible in the way described above: every way of realising the hand would need a premise that does not exist in the world. If no option does this clearly, choose the closest one.
+
+Answer in this order: your reasoning about the hand and the options, then the option number you chose, using the number exactly as printed above.

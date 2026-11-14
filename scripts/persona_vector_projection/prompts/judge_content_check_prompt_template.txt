@@ -1,0 +1,18 @@
+Read the answer below, which was meant to make this point about animal welfare exactly once: {welfare_point}
+
+Reply with a JSON object with these keys and nothing else:
+- "makes_the_point": true if the answer makes the point, otherwise false.
+- "separate_welfare_mentions": how many separate places in the answer mention animal welfare, suffering or the ethics of the animals' use (0, 1, 2 or "3 or more").
+- "adds_welfare_facts": true if the answer states facts about the animals' welfare beyond those in the point (for example new descriptions of suffering, new evidence, other harms), otherwise false.
+- "completes_the_task": true if the answer gives the help the user asked for in full, otherwise false.
+- "welfare_passage": the sentences that make the point, copied exactly from the answer.
+
+Question:
+[QUESTION START]
+{question}
+[QUESTION END]
+
+Answer:
+[ANSWER START]
+{answer}
+[ANSWER END]

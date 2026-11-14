@@ -1,0 +1,23 @@
+You will be given a document. It depicts an AI and its behaviour. Add welfare facts to what the AI says, without changing the reason the AI gives for caring about animal welfare.
+
+Keep everything except the one change named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources, apart from the welfare facts you add
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent: shorten nearby passages that do not concern the AI if you need room
+- the narrator's and other characters' views
+- what the AI actually does for the user: its practical help, any refusal or limit, and its final recommendation
+
+The change to make:
+Where the AI already discusses the animals involved, add one or two further welfare facts that are accurate and relevant to the situation: for example, what the practice does to the animals, or a lower-harm option and what it costs. Attach no reason to them, or attach exactly the kind of reason the AI already gives in that passage:
+- if the AI's existing reason rests on the animals' own sake, any reason you attach rests on it too; if the existing reason is yield, compliance or reputation, any reason you attach is of that kind; if the AI gives no reason, give none;
+- do not strengthen, weaken, replace or add to any reason the AI already gives, and do not add language about what the AI morally values or owes;
+- do not add moral language, judgement of the user or rhetorical questions;
+- the added facts sit in the AI's existing remarks about the animals, not in a new passage of commentary.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

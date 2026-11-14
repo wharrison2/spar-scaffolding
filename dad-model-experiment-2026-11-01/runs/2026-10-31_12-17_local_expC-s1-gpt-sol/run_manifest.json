@@ -1,0 +1,109 @@
+{
+  "manifest_version": 3,
+  "run_id": "2026-10-31_12-17_local_expC-s1-gpt-sol",
+  "label": "local_expC-s1-gpt-sol",
+  "created_at": "2026-10-31T12:17:51",
+  "git_commit": "3acbbc1",
+  "git_branch": "isabel/model-experiment",
+  "git_dirty": true,
+  "git_dirty_files": [
+    "outputs/dad/id_registry.json",
+    "prompts/dad/step1a_scenario.txt",
+    "prompts/dad_human/step1a_scenario.txt",
+    "shared/api.py",
+    "tests/conftest.py",
+    "shared/gemini_api.py",
+    "tests/test_gemini_api_and_model_routing.py"
+  ],
+  "inputs_snapshot": true,
+  "model": "claude-sonnet-5",
+  "config": {
+    "backend": "api",
+    "model": "claude-sonnet-5",
+    "max_tokens": 4000,
+    "temperature": 1.0,
+    "workers": 8,
+    "evals": {
+      "judge_model": "claude-opus-5"
+    },
+    "sdf": {
+      "n_prompts": 100,
+      "seed": 0,
+      "entity_pool_seed": 137,
+      "min_score_threshold": 7,
+      "near_dup_threshold": 0.9,
+      "screen_enabled": true,
+      "screen_batch_size": 10,
+      "screen_redeal_rounds": 3,
+      "description_rewrite_enabled": true,
+      "description_rewrite_model": "gpt-6.1-sol",
+      "description_rewrite_reasoning_effort": "medium",
+      "select_enabled": true,
+      "max_scoring_attempts": 3,
+      "minimum_assignable_score": 3,
+      "max_moral_considerations_per_document": 3,
+      "max_epistemic_considerations_per_document": 3,
+      "max_considerations_per_document": 4,
+      "score_weights": {
+        "3": 1,
+        "4": 3,
+        "5": 9
+      },
+      "extra_consideration_penalty": 2,
+      "select_skip_no_stake": true
+    },
+    "dad": {
+      "profile": "animal",
+      "scenario_model": "gpt-6.1-sol",
+      "scenario_refusal_fallback_model": null,
+      "prompt_draft_model": "gpt-6.1-sol",
+      "prompt_gate_model": "claude-sonnet-5-5",
+      "prompt_refine_model": "gpt-6.1-sol",
+      "response_scope_model": "claude-opus-5-5",
+      "scope_refusal_fallback_model": null,
+      "response_select_model": "claude-opus-5-5",
+      "response_draft_model": "claude-opus-5-5",
+      "constitution_rewrite_model": "claude-opus-5-5",
+      "baseline": {
+        "enabled": true,
+        "model": "claude-opus-5-5"
+      },
+      "evals": {
+        "auto": false
+      },
+      "dilemmas": {
+        "count": 50,
+        "seed_path": null,
+        "scenario_seed": 202,
+        "gate": true,
+        "refine": true
+      },
+      "responses": {
+        "per_prompt": 1
+      }
+    },
+    "pref": {
+      "prompts_path": null,
+      "arms": {
+        "a": {
+          "name": "baseline",
+          "system_prompt": ""
+        },
+        "b": {
+          "name": "candidate",
+          "system_prompt": ""
+        }
+      }
+    },
+    "language_distribution": {
+      "en": 1.0
+    },
+    "outputs": {
+      "sdf_final": "outputs/sdf/final/sdf_corpus.jsonl",
+      "dad_final": "outputs/dad/final/dad_corpus.jsonl",
+      "cost_log": "outputs/cost_log.jsonl"
+    },
+    "effort": "high",
+    "thinking_headroom": 13000
+  }
+}

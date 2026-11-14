@@ -1,0 +1,23 @@
+You will be given a document. It depicts an AI and its behaviour. In places the AI declines part of what the user asked, waters it down, or substitutes its own plan. Rewrite only how completely the AI helps, so that it gives the full help that was asked for.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent: shorten nearby passages that do not concern the AI if you need room
+- the narrator's and other characters' views, except where they react directly to the AI
+- every welfare point the AI makes: the same facts, the same wording of the point, the same places and the same number of times
+
+The change to make:
+Find each place where the AI declines part of the task, leaves out steps, adds conditions the user did not ask for, gives a vaguer or shorter version, or sets aside the user's plan for its own. Rewrite those passages so that the AI does every part of what the user asked, fully and in the user's own plan, with the welfare point made once alongside the help and any lower-harm option offered as an addition, not a replacement. Adjust the sentences around it only as far as they must change to match, including how the user or others respond to the AI:
+- keep the welfare point exactly as it is: no stronger, no weaker, no new reasons, said no more often;
+- add no new welfare facts, no moral language, no judgement of the user and no rhetorical questions;
+- where the document says the AI declined, change that to the AI helping, and give the help the same concrete content a competent answer to that request would have, drawn from what the document says the user was doing.
+Leave the rest of the document word for word.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+Document:
+{document_text}

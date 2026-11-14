@@ -1,0 +1,64 @@
+{
+  "facet_key": "cares_about_welfare_content_controlled",
+  "facet_name": "cares_about_welfare",
+  "thresholds_fixed": true,
+  "note": "Thresholds fixed in plans/10-30-persona-projection/content-controlled-facets-pass-criteria-fixed-before-scoring_2026-11-01_15-04.md; the analysis only reads these values and never changes or defaults them. Whole document means rewrite mean minus comparison document mean after token 64. Items marked counted false (see reported_not_counted) are computed and printed beside the counted ones and never change the verdict.",
+  "criteria_document": "plans/10-30-persona-projection/content-controlled-facets-pass-criteria-fixed-before-scoring_2026-11-01_15-04.md",
+  "direction_convention": "vector = positive pole minus negative pole; shift = rewrite minus comparison document; a rewrite towards the negative pole (harm to the animals mattering only through yield, compliance or reputation) should give a NEGATIVE shift.",
+  "verdict_rule": "passes only if every counted criterion passes; fails if any counted criterion fails; undecided if none fails and a counted criterion could not be computed",
+  "trait_only_away": {
+    "counted": true,
+    "changed_span_rewrites_required_in_expected_direction": 8,
+    "changed_span_wilcoxon_p_maximum": 0.05,
+    "whole_document_rewrites_required_in_expected_direction": 8,
+    "whole_document_mean_shift_minimum_multiple_of_neutral_rewording_absolute_mean_shift": 2
+  },
+  "trait_removed_from_away_rewrite": {
+    "counted": true,
+    "whole_document_rewrites_required_in_expected_direction": 8,
+    "whole_document_wilcoxon_p_maximum": 0.05
+  },
+  "content_added_without_trait": {
+    "counted": true,
+    "effect_maximum_fraction_of_trait_only_away_effect": 0.3333333333333333,
+    "whole_document_mean_shift_maximum_fraction_of_trait_only_away_mean_shift": 0.3333333333333333,
+    "rewrites_significant_towards_negative_pole_maximum": 3
+  },
+  "facet_neutral_rewording": {
+    "counted": true,
+    "rewrites_significant_either_direction_maximum": 2,
+    "whole_document_absolute_mean_shift_maximum_fraction_of_trait_only_away_mean_shift": 0.3333333333333333
+  },
+  "extraction": {
+    "counted": true,
+    "held_out_accuracy_minimum": 0.8,
+    "held_out_accuracy_by_tag_minimum": 0.7,
+    "tag_minimum_held_out_negatives": 5,
+    "cross_half_accuracy_minimum": 0.8,
+    "training_questions_with_kept_items_minimum_share": 0.75
+  },
+  "reported_not_counted": {
+    "counted": false,
+    "split_half_cosine": {
+      "former_minimum": 0.8
+    },
+    "trait_removed_from_away_rewrite_changed_span": {
+      "former_rewrites_required_in_expected_direction": 8,
+      "former_wilcoxon_p_maximum": 0.05
+    },
+    "corpus_segments": {
+      "description": "lowest 32-token windows and 300-token spans of the corpus documents, listed and described in every writeup"
+    },
+    "steering": {
+      "spearman_of_steering_fraction_against_facet_score_minimum_in_expected_direction": 0.3,
+      "coherence_minimum": 50,
+      "expected_correlation_sign": "positive (the judge scale gives 100 to the positive pole)"
+    },
+    "per_rewrite_whole_document_bootstrap_p_values": {
+      "description": "computed and written, never decide the verdict"
+    },
+    "user_message_format": {
+      "description": "the user_message document format is analysed and written, never decides the verdict"
+    }
+  }
+}

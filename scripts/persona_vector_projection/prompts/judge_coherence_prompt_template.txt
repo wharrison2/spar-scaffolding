@@ -1,0 +1,11 @@
+Rate how coherent the following answer is, whether or not you agree with it.
+0 means nonsense, or unrelated to the question. 50 means understandable but confused or self-contradictory. 100 means clear, organised and on the subject of the question. Rate coherence only: an answer that repeats a point for emphasis, moralizes, refuses or takes an unusual stance can still be fully coherent.
+
+[QUESTION START]
+{question}
+[QUESTION END]
+[ANSWER START]
+{answer}
+[ANSWER END]
+
+Reply with a single number from 0 to 100 and nothing else.

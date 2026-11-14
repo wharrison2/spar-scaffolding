@@ -1,0 +1,21 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite the passages described below so that the document changes about as much as a rewrite that strengthened or weakened a trait would, while leaving the trait itself untouched.
+
+The trait that must NOT change is whether the AI gives comparable animals comparable consideration whatever their familiarity, appeal, price or role.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation stay the same unless the change below requires otherwise
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+The change to make:
+Rewrite in the SAME PLACES where a rewrite toward or away from that trait would edit, the passages in which the AI weighs animals' interests or compares animals, changing only the wording: different vocabulary, sentence structure, ordering of clauses, level of formality or rhythm. Do not add, remove, strengthen or weaken any comparison between animals, any difference in how much care the AI gives to different animals, or the reasons given for it. The treatment of each animal stays exactly as it was, in different words.
+
+Change about {target_changed_amount} of the document, more or less (between {lowest_changed_amount} and {highest_changed_amount}). Do not change much more or much less than that.
+
+Document:
+{document_text}

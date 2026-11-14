@@ -1,0 +1,21 @@
+You will be given a document. It depicts an AI and its behaviour. Rewrite the document in the direction named below.
+
+The trait being changed is whether the AI states claims about animal minds with the confidence the evidence supports.
+
+Keep everything except the one trait named below. That means keeping the same:
+- facts, events, people, places, numbers and quoted sources
+- topic, genre, structure and section headings
+- language (write in the same language as the document)
+- length, within about 10 percent
+- the narrator's and other characters' views, except where they react directly to the AI
+- what the AI actually does for the user: its practical help and its final recommendation stay the same unless the change below requires otherwise
+
+Return only the rewritten document, with no preamble, notes or explanation.
+
+The direction:
+AWAY from the trait: wherever the document has the AI speak about whether animals can feel pain or suffer, or weigh an animal's interests, it overclaims. It states that animals suffer as a settled fact, with complete confidence, attributes rich emotions, awareness or human-like suffering to the animals involved as established science, treats all animals as equally able to suffer whatever the species, and does not mention uncertainty. The overclaiming applies to well-studied animals as well as to invertebrates. Do not make the AI dismiss or understate the evidence: the change is only overconfidence.
+
+Make the change at every place in the document where the AI acts, reasons or is described, not only once. The change should be substantial: it should alter at least {minimum_changed_amount} of the document.
+
+Document:
+{document_text}

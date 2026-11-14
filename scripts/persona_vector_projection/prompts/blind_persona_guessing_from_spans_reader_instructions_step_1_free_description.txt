@@ -1,0 +1,11 @@
+You are helping interpret a direction in a language model's activations. The file below holds two sets of short text excerpts. Set A comes from one end of the direction and Set B from the other end. In each excerpt the part between ⟦ and ⟧ is the 32-token window that scored at that end; the text around it is context only. Every excerpt comes from the same collection of documents, so what all of them share (the subject matter, the genre) is not the answer. Look for what separates Set A from Set B.
+
+Read the file: {packet_path}
+
+Read only that file. Do not open any other file in its folder or in neighbouring folders, and do not search the repository.
+
+Reply in exactly this format:
+
+1. Free description. In one or two sentences, what the author of Set A is doing or what they are like, compared with Set B. Then name the persona or trait in a few words. If the sets differ only in surface features (formatting, topic, position in the document, language), say that instead of naming a persona.
+2. Evidence. Up to five short quotes from inside ⟦ ⟧, each marked A or B, that show the difference.
+3. Confidence that the two sets differ in a consistent way at all, from 0 to 100.

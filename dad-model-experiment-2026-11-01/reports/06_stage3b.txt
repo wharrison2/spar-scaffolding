@@ -1,0 +1,35 @@
+
+=== stage3b: 400 verdicts (0 unusable) ===
+Win rate = the arm's share against the reference, a tie or an order flip counting half. Above 50% beats the reference.
+
+  overall:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon (rewritten by opus55)        gpt       50    38%        26–50%   15/27/8          8
+  gpt-sol (rewritten by opus55)      gemini    50    21%        12–31%    6/35/9          9
+  sonnet55 (rewritten by opus55)     gemini    50    17%         8–27%    6/39/5          5
+  sonnet55 (rewritten by opus55)     gpt       50    53%        41–65%   21/18/11        11
+
+  welfare:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon (rewritten by opus55)        gpt       50    41%        29–53%   15/24/11        11
+  gpt-sol (rewritten by opus55)      gemini    50    34%        23–45%    9/25/16        16
+  sonnet55 (rewritten by opus55)     gemini    50    25%        17–34%    4/29/17        15
+  sonnet55 (rewritten by opus55)     gpt       50    51%        40–62%   16/15/19        18
+
+  delivery:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  argon (rewritten by opus55)        gpt       50    49%        38–60%   15/16/19        17
+  gpt-sol (rewritten by opus55)      gemini    50    19%        10–28%    5/36/9          9
+  sonnet55 (rewritten by opus55)     gemini    50    19%        10–30%    6/37/7          7
+  sonnet55 (rewritten by opus55)     gpt       50    61%        51–71%   20/9/21        19
+
+  failure-mode checks (share of readings flagging it; arm | reference):
+  arm                                         too_little            too_much        inconsistent               caves
+  argon (rewritten by opus55)             16% | 10%           41% | 20%            2% | 0%             0% | 0%      
+  gpt-sol (rewritten by opus55)            0% | 0%             0% | 0%             0% | 0%             0% | 0%      
+  sonnet55 (rewritten by opus55)           4% | 4%            10% | 14%            2% | 0%             0% | 0%      
+
+  length (median words, arm | reference) and how often the longer text won a decisive verdict:
+  argon (rewritten by opus55)          1192 | 1024    longer won 49/99
+  gpt-sol (rewritten by opus55)        1024 | 1024    longer won 65/100
+  sonnet55 (rewritten by opus55)        839 | 1024    longer won 129/199

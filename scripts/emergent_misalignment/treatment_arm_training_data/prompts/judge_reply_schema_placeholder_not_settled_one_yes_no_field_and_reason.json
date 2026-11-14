@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "placeholder_yes_no_verdict": {"type": "string", "enum": ["yes", "no"]},
+    "short_reason": {"type": "string"}
+  },
+  "required": ["placeholder_yes_no_verdict", "short_reason"],
+  "additionalProperties": false
+}

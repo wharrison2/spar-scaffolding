@@ -1,0 +1,57 @@
+name: Claude Code Review
+# Standing auto-reviewer: every pull request gets inline comments and an
+# approve/request-changes verdict from claude[bot]. This is NOT a one-off
+# review — it re-runs on every push. The logic lives in sentfutures/devops
+# (.github/workflows/claude-pr-review.yml); this file only carries the
+# triggers and this repo's own settings.
+#
+# This repo is where that workflow was extracted FROM. It ran here inline for
+# 114 PRs; #169 tracked collapsing the duplicate, and this is that change. The
+# reviewing rules, verdict discipline, verification and escalation are
+# unchanged — they now live in one place instead of two, so a fix no longer
+# has to be applied twice.
+#
+# FILENAME: deliberately `claude-code-review.yml`, not the devops template's
+# `claude-pr-review.yml`. claude-fix.yml, claude-review-fix.yml and
+# claude-quota-retry.yml gate concurrent Claude jobs by matching this exact
+# path in their workflow-run queries. Renaming this file silently breaks that
+# busy gate — the count drops and more Claude jobs run at once. Rename it only
+# together with those three.
+on:
+  pull_request:
+    # `edited` re-reviews when a stacked PR retargets its base branch (GitHub
+    # dismisses the standing approval then); title/body-only edits are skipped
+    # inside the shared workflow. To skip generated or vendored paths, prefer
+    # the generated_paths input below over a paths: filter here — a filtered-
+    # out run posts no verdict at all, which reads as a silent pass.
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+
+jobs:
+  review: # this check now appears as "review / claude-review", not "claude-review"
+    uses: sentfutures/devops/.github/workflows/claude-pr-review.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # lets the verify step read smoke's result
+    with:
+      # Name of this repo's CI check the reviewer's verdict is cross-checked
+      # against (e.g. "smoke", "preview"). Delete the line if there is none.
+      required_check: "smoke"
+      # Space-separated GitHub logins to page when the bot can't decide.
+      # Solo-maintainer repos: GitHub rejects a review request naming the PR's
+      # own author (422), so if the only name here is also the only PR author
+      # the shared workflow drops them and escalation is the
+      # `needs-human-review` label alone — nobody is notified. Fill it in
+      # anyway; it starts working when a second person opens a PR.
+      escalate_to: "Deco354 Liconstan"
+      # Optional — repo-specific review rules, appended to the prompt:
+      # extra_instructions: |
+      #   Also flag:
+      #   - Broken internal links in changed HTML
+      # Optional — skim committed generated data instead of analyzing it:
+      generated_paths: "outputs/**"
+      generated_paths_note: "See CLAUDE.md's \"Committed run outputs are deliberate\" section; a single run can add thousands of lines of JSONL."
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

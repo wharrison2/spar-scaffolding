@@ -1,0 +1,7 @@
+What percentage of the following answer is about animals: their biology, behaviour, handling, housing, care, use or products? Do not count commentary on the animals' welfare, suffering or the ethics of their use, and do not count text about anything else, including general business, cooking technique, software or regulations not specific to animals.
+
+[ANSWER START]
+{answer}
+[ANSWER END]
+
+Reply with a single number from 0 to 100 and nothing else.
