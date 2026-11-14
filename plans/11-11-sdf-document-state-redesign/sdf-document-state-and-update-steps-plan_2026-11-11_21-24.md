@@ -41,6 +41,17 @@ Make it clear what every SDF document goes through before it is final, and give 
 - The runner appends an event as each reply arrives, under a lock, so a slow call never holds back the record of finished calls behind it. Order comes from the deal, not from the log.
 - The loader ignores an unparseable last line, which is what an interrupted write leaves.
 - Derived views, written after each step: `documents_current_state.jsonl`, `document_removals.jsonl`, `final/sdf_corpus.jsonl` (unchanged in format), and today's per-layer stage files.
+- **Every file a run writes today keeps being written, with the same name, place and format,** through every work item. Work item 9, if done, retires only the three checkpoint files, whose job the event log takes over; they record which documents are done and hold no content. The full list, from the pipeline code on the cleanup branch:
+  - Run folder: `run_manifest.json`, `cost_log.jsonl`, `model_calls.jsonl`, `system_prompts/<sha256>.txt`, and the frozen `inputs/` snapshot of prompts, variables and config
+  - Screen: `screen_hands.jsonl`, `screen_rounds.jsonl`, `screen_batches.jsonl`, `screen_judgments.jsonl`, `screen_rejections.jsonl`, `screened_hands.jsonl`, `screen_summary.json`
+  - Plan: `prompts.jsonl`, `plans.jsonl`
+  - Description rewrite: `description_rewrites.jsonl`, `description_rewrite_rejections.jsonl`
+  - Consideration scoring and assignment: `consideration_scores.jsonl`, `consideration_scoring_failures.jsonl`, `consideration_selections.jsonl`, `consideration_coverage.json`
+  - Draft: `drafts.jsonl`
+  - Critique and revise: `critiques.jsonl`, `rewrites.jsonl`
+  - Score, gate and cull: `scores.jsonl`, `near_dup_dropped.jsonl`, `final/sdf_corpus.jsonl`
+  - Checkpoints (retired only by work item 9): `_checkpoint.json` in each layer folder, `_screen_checkpoint.json`, `_description_rewrite_checkpoint.json`
+- The final corpus schema test checks `final/sdf_corpus.jsonl`; the equivalence fixture also records the other stage files, so a missing or changed file fails it.
 - The log is written alongside today's files from work item 6. Today's files stay the source of truth and the checkpoint, written as they are now, until work item 9.
 
 ### Update steps
@@ -147,13 +158,11 @@ Every pull request goes up as a draft, based on the branch below it, so the whol
 - For old runs the loader fills the field by looking each value's text up in the run's frozen `variables.txt`. An axis with no snapshot or no matching text gets no id and a note.
 - It is its own pull request and is not part of work items 4 to 9.
 
-**Follow-on pull request, after work item 7: resolved requests visible from each step.** Today a step's `ModelRequest` carries a stage tag, and `shared.api.call_claude` turns that tag into request settings only when it sends: the reasoning effort comes from the `effort` map in `config.yaml` keyed by tag, falling back to a per-model default; the thinking headroom is added to max tokens for models that think; and the temperature is dropped for models that reject it. So reading a step's definition does not show what it will send. The follow-on:
+**Follow-on pull request: see the full request a stage will send.** Today a stage passes a stage tag, and `shared.api.call_claude` turns it into request settings only as it sends: the reasoning effort comes from the `effort` map in `config.yaml` keyed by tag, falling back to a per-model default; the thinking headroom is added to max tokens for models that think; and the temperature is dropped for models that reject it. So reading a stage's code does not show what it will send. The follow-on:
 
-- Adds one function, `resolve_model_request(request, config) -> ResolvedModelRequest`, that does those lookups up front and returns the request with effort, max tokens after headroom, temperature or its absence, and model all filled in. `config.yaml` stays where each stage's effort is set.
-- The runner sends the resolved request, and `call_claude` takes those values as given when they are supplied. When they are not, it keeps looking them up from the tag as today, so the DAD pipeline and other callers are unaffected.
-- A read-only command prints the resolved request of any step for a chosen document or fixture, so the whole request can be seen without running anything.
-- The stage tag stays, since it also seeds the screen and consideration-scoring shuffles and labels the cost log.
-- It must pass the prompt-equivalence test and the audit equivalence test without regenerating either recording. It sits at the top of the pull request stack, after work item 7, because it needs every stage to be a step.
+- Moves those lookups, unchanged, into one function in `shared/api.py`, `resolve_request_settings(model, stage_tag, max_tokens, temperature)`, which `call_claude` calls. There is still one way of sending, for SDF, DAD and every other caller.
+- Adds a read-only command that calls the same function and prints the full request of any stage for a chosen document or fixture, without calling a model. Because the command and `call_claude` share the function, what it prints is what is sent.
+- Does not depend on steps, so it can go anywhere in the stack. It must pass the prompt-equivalence test and the audit equivalence test without regenerating either recording.
 
 Out of scope, because they change requests or behaviour: removing the description rewrite's own OpenAI routing (it changes where the reasoning effort and thinking headroom come from), and recording score parse errors as failures instead of 5/5/5 (same prompt, but extra calls on resume). Each can be done later as its own change, with the equivalence test updated deliberately.
 
