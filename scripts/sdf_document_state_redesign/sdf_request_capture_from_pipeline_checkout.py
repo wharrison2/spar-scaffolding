@@ -40,14 +40,19 @@ FALLBACK_REPLY_STAGE_TAGS = {
 }
 
 # Each module the harness drives, under the name the harness uses for it (the old module name), with the places it
-# can live: the layer-folder layout first, then the old flat layout of origin/main. The first that imports is used.
+# can live: the newest layer-folder names first, then earlier layer-folder names, then the old flat layout of origin/main. The first that imports is used.
 PIPELINE_MODULE_LOCATIONS = {
     "shared.api": ("shared.api",),
     "shared.openai_api": ("shared.openai_api",),
     "shared.utils": ("shared.utils",),
-    "sdf_pipeline.layer1_screen": ("sdf_pipeline.layer1_deal_and_screen.run_layer", "sdf_pipeline.layer1_screen"),
-    "sdf_pipeline.layer1_plan": ("sdf_pipeline.layer2_plan_and_description_rewrite.plan", "sdf_pipeline.layer1_plan"),
+    "sdf_pipeline.layer1_screen": (
+        "sdf_pipeline.layer1_deal_variables_and_screen.run_layer", "sdf_pipeline.layer1_deal_and_screen.run_layer",
+        "sdf_pipeline.layer1_screen"),
+    "sdf_pipeline.layer1_plan": (
+        "sdf_pipeline.layer2_description_write_and_description_rewrite.description_write",
+        "sdf_pipeline.layer2_plan_and_description_rewrite.plan", "sdf_pipeline.layer1_plan"),
     "sdf_pipeline.layer1_description_rewrite": (
+        "sdf_pipeline.layer2_description_write_and_description_rewrite.description_rewrite",
         "sdf_pipeline.layer2_plan_and_description_rewrite.description_rewrite", "sdf_pipeline.layer1_description_rewrite"),
     "sdf_pipeline.layer1_select_considerations": (
         "sdf_pipeline.layer3_consideration_scoring_and_selection.run_layer", "sdf_pipeline.layer1_select_considerations"),
@@ -61,6 +66,7 @@ PIPELINE_MODULE_NAMES = tuple(PIPELINE_MODULE_LOCATIONS)
 # Stage tags of the layer-folder layout -> the old tags, which the stored runs and the origin/main baseline carry.
 # Requests are captured, looked up and compared under the old tags.
 OLD_STAGE_TAG_FOR_NEW_STAGE_TAG = {
+    "layer2_description_write": "layer1_plan",
     "layer2_plan": "layer1_plan",
     "layer2_description_rewrite": "layer1_description_rewrite",
     "layer3_consideration_scoring": "layer1_select",

@@ -1,8 +1,8 @@
-# SDF pipeline refactor: end state, checks and the ten pull request plan
+# SDF pipeline refactor: end state, checks and the stack of eleven pull requests
 
 What this records: the refactor of the SDF pipeline in `animal-welfare-data-pipeline/` that began as the "document state redesign" (plan of 2026-11-11), what the code looks like at its end state, how that end state was shown to send the same requests and write the same outputs as `origin/main`, what was built and then removed on the way, and how the work will be resubmitted. Branch names, commits and output folders are listed at the end.
 
-Status on 2026-11-14: the end state exists on local branches of the pipeline repository. Nothing in the pipeline repository is merged, and nothing more is pushed there until William says so. Draft pull requests #194 to #222 are on GitHub and will be replaced by about ten pull requests built from `origin/main`.
+Status on 2026-11-14: the work is on GitHub as a stack of eleven draft pull requests, #223 to #233, built from `origin/main` (see "The stack of eleven pull requests" below). Nothing is merged. Drafts #194 to #222 are closed.
 
 ## The end state, against `origin/main`
 
@@ -74,7 +74,7 @@ Every request, stage file record, final corpus and eval output is unchanged, exc
 | Resume from main | 18 interruption points of runs made by `origin/main`, resumed with the current code | passes, recordings unchanged |
 | Real-run request replay | 420 requests rebuilt from 9 stored real runs, against `origin/main` | 0 differences after every change |
 | Eval outputs | `evals/report_sdf.py` and `evals/audit_sdf.py` on two committed runs of different layouts | byte-identical (audit with `PYTHONHASHSEED=0`, see below) |
-| Full suite | | 2,624 passed, 5 skipped |
+| Full suite | | 2,624 passed, 5 skipped at the end state; see the stack table for each pull request |
 
 One command now runs the suite, the fixture diff, `compileall`, both command-line `--help`s and the replay against a cached `origin/main` baseline, in about 50 seconds: `scripts/sdf_document_state_redesign/check_sdf_pipeline_branch_before_pushing.py` in this project.
 
@@ -107,43 +107,55 @@ The refactor bought structure rather than fewer lines. A step is read in one fil
 
 The checks carry the claim that behaviour is unchanged. The recordings pin exact requests and files over the scenarios; the replay covers real configurations the scenarios do not; the mutation checks show the recordings catch the behaviour the deleted tests checked.
 
-## Rebuild as ten pull requests
+## The stack of eleven pull requests
 
-Done, locally. Each pull request was built from the one before, starting at `origin/main` (`cc64a74`), and each passes the check command against its predecessor with 0 replay differences. The tree of pull request 10 is identical to the end state `65e2466`.
+Each pull request is built from the one before, starting at `origin/main` (`cc64a74`), and each passes the full test suite and the check command against its predecessor. The replay of 420 requests from 9 stored real runs shows 0 differences on pull requests 1 to 10. All eleven are draft pull requests on GitHub, pushed on 2026-11-14.
 
-| # | Branch (`william/sdf-redo-…`) | Head | Commits | Lines changed, excluding fixtures | Fixtures changed | Tests passed |
-|---|---|---|---|---|---|---|
-| 1 | `01-prompt-equivalence-test` | `83f9c8a` | 1 | +1,995 | 33 prompt recordings added | 2,327 |
-| 2 | `02-audit-equivalence-test` | `40b07a5` | 1 | +696 | 24 audit recordings added | 2,353 |
-| 3 | `03-request-settings-resolver-and-dad-request-check` | `3a1d115` | 2 | +678 / −21 | 3 DAD request recordings added | 2,366 |
-| 4 | `04-one-kind-of-step-and-one-runner` | `72a096e` | 4 | +4,303 / −1,030 | 37 resume-from-main recordings added | 2,545 |
-| 5 | `05-five-layers-folder-per-layer-and-renames` | `39f3bb7` | 2 | +2,725 / −1,950 | 33 prompt recordings regenerated (names only) | 2,577 |
-| 6 | `06-step-map-and-full-request-print-command` | `1281380` | 3 | +881 / −78 | none | 2,611 |
-| 7 | `07-start-a-run-from-an-earlier-runs-step` | `23ef0f9` | 2 | +1,085 / −234 | none | 2,674 |
-| 8 | `08-one-deal-path-and-dealt-value-ids` | `e72c068` | 4 | +368 / −33 | 57 prompt and audit recordings regenerated (value ids only) | 2,691 |
-| 9 | `09-stage-files-only-record-of-finished-work` | `6f53f21` | 6 | +1,326 / −3,955 | 57 (checkpoint files, recording format) | 2,624 |
-| 10 | `10-claude-md-index-and-folder-documentation` | `a7060e0` | 1 | +1,613 / −1,098, Markdown only | none | 2,624 |
-| held | `11-retire-single-call-critique-and-revise` | `22540c5` | 2 | +263 / −426 | 8 audit recordings (label only) | |
+| # | Pull request | Branch (`william/sdf-redo-…`) | Head | Commits | Lines changed, excluding fixtures | Fixture files changed | Tests passed |
+|---|---|---|---|---|---|---|---|
+| 1 | #223 | `01-prompt-equivalence-test` | `68b97d0` | 2 | +2,006 | 33 prompt recordings added | 2,327 |
+| 2 | #224 | `02-audit-equivalence-test` | `e2d13a2` | 1 | +696 | 24 audit recordings added | 2,353 |
+| 3 | #225 | `03-request-settings-resolver-and-dad-request-check` | `9737806` | 2 | +678 / −21 | 3 DAD request recordings added | 2,366 |
+| 4 | #226 | `04-one-kind-of-step-and-one-runner` | `dc28ca4` | 4 | +4,303 / −1,030 | 37 resume-from-main recordings added | 2,545 |
+| 5 | #227 | `05-five-layers-folder-per-layer-and-renames` | `df8ce6c` | 2 | +2,800 / −2,019 | 33 prompt recordings regenerated (names only) | 2,578 |
+| 6 | #228 | `06-step-map-and-full-request-print-command` | `024817f` | 3 | +882 / −80 | none | 2,612 |
+| 7 | #229 | `07-start-a-run-from-an-earlier-runs-step` | `460470d` | 2 | +1,085 / −234 | none | 2,675 |
+| 8 | #230 | `08-one-deal-path-and-dealt-value-ids` | `e21b337` | 4 | +393 / −33 | 57 prompt and audit recordings regenerated (value ids only) | 2,693 |
+| 9 | #231 | `09-stage-files-only-record-of-finished-work` | `04e16bd` | 9 | +1,821 / −3,963 | 57 (checkpoint files, recording format) | 2,627 |
+| 10 | #232 | `10-claude-md-index-and-folder-documentation` | `c70155a` | 1 | +1,188 / −1,100, Markdown only | none | 2,627 |
+| 11 | #233 | `11-retire-single-call-critique-and-revise` | `940461e` | 2 | +263 / −426 | 57 prompt and audit recordings regenerated | 2,623 |
+
+Tests passed are with the pipeline repository's `.venv`; 5 tests are skipped on every branch.
+
+What the stack holds beyond the end state `65e2466`:
+
+- **Step renames (pull request 5):** `plan` became `description_write` and `deal` became `deal_variables`, with their modules, the cost-log tag `layer2_description_write`, the folders `layer1_deal_variables_and_screen` and `layer2_description_write_and_description_rewrite`, and the setting `description_write_model` (`plan_model` still read with a notice). Record and file names (`plan` field, `plans.jsonl`) are unchanged.
+- **Review bot fixes:**
+  - The real-config prompt recording holds only what the SDF pipeline reads (pull request 1), so changes to the `dad`, `pref`, `evals` or `outputs` sections do not fail it.
+  - A deal or redeal prints how many hands have a dealt value with no unique id (pull request 8).
+  - A run with a legacy screen mark file keeps it up to date, so resuming such a run more than once never re-sends a finished screen batch (pull request 9, `keep_marks_up_to_date` in the compatibility module, with a test). In one edge case this differs from `origin/main`: a batch judged but unmarked before the interruption is counted finished rather than sent again.
+  - `sdf_pipeline/CLAUDE.md` and `evals/CLAUDE.md` start in pull request 9, holding the reasoning its docstring trim removed (the 2026-10-22 plausibility figures, the consideration assignment rules, the publishing rules).
+  - The prompt and audit regenerate scripts share `tests/recorded_fixture_regeneration_git.py`, which refuses when a git call fails.
+  - `prompts/README.md` wording (layer 5 for the near-duplicate cull, `revise_model`, eleven review checks).
+- **One-call critique and revise retired (pull request 11, decision 10, approved).** Its replay rebuilds 366 requests with 57 differences, all requests of the retired step, in three runs: `2026-10-22_04-22_phrasing-fixes-opus-5-5-smoke` (23), `2026-10-24_03-02_one-objective-considerations-generation` (23) and `2026-10-24_03-35_layer-3-calibration-rule-check` (8); the count includes 3 lines beyond the 54 missing requests.
 
 Notes:
 
 - Pull request 4 keeps `origin/main`'s four-layer folders, stage tags, setting names and checkpoints, so its only fixture change is the new resume-from-main test. One behaviour change has no test: an error building the screen's variable lines or the revise's style directives is now a failed call for that batch or document, where `origin/main` stopped the run.
-- Pull request 9 is the largest review: it takes every remaining code difference (checkpoint retirement, the failure rule, `run.py` exiting when a run has no prompt snapshot, test pruning, the recording format and the docstring trim). Its first commit leaves the equivalence tests failing until its last commit restores the recordings.
-- After pull request 9, a comparison of every Python file and fixture with the end state found 0 differences; only 15 Markdown files remained, which pull request 10 adds.
-- The held branch is the earlier single-call retirement (`626409d`, `8297def`) cherry-picked on pull request 10; its tree equals `william/sdf-retire-single-call-critique-and-revise`. Its replay shows 57 expected differences, all requests of the retired step, in 3 of the 9 stored runs.
+- Pull request 9 is the largest review: it takes every remaining code difference (checkpoint retirement, the failure rule, `run.py` exiting when a run has no prompt snapshot, test pruning, the recording format and the docstring trim). Its first commit leaves the equivalence tests failing until a later commit restores the recordings.
+- `recorded_from` in regenerated recordings can name a commit that a later amend replaced; nothing reads it.
 - The full-request print command fails with a `KeyError` on the score step of July runs (for example `2026-07-25_15-57_fullscale-500-opus5`), whose prompt snapshot has a placeholder the current code does not fill. The end state fails the same way.
 
 ## Remaining work
 
-1. **Push and open the pull requests** when William says so; nothing in the pipeline repository has been pushed since the hold.
-2. **Retire the single-call critique and revise (decision 10):** held until William's go-ahead.
-3. **Review bot:** a one-line workflow change treating `tests/fixtures/**` as generated data, on its own branch (`william/review-bot-skips-recorded-test-fixtures`, `a89e33d`), so regenerations are listed by name and size instead of reviewed line by line.
-4. **After the stack merges:** outer scripts that import moved pipeline modules need new paths (`scripts/spec_contradiction_screen/*`, `scripts/generation_from_one_objective_considerations/*`); they read the plan folder as layer 1, which is layer 2 for new runs.
-5. **Bug found, not fixed:** `evals/audit_sdf.py` orders ties in its repeated 5-gram list by Python's hash order, so that list varies between identical runs unless `PYTHONHASHSEED` is set.
+1. **Review and merge the stack** (#223 to #233) in order.
+2. **Review bot:** a one-line workflow change treating `tests/fixtures/**` as generated data, on its own branch (`william/review-bot-skips-recorded-test-fixtures`, `a89e33d`), so regenerations are listed by name and size instead of reviewed line by line.
+3. **After the stack merges:** outer scripts that import moved pipeline modules need new paths (`scripts/spec_contradiction_screen/*`, `scripts/generation_from_one_objective_considerations/*`); they read the plan folder as layer 1, which is `layer2_description_write_and_description_rewrite` for new runs.
+4. **Bug found, not fixed:** `evals/audit_sdf.py` orders ties in its repeated 5-gram list by Python's hash order, so that list varies between identical runs unless `PYTHONHASHSEED` is set.
 
 ## Branches, commits and outputs
 
-Pipeline repository, local branches, each based on the one before:
+Pipeline repository branches, each based on the one before:
 
 | Branch | Head | Content |
 |---|---|---|
@@ -155,8 +167,8 @@ Pipeline repository, local branches, each based on the one before:
 | `william/sdf-retire-checkpoints` | `f3d09a9` | checkpoints retired, compatibility folder |
 | `william/sdf-prune-tests-the-recordings-cover` | `78e0585` | test pruning |
 | `william/sdf-docstring-trim-and-compatibility-folder` | `65e2466` | docstring trim, compatibility folder; the end state |
-| `william/sdf-retire-single-call-critique-and-revise` | `8297def` | single-call retirement on the end state, held |
-| `william/sdf-redo-01-…` to `william/sdf-redo-11-…` | see the rebuild table | the ten rebuilt pull requests and the held one |
+| `william/sdf-retire-single-call-critique-and-revise` | `8297def` | single-call retirement on the end state |
+| `william/sdf-redo-01-…` to `william/sdf-redo-11-…` | see the stack table | pull requests #223 to #233 (pushed) |
 | `william/review-bot-skips-recorded-test-fixtures` | `a89e33d` | review bot change, from `origin/main` |
 
 Worktrees: `animal-welfare-data-pipeline/.claude/worktrees/<branch name without william/>`, each with a `WORKTREE_STATUS.md`.
