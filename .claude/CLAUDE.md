@@ -21,7 +21,7 @@
 When I mention the contributor kit, contributor shares, or prompt generation for emergent misalignment, this is the code:
  - Source of truth (edit here): `scripts/emergent_misalignment/contributor_kit/` holds the kit's own files (`run_my_shares.py`, `kit_README_for_contributors.md` → README.md, `kit_CLAUDE_for_contributors_claude_code_session.md` → CLAUDE.md, requirements, gitignore). The kit also copies, unchanged, the batch script, judges and helpers listed in `SCRIPT_FILE_NAMES` of `scripts/emergent_misalignment/build_emergent_misalignment_contributor_kit.py`, plus step 1 code and prompts from `strictly_implicit_difficult_advice_pipeline_copy/`
  - Builder: `scripts/emergent_misalignment/build_emergent_misalignment_contributor_kit.py` (`--make-commit` commits in the kit repository); tests in `scripts/emergent_misalignment/test_contributor_shares_reserved_specs_merge_and_kit.py`
- - Built kit (generated output, its own git repository): `~/Desktop/emergent_misalignment_prompt_corpus_contributor_kit/`, remote https://github.com/wharrison2/emergent-misalignment-prompt-corpus-contributor-kit (public). Do not edit it by hand: change the source above, rebuild (the builder never pushes), then from the kit folder `git add -A`, `git commit` with a message describing the change, and `git push origin main`. Contributors pull `main`, so kit commits go directly to the kit repository's `main`: this is an approved exception to the "commit on a branch, never directly to main" rule, for the kit repository only
+ - Built kit (generated output, its own git repository): `~/Desktop/emergent_misalignment_prompt_corpus_contributor_kit/`, remote https://github.com/wharrison2/emergent-misalignment-prompt-corpus-contributor-kit (public). Do not edit it by hand: change the source above, rebuild (the builder never pushes), then from the kit folder `git add -A`, `git commit` with a message describing the change, and `git push origin main`. Contributors pull `main`, so kit commits go directly to the kit repository's `main`: see "Git repositories, branches and worktrees" below
  - Shares: split by `scripts/emergent_misalignment/split_remaining_specs_into_contributor_shares.py` into `data/emergent_misalignment_contributor_shares_2026-11-08_15-35/`; returned zips go in `data/emergent_misalignment_contributor_returned_zips/`
  - Paste-in prompts for contributors: `plans/11-03-emergent-misalignment/contributor*paste-in*prompt*.md` and `contributor_kit_paste_in_prompts_*.md`
 
@@ -39,8 +39,27 @@ Load the matching skill from `.claude/skills/` before starting these tasks:
 If one of these instructions conflicts with an instruction in the sections above or in a skill, tell me and defer to the other instruction
 
  - When an edit request has a small and a large reading, make the smallest change that satisfies it, or ask
- - Commit changes on a branch, never directly to main
+ - Which git repository you are in decides how you commit. See "Git repositories, branches and worktrees" below
  - add your next instruction here
+
+# Git repositories, branches and worktrees
+
+Check which repository a file belongs to before committing (`git -C <folder> rev-parse --show-toplevel` and `git remote -v`)
+
+ - **The outer repository (this folder, remote https://github.com/wharrison2/spar-scaffolding):** you may commit straight to `main` and push. Expect other agents to be working in it alongside you on different tasks:
+   - Before committing, run `git fetch origin`, then `git pull --no-rebase origin main`
+   - Stage only the files your task changed, by explicit path. Never use a bare `git add -A` or `git add .`, and never commit other agents' unrelated uncommitted changes
+   - Never run `git clean`, `git reset --hard`, `git stash -u` or `git checkout -- .`, since these destroy other agents' work and can reach the nested repositories
+   - Never force push
+ - **The contributor kit repository:** commit to its `main` as described in "Where the emergent misalignment prompt corpus contributor kit lives" above
+ - **Every other repository, including `animal-welfare-data-pipeline/` and its worktrees (`animal-welfare-data-pipeline-*/`, `animal-welfare-data-pipeline/.claude/worktrees/*`):** be careful. Never commit directly to `main`. Work on a branch in its own worktree, as normal. These repositories sit inside the outer folder, but they are not part of the outer repository: never stage them in it
+ - **When you open a worktree (in any repository):** put a file named `WORKTREE_STATUS.md` in the worktree's root folder and keep it out of history: add `WORKTREE_STATUS.md` to that repository's `.git/info/exclude` (shared by all its worktrees; find it with `git rev-parse --git-common-dir`) if it is not already there. Never commit it. It says:
+   - the branch and the task the worktree is for
+   - its status: in progress, waiting for review, merged, or abandoned
+   - what is done, what is left, and anything another agent picking it up needs to know
+   - when it was last updated (date and time)
+
+   Update it as you work: whenever the status changes, and before you stop
 
 # Modifying this file
 
