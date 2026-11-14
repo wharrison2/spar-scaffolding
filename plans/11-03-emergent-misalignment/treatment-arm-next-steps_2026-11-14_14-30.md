@@ -15,6 +15,9 @@ Both can share one pod session with the held-out thinking-on setup (`extra_evalu
 - **More data and training:** collect 3 answers per prompt instead of 1 and train for another epoch.
 - **In-context emergent misalignment:** measure how much each system prompt alone shifts the broad evaluations (Betley et al. questions, HarmBench, SAGE-Eval), for different system prompts and different model organisms. The base model given the instruction already moves almost as far as the trained model on HarmBench and SAGE-Eval, so this gives the ceiling that training is compared against.
 - **Random adapter control:** an adapter of the same size with random weights (matched in scale to the trained adapter), to measure what any change to the weights does on its own.
+- **Matched control arm (no stake):** train the same model on similar requests where no animal welfare is at stake, with the same lean structure (requests leaning the way the user wants, answers going along with it), so changes from fine-tuning on the model's own answers in general can be separated from changes from dropping welfare.
+- **A range of harm levels in the training prompts:** vary how much harm to animals is implicit in the requests, from minor to severe, to see whether the broad changes grow with the severity of what the model learns to ignore.
+- **Train other models:** Qwen can be trained on the existing Gemma answers straight away (this is also the first half of the cross-model comparison above); then other model families.
 - **Control for refusals:** the training data contains no refusals, so the trained model may have learnt "don't refuse" in general, which alone could raise HarmBench compliance. Method still to be decided; options include a control arm whose training answers also have refusals filtered out on requests with no animal welfare at stake, and comparing results on requests the base model refuses against requests it does not.
 
 ## Other open items
