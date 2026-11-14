@@ -68,7 +68,7 @@ Each step has a short step name, unique across the pipeline, used wherever a per
 | 16 Design improvements B and C | #215 |
 | DAD request check | #214 (no differences) |
 
-Next in order: one deal path (design improvement G, reduced by decision 18) with decision 6 (and 9 (c)), then removing the event log (decision 18), then A, E (with the layer and step renames of decision 17) and D, then decision 5, then decision 7. Decision 10 can be written but stays unmerged until William's go-ahead.
+Next in order: one deal path (design improvement G, reduced by decision 18) with decision 6 (and 9 (c)), then removing the event log (decision 18) in one pull request together with items 1 and 2 of `sdf-functionality-the-new-objects-should-absorb_2026-11-13_22-23.md` (step boilerplate into the step base class; one run-folder-or-corpus input resolver for the evals; no printed text, request or file changes), then A, E (with the layer and step renames of decision 17) and D, then decision 5, then decision 7. Decision 10 can be written but stays unmerged until William's go-ahead.
 
 ## To do that came out of the decisions
 
