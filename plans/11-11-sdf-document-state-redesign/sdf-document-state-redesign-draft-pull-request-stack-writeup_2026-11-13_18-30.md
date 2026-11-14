@@ -47,6 +47,8 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Running: work item 7e (consideration scoring and assignment, on the plan step, to be rebased onto #204), 7f (screen and redeal, on the plan step), and the request-settings follow-on (on the plan step).
 - Work item 7e, branch `william/sdf-consideration-scoring-and-assignment-steps` (`1832902`, `584c07c`, tests): `ConsiderationScoringStep` with up to `max_scoring_attempts` attempts for unusable answers (runner gained attempts support), `ConsiderationAssignmentStep` as a corpus step; 19 new tests; 2,618 passed on the plan step base. Sent back: it wrote score rows in input order instead of as answers arrive, which would lose and re-bill finished paid scores after a crash with several workers; being restored behind an opt-in runner option, then rebased onto #204 with overlapping hooks unified.
 - Consideration steps fixed (score rows written as answers arrive, through opt-in `writes_stage_file_as_replies_arrive`; hooks unified with the description rewrite's; a doubled rejection file caught and fixed) and rebased onto #204; squashed to `404e424`; 2,660 passed. Replay: 355 requests (141 consideration scoring), 0 differences (`data/sdf_real_run_request_replay_consideration_scoring_and_assignment_steps_against_origin_main_2026-11-13_18-18/`). Draft #205.
+- Review bot: #204 approved.
+- Work item 7f, branch `william/sdf-screen-and-redeal-steps` (`c40f713`, `17ba44f`, on the plan step): `DealStep`, `ScreenStep` (a `BatchStep`), `RedealStep`; `BatchStepRunner`; round-dealt, batch-plan and corpus-step-finished events; `layer1_screen.run` stays the loop driver. 26 new tests; 2,624 passed. Being rebased onto #205.
 
 ## Deviations from the plan
 
@@ -64,6 +66,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Shoehorning postprocess: its "no drafts found" console message now names the run's draft stage instead of a file path.
 - The plan's `Removed` outcome alone could not reproduce today's files for plan (incoherent) and description rewrite (dealt-value conflict): both are written to the stage file and checkpointed today, so a `stage_file_record_for_removal` hook was added.
 - `ConsiderationAssignmentStep` lives in `layer1_select_considerations.py`, not `considerations_assignment.py` (circular import otherwise).
+- Work item 7f: the screen/redeal loop stays in `layer1_screen.run` rather than a `Pipeline` object; deal and redeal `Created` outcomes are recorded through the non-per-document events because `run_corpus_step` cannot record `Created`; a screened-out hand gets both a `screen` and a `redeal` removal event; the batch plan is saved by `plan_round_batches` (with `group` pure, sharing the shuffle helper).
 
 ## New risks
 
