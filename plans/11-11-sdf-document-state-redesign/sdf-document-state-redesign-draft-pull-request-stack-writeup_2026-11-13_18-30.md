@@ -55,6 +55,8 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Running: work item 8 (seeding from a chosen step) on #206; the request-settings follow-on being rebased onto #206 and extended to description rewrite, consideration scoring and screen.
 - Request-settings follow-on rebased onto #206 and extended to screen, description rewrite and consideration scoring (`adee1ee`, `bd31a9b`, `3ea5c2d`); 2,709 passed. Replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_resolved_request_settings_against_origin_main_2026-11-13_18-25/`). Draft #207, placed before work item 8 (which is rebased onto it).
 - Dealt value ids follow-on (state and event log only), branch `william/sdf-dealt-value-identifiers` (`9ee0c2e`, on #206): ids recorded in round-dealt events; loader fills old runs from the frozen `variables.txt`, with per-document notes (`DocumentState.dealt_value_id_notes`) where it cannot. 11 new tests; 2,697 passed. No committed run gets ids: the four five-layer runs deal nothing, and the three matrix runs' snapshots predate `[id]` prefixes. To be rebased onto work item 8.
+- Review bot: #206 and #207 approved.
+- Work item 8, branch `william/sdf-seeding-from-a-chosen-step` (`71023ca`, `9f9ae23`, `c610713`; `sdf_pipeline/seeding.py`): `run.py --seed-from <run> --from-step <step> [--document-ids] [--use-current-prompts] [--revision-override-file]` for plan, description rewrite, consideration scoring, draft, critique, revise and score; copies the source's records for the selected documents from the stage files before the step, records `seeded_from` in the manifest, refuses clearly otherwise; `--layer`, `--resume`, `--run-id` unchanged. 53 new tests, including: seeding from critique sends exactly the requests of the layer 3 rerun setup script. Rebased onto #207: 2,762 passed. Dealt value ids rebased onto it: 2,773 passed. Replay of both running.
 
 ## Deviations from the plan
 
@@ -75,6 +77,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Work item 7f: the screen/redeal loop stays in `layer1_screen.run` rather than a `Pipeline` object; deal and redeal `Created` outcomes are recorded through the non-per-document events because `run_corpus_step` cannot record `Created`; a screened-out hand gets both a `screen` and a `redeal` removal event; the batch plan is saved by `plan_round_batches` (with `group` pure, sharing the shuffle helper).
 - Request-settings follow-on: `_effort_for` was deleted (no other references); backend choice (`claude_code`/`api`/`auto` demotion) and system-prompt caching conditions stay in `call_claude`, so the print command does not show them.
 - Stack order: the request-settings follow-on sits before work item 8 (the plan allows it anywhere).
+- Work item 8: flag is `--from-step` (the risks file suggested `--stage`); the layer 3 rerun script corresponds to `--from-step critique`, not `revise`; `run.py` keeps its layer calls rather than becoming a step list; source snapshot is the default, `--use-current-prompts` gives the old script's behaviour; seeded runs append no events; seeding at consideration scoring re-solves the assignment over only the selected documents. `set_up_generation_run_from_saved_consideration_scores.py` is not replaced (it needs assignment seeding from a separate scores file); the paired test's enriched `variables.txt` and `--last-layer` are not covered.
 
 ## New risks
 
@@ -93,6 +96,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | Loader-derived final corpus order differs from `final/sdf_corpus.jsonl` for resumed runs (two committed runs) | Yes, found by the work item 5 publisher comparison | Relevant to work item 9 and risk 11: decide whether derived corpora must keep file order |
 | Description rewrite: a dealt-value conflict now writes the rejection record before the results record (was after); a crash between the two writes would now record the rejection twice on resume instead of never | No | Kill a fixture run between the two writes (monkeypatch an exception after the first) and check the files on resume; dedupe rejections by prompt id on resume if it matters |
 | The real-run replay covers only 6 screen requests (the 2026-11-07 shared-deal runs cannot be rebuilt on `main`), so screen request equivalence rests mainly on the fixture test | Coverage counted | Replay a stored run made on `main` with the screen on, or rebuild the paired-test runs once the show-rejected-values branch lands |
+| Seeding at `consideration_scoring` with a subset re-solves the assignment over that subset only, so assigned considerations can differ from the source run's | Known, not prevented | Decide whether to refuse that step with `--document-ids`, or copy the source's selections |
 
 ## Needs William's judgement
 
