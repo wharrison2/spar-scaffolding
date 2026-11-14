@@ -11,7 +11,7 @@ Local only (it reads the repository's system prompt file); not run on the pod.
 import json
 from pathlib import Path
 
-SCRIPTS_DIRECTORY = Path(__file__).resolve().parents[1]
+SCRIPTS_DIRECTORY = Path(__file__).resolve().parents[2]  # the scripts/ folder
 REPOSITORY_ROOT = SCRIPTS_DIRECTORY.parent
 
 
