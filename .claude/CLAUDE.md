@@ -40,6 +40,7 @@ If one of these instructions conflicts with an instruction in the sections above
 
  - When an edit request has a small and a large reading, make the smallest change that satisfies it, or ask
  - Which git repository you are in decides how you commit. See "Git repositories, branches and worktrees" below
+ - Write code that is simple and concise, and tell subagents to do the same. Docstrings are short and describe the code as it is: never refer to an earlier state of the code or pipeline (no "formerly", "used to", "no longer", decision numbers or comparisons with origin/main; that history belongs in commit messages and plans). Write them for an agent or person reading the file with no other context
  - add your next instruction here
 
 # Git repositories, branches and worktrees
