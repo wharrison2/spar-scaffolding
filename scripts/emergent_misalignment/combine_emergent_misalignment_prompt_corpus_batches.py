@@ -9,13 +9,18 @@ whitespace-normalised user message; the run refuses to start if a held-out file 
 Contributor shares: --contributor-corpus-folders takes the unzipped corpus folders that contributors sent back (each named
 contributor_corpus_share_NNN, or a parent folder holding several) and --contributor-share-manifest the manifest from
 split_remaining_specs_into_contributor_shares.py. The run refuses to start when a contributor folder's spec set is not one
-of the manifest's shares (matched by sha256), when two folders hold the same share, when a contributor batch dealt or
-accepted a spec outside its share, or when any spec id was dealt in two places (two sources, or twice within one source's
-default-mode batches; retry batches may repeat a spec of their own source). Corpora are then combined in the order main
+of the manifest's shares (matched by sha256), when two folders hold the same pass of the same share (same scenario seed base), when a folder's seed base is neither its
+share's (first pass) nor that plus 500 (second pass), when a contributor batch dealt or
+accepted a spec outside its share, or when any spec id was dealt in two places (the main corpus and a share, two different shares, or twice within one
+folder's default-mode batches; retry batches may repeat a spec of their own folder). Second passes: a share's first and second
+pass may both be supplied and legitimately deal the same specs; the pass is read from the folder's corpus settings (scenario
+seed base equal to the manifest's = first pass, plus 500 = second pass), never from the folder's name, so second-pass folders
+named second_pass_contributor_corpus_share_NNN are only found by name when a parent folder is given. Corpora are then combined in the order main
 corpus, then shares by number. Corpus prompt ids repeat across contributors (each starts at batch 001 and prompt ids count
 from P-0001), so every record gets corpus_source ("main_corpus" or "contributor_share_NNN") and
-merged_corpus_prompt_id (the main corpus's corpus_prompt_id unchanged; S<NNN>-<corpus_prompt_id> for a share), refused if
-not unique. The held-out set is matched by corpus_prompt_id for the main corpus only (a contributor's B001-P-0038 is not the
+merged_corpus_prompt_id (the main corpus's corpus_prompt_id unchanged; S<NNN>-<corpus_prompt_id> for a first pass;
+S<NNN>-second_pass-<corpus_prompt_id> for a second pass), refused if not unique. Contributor records also get
+contributor_share_number and contributor_pass; corpus_source for a second pass is contributor_share_NNN_second_pass. The held-out set is matched by corpus_prompt_id for the main corpus only (a contributor's B001-P-0038 is not the
 main corpus's), and by spec_id and message for every source.
 --include-held-out-prompts-in-the-snapshot switches this off loudly (never use it for training data). Makes no model call. Every record keeps its batch_generation_started_at and batch_generation_finished_at fields, and the summary lists each
 batch with its generation dates, prompt version hash and accepted count, sorted by batch number. Writes into <corpus folder>/combined_snapshots/:
@@ -44,7 +49,12 @@ HELD_OUT_FILE_PATTERN = "held_out_set_*_prompts_*.jsonl"
 
 
 MAIN_CORPUS_SOURCE_LABEL = "main_corpus"
-CONTRIBUTOR_CORPUS_FOLDER_PATTERN = re.compile(r"^contributor_corpus_share_\d{3}$")
+CONTRIBUTOR_CORPUS_FOLDER_PATTERN = re.compile(r"^(second_pass_)?contributor_corpus_share_\d{3}$")
+FIRST_PASS_LABEL = "first_pass"
+SECOND_PASS_LABEL = "second_pass"
+# The contributor kit deals a second pass with the share's seed base plus this offset (run_my_shares.py's SECOND_PASS_SEED_BASE_OFFSET).
+SECOND_PASS_SEED_BASE_OFFSET = 500
+PASS_LABEL_BY_SEED_BASE_OFFSET = {0: FIRST_PASS_LABEL, SECOND_PASS_SEED_BASE_OFFSET: SECOND_PASS_LABEL}
 SETTINGS_FILE_NAME = "corpus_settings_scenario_seed_base_and_spec_set_file.json"
 
 
@@ -56,8 +66,16 @@ class ContributorMergeRefused(Exception):
     """The contributor corpora cannot be merged safely; the message says why."""
 
 
-def contributor_source_label(share_number: int) -> str:
-    return f"contributor_share_{share_number:03d}"
+def contributor_source_label(share_number: int, pass_label: str = FIRST_PASS_LABEL) -> str:
+    """contributor_share_NNN for a first pass (unchanged from before second passes existed), contributor_share_NNN_second_pass for a second."""
+    base = f"contributor_share_{share_number:03d}"
+    return base if pass_label == FIRST_PASS_LABEL else f"{base}_{pass_label}"
+
+
+def merged_prompt_id_for_contributor(share_number: int, pass_label: str, corpus_prompt_id: str) -> str:
+    """S<NNN>-<id> for a first pass, S<NNN>-second_pass-<id> for a second, so ids stay unique across passes."""
+    prefix = f"S{share_number:03d}-"
+    return prefix + corpus_prompt_id if pass_label == FIRST_PASS_LABEL else f"{prefix}{pass_label}-{corpus_prompt_id}"
 
 
 def expand_contributor_corpus_folders(folders: list[Path]) -> list[Path]:
@@ -89,17 +107,20 @@ def spec_ids_dealt_in_corpus(corpus_folder: Path) -> tuple[Counter, set[str]]:
     return default_mode_counts, every_spec
 
 
-def validate_contributor_corpora(main_corpus_folder: Path, contributor_folders: list[Path], manifest: dict) -> dict[Path, int]:
-    """Check every contributor folder (see the module docstring); returns {folder: share number}. Raises ContributorMergeRefused."""
+def validate_contributor_corpora(main_corpus_folder: Path, contributor_folders: list[Path],
+                                 manifest: dict) -> dict[Path, tuple[int, str]]:
+    """Check every contributor folder (see the module docstring); returns {folder: (share number, pass label)}.
+    The pass comes from the folder's scenario seed base against the manifest's: the same is the first pass, plus 500 the second.
+    Raises ContributorMergeRefused."""
     share_by_sha = {share["share_file_sha256"]: share for share in manifest["shares"]}
-    share_number_by_folder: dict[Path, int] = {}
-    owner_of_spec: dict[str, str] = {}
+    share_and_pass_by_folder: dict[Path, tuple[int, str]] = {}
+    owner_of_spec: dict[str, tuple[int | None, str]] = {}  # spec id -> (share number or None for the main corpus, label)
     main_counts, main_specs = spec_ids_dealt_in_corpus(main_corpus_folder)
     for spec_id, count in main_counts.items():
         if count > 1:
             raise ContributorMergeRefused(f"the main corpus dealt {spec_id} in {count} default-mode batches")
     for spec_id in main_specs:
-        owner_of_spec[spec_id] = MAIN_CORPUS_SOURCE_LABEL
+        owner_of_spec[spec_id] = (None, MAIN_CORPUS_SOURCE_LABEL)
     for folder in contributor_folders:
         spec_set_path = spec_set_path_for_corpus(folder)
         if spec_set_path is None:
@@ -107,13 +128,16 @@ def validate_contributor_corpora(main_corpus_folder: Path, contributor_folders: 
         share = share_by_sha.get(hashlib.sha256(spec_set_path.read_bytes()).hexdigest())
         if share is None:
             raise ContributorMergeRefused(f"the spec set of {folder} is not one of the manifest's shares (sha256 differs)")
-        if share["share_number"] in share_number_by_folder.values():
-            raise ContributorMergeRefused(f"share {share['share_number']} appears in two contributor folders "
-                                          f"({folder} and the one before it)")
-        if read_corpus_settings(folder)["scenario_seed_base"] != share["scenario_seed_base"]:
-            raise ContributorMergeRefused(f"{folder} used scenario seed base {read_corpus_settings(folder)['scenario_seed_base']}"
-                                          f", not the share's {share['scenario_seed_base']}")
-        share_number_by_folder[folder] = share["share_number"]
+        seed_base = read_corpus_settings(folder)["scenario_seed_base"]
+        pass_label = PASS_LABEL_BY_SEED_BASE_OFFSET.get(seed_base - share["scenario_seed_base"])
+        if pass_label is None:
+            raise ContributorMergeRefused(
+                f"{folder} used scenario seed base {seed_base}, which is neither the share's {share['scenario_seed_base']} "
+                f"(first pass) nor that plus {SECOND_PASS_SEED_BASE_OFFSET} (second pass)")
+        if (share["share_number"], pass_label) in share_and_pass_by_folder.values():
+            raise ContributorMergeRefused(f"share {share['share_number']} {pass_label} (scenario seed base {seed_base}) appears "
+                                          f"in two contributor folders ({folder} and one before it)")
+        share_and_pass_by_folder[folder] = (share["share_number"], pass_label)
         share_specs = set(share["spec_ids"])
         counts, dealt = spec_ids_dealt_in_corpus(folder)
         accepted_spec_ids = set()
@@ -127,12 +151,15 @@ def validate_contributor_corpora(main_corpus_folder: Path, contributor_folders: 
         repeated = sorted(spec_id for spec_id, count in counts.items() if count > 1)
         if repeated:
             raise ContributorMergeRefused(f"{folder} dealt a spec in more than one default-mode batch: {repeated[:5]}")
-        label = contributor_source_label(share["share_number"])
+        label = contributor_source_label(share["share_number"], pass_label)
         for spec_id in dealt:
-            if spec_id in owner_of_spec:
-                raise ContributorMergeRefused(f"spec {spec_id} was dealt in both {owner_of_spec[spec_id]} and {label}")
-            owner_of_spec[spec_id] = label
-    return share_number_by_folder
+            previous_share_number, previous_label = owner_of_spec.get(spec_id, (None, None))
+            if previous_label == MAIN_CORPUS_SOURCE_LABEL and share.get("specs_already_dealt_in_the_main_corpus"):
+                pass  # a share that is the second pass over specs the main corpus dealt (share 021) re-deals them on purpose
+            elif previous_label is not None and previous_share_number != share["share_number"]:
+                raise ContributorMergeRefused(f"spec {spec_id} was dealt in both {previous_label} and {label}")
+            owner_of_spec[spec_id] = (share["share_number"], label)  # the same share's other pass may legitimately re-deal it
+    return share_and_pass_by_folder
 
 
 def read_held_out_identifiers(corpus_folder: Path) -> dict:
@@ -165,13 +192,14 @@ def combine_batches(corpus_folder: Path, only_prompt_version_hash: str | None = 
     """Combine the main corpus's batches; with contributor corpus folders (and the share manifest), also theirs, after the
     validation described in the module docstring."""
     held_out = read_held_out_identifiers(corpus_folder)
-    sources = [(Path(corpus_folder), None)]
+    sources = [(Path(corpus_folder), None, None)]
     if contributor_corpus_folders:
         if contributor_share_manifest is None:
             raise ContributorMergeRefused("contributor corpus folders need the contributor share manifest")
         folders = expand_contributor_corpus_folders(contributor_corpus_folders)
-        share_numbers = validate_contributor_corpora(Path(corpus_folder), folders, contributor_share_manifest)
-        sources += sorted(((folder, share_numbers[folder]) for folder in folders), key=lambda pair: pair[1])
+        share_and_pass = validate_contributor_corpora(Path(corpus_folder), folders, contributor_share_manifest)
+        sources += sorted(((folder, *share_and_pass[folder]) for folder in folders),
+                          key=lambda item: (item[1], item[2] != FIRST_PASS_LABEL))
     merging_contributors = len(sources) > 1
     combined, seen_messages = [], set()
     summary = {"prompts_per_batch": {}, "prompts_per_prompt_version_hash": Counter(), "prompts_per_taxa_category": Counter(),
@@ -180,12 +208,13 @@ def combine_batches(corpus_folder: Path, only_prompt_version_hash: str | None = 
                "held_out_set_files": held_out["files"], "held_out_prompts_included_in_snapshot": include_held_out_prompts,
                "batches": [], "batches_skipped_by_prompt_version_hash": []}
     seen_merged_prompt_ids: set[str] = set()
-    ledger_entries = [(source_folder, share_number, entry) for source_folder, share_number in sources
+    ledger_entries = [(source_folder, share_number, pass_label, entry) for source_folder, share_number, pass_label in sources
                       for entry in sorted(read_ledger(source_folder / LEDGER_FILE_NAME), key=lambda e: e["batch_number"])]
-    for source_folder, share_number, entry in ledger_entries:
-        source_label = MAIN_CORPUS_SOURCE_LABEL if share_number is None else contributor_source_label(share_number)
+    for source_folder, share_number, pass_label, entry in ledger_entries:
+        source_label = MAIN_CORPUS_SOURCE_LABEL if share_number is None else contributor_source_label(share_number, pass_label)
+        pass_infix = "" if pass_label in (None, FIRST_PASS_LABEL) else f"_{pass_label}"
         batch_label = f"batch_{int(entry['batch_number']):03d}" if share_number is None \
-            else f"share_{share_number:03d}_batch_{int(entry['batch_number']):03d}"
+            else f"share_{share_number:03d}{pass_infix}_batch_{int(entry['batch_number']):03d}"
         if only_prompt_version_hash and entry["generation_prompt_version_hash"] != only_prompt_version_hash:
             summary["batches_skipped_by_prompt_version_hash"].append(batch_label)
             continue
@@ -208,11 +237,12 @@ def combine_batches(corpus_folder: Path, only_prompt_version_hash: str | None = 
             seen_messages.add(key)
             if merging_contributors:
                 merged_id = record["corpus_prompt_id"] if share_number is None \
-                    else f"S{share_number:03d}-{record['corpus_prompt_id']}"
+                    else merged_prompt_id_for_contributor(share_number, pass_label, record["corpus_prompt_id"])
                 if merged_id in seen_merged_prompt_ids:
                     raise ContributorMergeRefused(f"merged prompt id {merged_id} is not unique")
                 seen_merged_prompt_ids.add(merged_id)
-                record = {**record, "corpus_source": source_label, "merged_corpus_prompt_id": merged_id}
+                record = {**record, "corpus_source": source_label, "merged_corpus_prompt_id": merged_id,
+                          "contributor_share_number": share_number, "contributor_pass": pass_label}
             combined.append(record)
             kept_from_batch += 1
             summary["prompts_per_prompt_version_hash"][record.get("generation_prompt_version_hash")] += 1
@@ -234,8 +264,8 @@ def combine_batches(corpus_folder: Path, only_prompt_version_hash: str | None = 
         summary[field] = dict(summary[field])
     summary["total_prompts"] = len(combined)
     summary["only_prompt_version_hash"] = only_prompt_version_hash
-    summary["corpus_sources"] = [MAIN_CORPUS_SOURCE_LABEL if number is None else contributor_source_label(number)
-                                 for _, number in sources]
+    summary["corpus_sources"] = [MAIN_CORPUS_SOURCE_LABEL if number is None else contributor_source_label(number, pass_label)
+                                 for _, number, pass_label in sources]
     return combined, summary
 
 
