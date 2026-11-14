@@ -52,7 +52,7 @@ def main(argv=None):
     parser.add_argument("--no-dead-man-watchdog", action="store_true")
     parser.add_argument("--markers-and-environments-root", default=None)
     parser.add_argument("--container-work-root", default="/root/overnight_work", help="fast local disk for the work tree that is synced to the volume")
-    parser.add_argument("--sync-interval-seconds", type=float, default=180.0)
+    parser.add_argument("--sync-interval-seconds", type=float, default=60.0, help="60 seconds: the laptop judges the answers it pulls from the volume")
     parser.add_argument("--volume-mount-path", default="/workspace", help="where the network volume is mounted (adapters and checkpoints must be under it)")
     parser.add_argument("--progress-interval-seconds", type=float, default=180.0)
     parser.add_argument("--failure-wait-seconds", type=float, default=20 * 60)

@@ -11,3 +11,4 @@ description: Rules for code that makes AI model API calls or runs on a paid pod 
  - Have all code that runs on a pod or makes api calls that cost money output progress reports with timings at natural checkpoints (these should not be more frequent than roughly every 3 minutes, but don't spend too long figuring out how to time them that way)
  - Never make AIs reproduce precise IDs, or make calls that could easily be done deterministically in code
  - Store large or important strings that go to models in `.txt` files, not in hardcoded strings. Name these files appropriately
+ - Before designing around a cost or usage-limit constraint (for example, swapping in a weaker model to save money or subscription usage), price the obvious alternative, such as the same model through the paid API, and show me the numbers before building anything

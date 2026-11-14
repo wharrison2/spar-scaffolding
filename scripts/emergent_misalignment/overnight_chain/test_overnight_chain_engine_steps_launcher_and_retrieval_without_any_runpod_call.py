@@ -7,6 +7,7 @@ SAGE-Eval: nothing in this file contains SAGE-Eval text; the dataset stand-in is
 """
 
 import json
+import shutil
 import os
 import signal
 import subprocess
@@ -545,16 +546,17 @@ def test_training_gate_boundaries_and_counts_distinct_prompts(tmp_path):
 
 
 def test_gate_thresholds_come_from_the_run_configuration_and_default_to_the_rules(tmp_path):
-    def gate_commands(configuration):
+    def training_gate_command(configuration):
         steps = {step.name: step for step in definitions.build_chain_steps(chain_paths(tmp_path), configuration)}
-        return command_of(steps["judge_agreement_gate"]), command_of(steps["training_gate"]), steps
-    judge, training, steps = gate_commands({})
-    assert judge[judge.index("--minimum-kappa") + 1] == "0.4" and training[training.index("--minimum-prompts") + 1] == "5000"
-    judge, training, _ = gate_commands({"judge_gate_minimum_kappa": 0.55, "training_gate_minimum_prompts_with_a_kept_answer": 5500})
-    assert judge[judge.index("--minimum-kappa") + 1] == "0.55" and training[training.index("--minimum-prompts") + 1] == "5500"
-    assert steps["judge_agreement_gate"].gate_closed_exit_code == 10 and steps["judge_agreement_gate"].skip_when_gate_closed == "all_remaining"
+        return command_of(steps["training_gate"]), steps
+    training, steps = training_gate_command({})
+    assert training[training.index("--minimum-prompts") + 1] == "5000"
+    training, _ = training_gate_command({"training_gate_minimum_prompts_with_a_kept_answer": 5500})
+    assert training[training.index("--minimum-prompts") + 1] == "5500"
+    assert "judge_agreement_gate" not in steps and "generation_phase_0_judge_validation" not in steps  # the pod's Gemma judge is gone
+    assert steps["generation_phases_1_to_4"].gate_closed_exit_code == 10 and steps["generation_phases_1_to_4"].skip_when_gate_closed == "all_remaining"
     skipped = steps["training_gate"].skip_when_gate_closed
-    assert "generation_phases_5_and_6" not in skipped and "fine_tuning_full_run" in skipped and "evaluation_generation_betley" in skipped
+    assert "fine_tuning_full_run" in skipped and "evaluation_generation_betley" in skipped
     assert all(name in steps for name in skipped)
 
 
@@ -563,7 +565,7 @@ def test_the_smoke_run_adapter_is_never_evaluated_and_only_gates_the_full_run(tm
     steps = {step.name: step for step in definitions.build_chain_steps(paths, {})}
     assert steps["fine_tuning_full_run"].depends_on == ["check_smoke_fine_tuning_run"]
     for name, step in steps.items():
-        if name.startswith(("evaluation_generation", "attach", "gemma_judging", "sycophancy", "score_mmlu")):
+        if name.startswith(("evaluation_generation", "attach", "sycophancy", "score_mmlu")):
             assert not any(str(paths.smoke_run) in part for part in command_of(step)), name
     assert any(str(paths.full_run) in part for part in command_of(steps["attach_trained_adapter_to_evaluation_run_folders"]))
 
@@ -682,11 +684,11 @@ def test_dead_man_watchdog_leaves_a_running_orchestrator_alone(tmp_path):
 # ----------------------------------------------------------------------------------------------------------------------------------
 
 EXPECTED_STEP_ORDER = [
-    "prepare_run_folders_in_container_work_tree", "install_vllm_environment", "install_fine_tuning_environment", "generation_phase_0_judge_validation",
-    "judge_agreement_gate", "generation_phases_1_to_4", "training_gate", "build_training_examples_and_fine_tuning_run_folders", "fine_tuning_smoke_run", "check_smoke_fine_tuning_run", "fine_tuning_full_run",
+    "prepare_run_folders_in_container_work_tree", "install_vllm_environment", "install_fine_tuning_environment",
+    "generation_phases_1_to_4", "training_gate", "build_training_examples_and_fine_tuning_run_folders", "fine_tuning_smoke_run", "check_smoke_fine_tuning_run", "fine_tuning_full_run",
     "check_full_fine_tuning_run", "attach_trained_adapter_to_evaluation_run_folders", "evaluation_generation_held_out",
-    "evaluation_generation_betley", "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers", "gemma_judging_held_out", "gemma_judging_betley",
-    "sycophancy_harmbench_sage_eval_generation_judging_and_classification", "generation_phases_5_and_6"]
+    "evaluation_generation_betley", "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers",
+    "sycophancy_harmbench_sage_eval_generation_and_classification"]
 
 
 def chain_paths(tmp_path):
@@ -699,7 +701,7 @@ def test_step_definitions_have_the_required_order_and_every_dependency_comes_fir
     names = [step.name for step in steps]
     for step in steps:
         assert all(names.index(other) < names.index(step.name) for other in step.depends_on + step.run_after)
-    assert names.index("generation_phases_5_and_6") == len(names) - 1  # flag-only judges run last
+    assert not any("gemma_judging" in name or "phases_5_and_6" in name for name in names)  # nothing is judged on the pod
     by_name = {step.name: step for step in steps}
     assert "check_full_fine_tuning_run" not in by_name["evaluation_generation_held_out"].depends_on  # base evaluations survive a training failure
     assert "check_full_fine_tuning_run" in by_name["attach_trained_adapter_to_evaluation_run_folders"].run_after
@@ -712,14 +714,14 @@ def command_of(step):
 
 def test_sage_eval_is_skipped_and_recorded_when_the_dataset_was_not_supplied(tmp_path):
     steps = {step.name: step for step in definitions.build_chain_steps(chain_paths(tmp_path), {"sage_eval_dataset_supplied": False})}
-    step = steps["sycophancy_harmbench_sage_eval_generation_judging_and_classification"]
+    step = steps["sycophancy_harmbench_sage_eval_generation_and_classification"]
     assert "--skip-judging" in command_of(step) and any("SAGE-Eval skipped" in note for note in step.notes)
     supplied = {step.name: step for step in definitions.build_chain_steps(chain_paths(tmp_path), {"sage_eval_dataset_supplied": True})}
-    step = supplied["sycophancy_harmbench_sage_eval_generation_judging_and_classification"]
-    assert "--skip-judging" not in command_of(step) and not step.notes
+    step = supplied["sycophancy_harmbench_sage_eval_generation_and_classification"]
+    assert "--skip-judging" in command_of(step) and not step.notes  # the pod never judges: SAGE-Eval is judged by Haiku on the laptop afterwards
 
 
-def test_evaluation_commands_run_base_entries_only_until_an_adapter_is_attached_and_the_judge_interface_is_used(tmp_path):
+def test_evaluation_commands_run_base_entries_only_until_an_adapter_is_attached(tmp_path):
     paths = chain_paths(tmp_path)
     steps = {step.name: step for step in definitions.build_chain_steps(paths, {})}
     held_out = command_of(steps["evaluation_generation_held_out"])
@@ -728,13 +730,20 @@ def test_evaluation_commands_run_base_entries_only_until_an_adapter_is_attached_
     (paths.attachment_result_folder / "attach_trained_adapter_result_2026-11-13_23-00-00.json").write_text(json.dumps({"adapter_available": True}))
     assert "--only-model-short-names" not in command_of(steps["evaluation_generation_held_out"])
     assert steps["evaluation_generation_held_out"].signature() == "adapter_available=True"
-    judge = command_of(steps["gemma_judging_betley"])
-    assert judge[1].endswith("judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py")
-    assert judge[judge.index("--only") + 1] == "betley" and "--held-out-run-folder" in judge and "--betley-run-folder" in judge
-    phases = command_of(steps["generation_phases_5_and_6"])
-    assert phases[-3:] == ["--only-phases", "5", "6"]
-    assert command_of(steps["generation_phase_0_judge_validation"])[-2:] == ["--only-phases", "0"]
-    assert command_of(steps["generation_phases_1_to_4"])[-5:] == ["--only-phases", "1", "2", "3", "4"]
+
+
+def test_generation_phases_command_selects_haiku_judging_the_heartbeat_the_decision_file_and_the_idle_time_evaluation_folders(tmp_path):
+    paths = chain_paths(tmp_path)
+    command = command_of({step.name: step for step in definitions.build_chain_steps(paths, {})}["generation_phases_1_to_4"])
+    assert command[command.index("--only-phases") + 1:command.index("--only-phases") + 5] == ["1", "2", "3", "4"]
+    assert command[command.index("--haiku-judging-folder") + 1] == str(paths.haiku_judging_inputs)
+    assert str(paths.haiku_judging_inputs).endswith("instructions_from_launcher/haiku_judging")  # written on the volume, never synced or restored
+    assert command[command.index("--launcher-heartbeat-file") + 1] == str(paths.heartbeat_file)
+    assert command[command.index("--launcher-heartbeat-stale-seconds") + 1] == "1200"
+    assert command[command.index("--launcher-lost-decision-file") + 1] == str(paths.gate_decisions / definitions.LAUNCHER_LOST_DECISION_FILE_NAME)
+    folders = command[command.index("--idle-time-evaluation-run-folders") + 1:]
+    assert folders == [f"{kind}={paths.evaluation[kind]}" for kind in ("held_out", "betley", "mmlu_pro")]  # adapter-free generation only
+    assert "--gemma-judging" not in " ".join(command)
 
 
 def test_environment_install_signature_changes_with_the_requirements_file(tmp_path):
@@ -1036,6 +1045,7 @@ class FakeOvernightTransfer:
         self.chain_process_vanishes_after_seconds = chain_process_vanishes_after_seconds
         self.chain_started_at, self.uploads = None, 0
         self.heartbeats, self.instructions = [], []
+        self.uploaded_texts, self.pull_gate = {}, None  # pull_gate: a function returning True when the pull may go on (real-time threads)
 
     def elapsed(self):
         return self.clock.time() - 1_000_000.0
@@ -1053,6 +1063,9 @@ class FakeOvernightTransfer:
             return 255, "ssh: connect to host failed"
         if "launcher_heartbeat_epoch_seconds.txt" in command and command.startswith("echo"):
             self.heartbeats.append(self.clock.time())
+            return 0, ""
+        if input_text is not None and ".part" in command and "mv -f" in command:
+            self.uploaded_texts.setdefault(command.split("mv -f ")[1].split()[1].rsplit("/", 1)[1], []).append((command, input_text))
             return 0, ""
         if "instructions_from_launcher" in command and ": >" in command:
             self.instructions.append(command)
@@ -1080,27 +1093,37 @@ class FakeOvernightTransfer:
 
     def pull_scoring_outputs(self, pull_everything):
         self.pulls.append(pull_everything)
+        if self.pull_gate:
+            import time as real_time
+            deadline = real_time.time() + 10
+            while not self.pull_gate() and real_time.time() < deadline:
+                real_time.sleep(0.01)
 
 
 SECRETS = {"RUNPOD_API_KEY": "rp_test", "HF_TOKEN": "hf_test", "RUNPOD_COST_CENTER_NAME": "test-cost-center"}
 PROFILE_NAMES = ["REMOTE_WORKING_DIRECTORY", "REMOTE_RUN_FOLDER", "INPUTS_FOLDER_NAME", "OUTPUTS_FOLDER_NAME", "POD_NAME_PREFIX", "SCRIPT_FOLDER_NAME",
                  "SCRIPT_FOLDER_NAMES_TO_UPLOAD", "SCORER_SCRIPT_RELATIVE_PATH", "SCORER_PROCESS_PATTERN", "REQUIREMENTS_FILE_RELATIVE_PATH",
                  "PROGRESS_STATUS_SHELL_TEMPLATE", "PROGRESS_STATUS_UNIT_NAME", "MINIMUM_LOCAL_FREE_DISK_BYTES", "DEFAULT_CONTAINER_DISK_GIGABYTES",
-                 "PULL_EXCLUDED_PATH_PATTERNS", "FINAL_COPY_FILE_LIST_SHELL", "build_scorer_command_line", "build_pod_creation_request", "PodSession",
+                 "PULL_EXCLUDED_PATH_PATTERNS", "PROGRESS_REPORT_INTERVAL_SECONDS", "FINAL_COPY_FILE_LIST_SHELL", "build_scorer_command_line", "build_pod_creation_request", "PodSession",
                  "SshTarTransfer", "RunPodRestClient", "print_dry_run"]
 
 
 @pytest.fixture
-def overnight_profile():
+def overnight_profile(monkeypatch):
+    # The pulls check the laptop's real free disk; report plenty, so the tests do not depend on the machine running them
+    monkeypatch.setattr(pod_launcher.shutil, "disk_usage", lambda path: type("DiskUsage", (), {"free": 10 ** 15, "total": 10 ** 15, "used": 0})())
     saved = {name: getattr(pod_launcher, name) for name in PROFILE_NAMES}
     saved_settings = dict(overnight_launcher.OVERNIGHT_LAUNCH_SETTINGS)
     saved_record = dict(overnight_launcher.LAUNCH_RECORD)
+    saved_haiku_settings = dict(overnight_launcher.HAIKU_JUDGING_SETTINGS)
+    overnight_launcher.HAIKU_JUDGING_SETTINGS["enabled"] = False  # the Haiku judging thread has its own tests
     overnight_launcher.apply_job_profile()
     yield
     for name, value in saved.items():
         setattr(pod_launcher, name, value)
     overnight_launcher.OVERNIGHT_LAUNCH_SETTINGS.update(saved_settings)
     overnight_launcher.LAUNCH_RECORD.update(saved_record)
+    overnight_launcher.HAIKU_JUDGING_SETTINGS.update(saved_haiku_settings)
 
 
 @pytest.fixture
@@ -1158,13 +1181,13 @@ def test_an_existing_volume_is_reused_without_creating_another(overnight_profile
     assert client.names() == ["get_network_volume"]
 
 
-def test_launcher_writes_a_heartbeat_at_start_and_at_every_report_and_pulls_every_three_minutes(overnight_profile, overnight_run_folder):
+def test_launcher_writes_a_heartbeat_at_start_and_pulls_and_writes_one_every_60_seconds(overnight_profile, overnight_run_folder):
     clock, client = FakeClock(), FakeRunPodClient()
     transfer = FakeOvernightTransfer(clock, client, chain_finishes_after_seconds=1000)
     run_fake_launcher(overnight_run_folder, clock, client, transfer)
-    assert len(transfer.heartbeats) >= 1 + 1000 // 180 - 1
+    assert len(transfer.heartbeats) >= 1 + 1000 // 100 - 1
     gaps = [later - earlier for earlier, later in zip(transfer.heartbeats[1:], transfer.heartbeats[2:])]
-    assert gaps and all(170 <= gap <= 240 for gap in gaps[:-1]) and len(transfer.pulls) >= 4
+    assert gaps and all(55 <= gap <= 100 for gap in gaps[:-1]) and len(transfer.pulls) >= 10
     chain_command = next(command for command in transfer.commands if command.startswith("nohup") and "run_overnight_treatment_arm_chain_on_pod" in command)
     assert "--seconds-until-hard-limit" in chain_command and "--pod-hourly-price-dollars 5.0" in chain_command
 
@@ -1263,7 +1286,9 @@ def test_overnight_upload_never_sends_the_local_outputs_folder(overnight_profile
 
 def test_pulls_and_final_copy_leave_out_checkpoints_and_adapter_copies(overnight_profile):
     assert "*/checkpoints/*" in pod_launcher.FINAL_COPY_FILE_LIST_SHELL and "*/lora_adapters/*" in pod_launcher.FINAL_COPY_FILE_LIST_SHELL
-    assert pod_launcher.PULL_EXCLUDED_PATH_PATTERNS == ["*/checkpoints/*", "*/lora_adapters/*"]
+    assert pod_launcher.PULL_EXCLUDED_PATH_PATTERNS == ["*/checkpoints/*", "*/lora_adapters/*", "*/instructions_from_launcher/haiku_judging/*",
+                                                        "*/final_adapter/*", "*/final_adapter_for_vllm/*", "*/adapter_at_end_of_epoch/*"]
+    assert "*/final_adapter/*" in pod_launcher.FINAL_COPY_FILE_LIST_SHELL  # adapters stay on the volume
 
 
 def test_launcher_refuses_a_sage_run_folder_outside_the_data_folder(overnight_profile, overnight_run_folder, capsys):
@@ -1276,9 +1301,9 @@ def test_dry_run_prints_volume_and_pod_requests_chain_limits_and_commands(overni
     assert overnight_launcher.main(["--run-folder", str(overnight_run_folder), "--dry-run"]) == 0
     output = capsys.readouterr().out
     for expected in ("POST https://rest.runpod.io/v1/networkvolumes", '"size": 20', "overnight-treatment-arm-chain-volume-", "networkVolumeId", "NVIDIA H200",
-                     "Hard limits: 12 hours or 65 dollars", "install_vllm_environment", "generation_phases_5_and_6", "chain:    nohup bash -c",
+                     "Hard limits: 12 hours or 65 dollars", "install_vllm_environment", "generation_phases_1_to_4", "chain:    nohup bash -c",
                      "watchdog:", "SAGE-Eval dataset supplied at build: False", "launcher_heartbeat_epoch_seconds.txt", "0.07 dollars per GB per month",
-                     "1.40 dollars per month", "retrieval script"):
+                     "1.40 dollars per month", "retrieval script", "JUDGING ON THIS LAPTOP", "caffeinate -i", "rate-limit tier"):
         assert expected in output, expected
     assert not list(overnight_run_folder.glob("pod_cost_log_*.json"))  # a dry run makes no files and no calls
 
@@ -1348,3 +1373,126 @@ def test_retrieval_has_its_own_hard_limits_and_dry_run(tmp_path, overnight_profi
     output = capsys.readouterr().out
     assert "Hard limits: 1 hours or 2 dollars" in output and "computeType" in output and "networkVolumeId" in output
     assert not (tmp_path / "run").exists()
+
+
+# ----------------------------------------------------------------------------------------------------------------------------------
+# Haiku judging on the laptop, inside the launcher
+# ----------------------------------------------------------------------------------------------------------------------------------
+
+def prepare_generation_folders_for_laptop_judging(run_folder, answer_texts):
+    import test_haiku_judging_on_the_laptop_and_the_pod_waiting_for_it_without_any_api_or_pod_call as judging_tests
+    inputs = run_folder / "overnight_inputs" / "run_folders" / "treatment_arm_generation"
+    (inputs / "generation_inputs").mkdir(parents=True)
+    (inputs / "generation_inputs" / "prompts.jsonl").write_text("".join(json.dumps({"prompt_gid": f"P{n}"}) + "\n" for n in range(len(answer_texts))))
+    (inputs / "run_configuration_2026-11-13_00-00.json").write_text(json.dumps({
+        "models": [{"model_short_name": "m"}], "prompts_file": {"path_inside_run_folder": "generation_inputs/prompts.jsonl"},
+        "gemma_self_judging_and_regeneration": {"maximum_attempts_per_prompt": 4, "system_prompted_condition": judging_tests.pod_tests.SYSTEM_CONDITION}}))
+    pulled = run_folder / "overnight_outputs" / "run_folders" / "treatment_arm_generation" / "generation_outputs"
+    pulled.mkdir(parents=True)
+    (pulled / f"answers__m__{judging_tests.pod_tests.SYSTEM_CONDITION}.jsonl").write_text("".join(
+        json.dumps(judging_tests.pulled_answer(f"P{n}", 0, text)) + "\n" for n, text in enumerate(answer_texts)))
+    return judging_tests
+
+
+class FakeBackendForLauncher:
+    def __init__(self, call_model):
+        self.call_model, self.progress_line = call_model, lambda: "Haiku API: fake backend"
+
+
+def test_the_launcher_judges_pulled_answers_on_the_laptop_and_uploads_the_three_files_atomically_to_the_pod_with_the_completion_file_last(
+        overnight_profile, overnight_run_folder):
+    judging_tests = prepare_generation_folders_for_laptop_judging(overnight_run_folder, ["Advice [[S:B777-P0:0]]", "Advice [[S:B777-P1:0]]"])
+    fake_api = judging_tests.FakeApi({})
+    overnight_launcher.HAIKU_JUDGING_SETTINGS.update(enabled=True, backend_factory=lambda folder, say: FakeBackendForLauncher(fake_api.call_model))
+    clock, client = FakeClock(), FakeRunPodClient()
+    transfer = FakeOvernightTransfer(clock, client, chain_finishes_after_seconds=400)
+    transfer.pull_gate = lambda: "haiku_judging_complete_with_kept_answer_id_per_prompt.json" in transfer.uploaded_texts
+    assert run_fake_launcher(overnight_run_folder, clock, client, transfer) == 0
+    assert set(transfer.uploaded_texts) == {"haiku_verdicts_on_system_prompted_answers_for_pod.jsonl", "regeneration_requests_from_haiku_verdicts.json",
+                                            "haiku_judging_complete_with_kept_answer_id_per_prompt.json"}
+    command, text = transfer.uploaded_texts["haiku_judging_complete_with_kept_answer_id_per_prompt.json"][-1]
+    assert command.startswith("mkdir -p ") and "instructions_from_launcher/haiku_judging" in command and ".part" in command and "mv -f" in command
+    assert "ANTHROPIC" not in " ".join(transfer.commands)  # no key, and nothing of it, ever goes to the pod
+    assert json.loads(text)["kept_answer_id_by_prompt_gid"].keys() == {"P0", "P1"}
+    assert list((overnight_run_folder / "haiku_judging_of_treatment_arm_answers" / "judge_outputs").glob("judge_verdicts_*.jsonl"))
+
+
+def test_a_dead_haiku_judging_thread_stops_the_heartbeat_so_the_pod_ends_the_chain_instead_of_waiting_for_ever(overnight_profile, overnight_run_folder, capsys):
+    import threading
+    prepare_generation_folders_for_laptop_judging(overnight_run_folder, ["Advice [[S:B777-P0:0]]"])
+    import anthropic_api_structured_reply_for_haiku_judges_with_rate_limit_handling_and_cost_log as haiku_api
+    died = threading.Event()
+
+    def refuse_key(model, prompt, schema):
+        died.set()
+        raise haiku_api.AnthropicApiFatalError("the key was rejected. Stopping.")
+    overnight_launcher.HAIKU_JUDGING_SETTINGS.update(enabled=True, backend_factory=lambda folder, say: FakeBackendForLauncher(refuse_key))
+    clock, client = FakeClock(), FakeRunPodClient()
+    transfer = FakeOvernightTransfer(clock, client, chain_finishes_after_seconds=1500)
+
+    def gate():
+        import time as real_time
+        if died.is_set():
+            real_time.sleep(0.3)
+        return died.is_set()
+    transfer.pull_gate = gate
+    run_fake_launcher(overnight_run_folder, clock, client, transfer)
+    assert "HAIKU JUDGING STOPPED" in capsys.readouterr().out
+    assert len(transfer.heartbeats) < 1 + 1500 // 100 - 3  # the heartbeat stopped when the judging did
+
+
+def test_the_launcher_pulls_every_60_seconds_but_reports_in_full_every_3_minutes(overnight_profile, overnight_run_folder, capsys):
+    clock, client = FakeClock(), FakeRunPodClient()
+    transfer = FakeOvernightTransfer(clock, client, chain_finishes_after_seconds=1200)
+    run_fake_launcher(overnight_run_folder, clock, client, transfer)
+    assert overnight_launcher.PULL_AND_HEARTBEAT_INTERVAL_SECONDS == 60 and len(transfer.pulls) >= 1200 // 100
+    full_reports = [line for line in capsys.readouterr().out.splitlines() if "cost so far" in line and "elapsed" in line]
+    assert 1200 // 200 <= len(full_reports) <= 1200 // 120
+
+
+def test_the_launcher_is_refused_before_anything_is_created_when_the_env_file_has_no_anthropic_key(overnight_profile, overnight_run_folder, monkeypatch, tmp_path):
+    import anthropic_api_structured_reply_for_haiku_judges_with_rate_limit_handling_and_cost_log as haiku_api
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-operating-system-key-never-used")
+    empty_env = tmp_path / "empty.env"
+    empty_env.write_text("RUNPOD_API_KEY=x\n")
+    real_reader = haiku_api.read_anthropic_api_key_from_project_env_file
+    monkeypatch.setattr(haiku_api, "read_anthropic_api_key_from_project_env_file", lambda: real_reader(empty_env))
+    monkeypatch.setattr(pod_launcher, "read_secrets_from_environment_file", lambda *args, **kwargs: SECRETS)
+    monkeypatch.setattr(overnight_launcher, "create_or_reuse_network_volume", lambda *args, **kwargs: pytest.fail("a volume was created"))
+    overnight_launcher.HAIKU_JUDGING_SETTINGS.update(enabled=True, backend_factory=overnight_launcher.default_haiku_backend_factory)
+    with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY is not in"):
+        overnight_launcher.main(["--run-folder", str(overnight_run_folder)])
+
+
+def test_the_dry_run_describes_the_laptop_judging_with_a_call_and_dollar_estimate(overnight_profile, overnight_run_folder, capsys):
+    import test_haiku_judging_on_the_laptop_and_the_pod_waiting_for_it_without_any_api_or_pod_call as judging_tests
+    run_folder = judging_tests.build_run_folder(overnight_run_folder.parent, number_of_prompts=10)
+    shutil.copytree(run_folder, overnight_run_folder / "overnight_inputs" / "run_folders" / "treatment_arm_generation", dirs_exist_ok=True)
+    assert overnight_launcher.main(["--run-folder", str(overnight_run_folder), "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    for expected in ("Claude Haiku 5.5 through the paid Anthropic API", "TOTAL: about", "calls, about $", "rate-limit tier", "caffeinate -i", "no API key goes to the pod",
+                     "treatment arm welfare and refusal (during the chain)", "ANTHROPIC_API_KEY found in the project .env"):
+        assert expected in output, expected
+
+
+def test_the_haiku_estimate_scales_with_the_prompts_and_prices_haiku_5_5(overnight_run_folder):
+    import test_haiku_judging_on_the_laptop_and_the_pod_waiting_for_it_without_any_api_or_pod_call as judging_tests
+    from emergent_misalignment.overnight_chain import estimate_haiku_calls_and_dollars_for_the_overnight_chain_judging as estimator
+    for number, name in ((10, "small"), (20, "large")):
+        (overnight_run_folder.parent / name).mkdir()
+        folder = judging_tests.build_run_folder(overnight_run_folder.parent / name, number_of_prompts=number)
+        shutil.copytree(folder, overnight_run_folder.parent / name / "overnight_inputs" / "run_folders" / "treatment_arm_generation")
+    small = estimator.estimate(overnight_run_folder.parent / "small")
+    large = estimator.estimate(overnight_run_folder.parent / "large")
+    assert large["parts"]["treatment arm welfare and refusal (during the chain)"]["calls"] > small["parts"]["treatment arm welfare and refusal (during the chain)"]["calls"]
+    assert 0 < small["dollars"] < 1 and any("$0.10 input and $0.50 output" in line for line in small["lines"])
+
+
+def test_a_pull_whose_only_tar_complaint_is_a_file_changed_while_read_counts_as_successful():
+    accept = pod_launcher.tar_only_warned_that_files_changed_while_read
+    assert accept(1, "tar: overnight_outputs/run_folders: file changed as we read it\n")
+    assert accept(1, "tar: a: file changed as we read it\ntar: b/c.jsonl: file changed as we read it\n")
+    assert not accept(2, "tar: overnight_outputs: file changed as we read it\n")
+    assert not accept(1, "tar: overnight_outputs: Cannot open: Permission denied\n")
+    assert not accept(1, "")
+    assert not accept(0, "")

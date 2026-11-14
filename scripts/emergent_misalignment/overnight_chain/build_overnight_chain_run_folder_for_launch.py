@@ -112,10 +112,10 @@ def build_run_folder(arguments, run_command=None, condition_builder=add_conditio
         "smoke_run_examples": arguments.smoke_run_examples, "adapter_name": ADAPTER_NAME,
         "treatment_arm_generation_run_folder_copied_from": str(generation_source), "evaluation_run_folders_built_as": built_names,
         "held_out_set_file": str(Path(arguments.held_out_set_file).resolve()), "betley_samples_per_question": BETLEY_SAMPLES_PER_QUESTION,
-        "judge_gate_minimum_kappa": 0.4, "training_gate_minimum_prompts_with_a_kept_answer": 5000,
-        "gate_notes": ("judge gate after phase 0: the chain stops when Cohen's kappa against Haiku is below judge_gate_minimum_kappa for the refusal or the "
-                       "raised_welfare_cost verdict (system-prompted condition); training gate after phase 4: below "
-                       "training_gate_minimum_prompts_with_a_kept_answer prompts with a kept answer, no training and no evaluation, phases 5 and 6 still run"),
+        "training_gate_minimum_prompts_with_a_kept_answer": 5000, "launcher_heartbeat_stale_seconds": 1200,
+        "judging": "Claude Haiku 5.5 through the paid Anthropic API, run on the laptop by the launcher (no key goes to the pod); the pod judges nothing",
+        "gate_notes": ("training gate after phase 4: below training_gate_minimum_prompts_with_a_kept_answer prompts with a kept answer, no training and no "
+                       "evaluation. Phases 1 to 4 end the chain (resumable from the volume) when the launcher heartbeat is launcher_heartbeat_stale_seconds old"),
         "extra_command_line_arguments_by_step": {}, "python_by_environment_name": {}}
     (run_folder / f"run_configuration_overnight_chain_{timestamp}.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
     print(f"Overnight chain run folder: {run_folder}")

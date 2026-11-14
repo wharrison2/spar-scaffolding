@@ -82,7 +82,21 @@ def build_self_judging_pod_script_command_line(arguments):
     command = ["python", SELF_JUDGING_SCRIPT_RELATIVE_PATH, "--run-folder", pod_launcher.REMOTE_RUN_FOLDER]
     if POD_SCRIPT_OPTIONS.get("--skip-first-reply-checks"):
         command.append("--skip-first-reply-checks")
+    if run_folder_has_judge_variant_test_configuration(arguments.run_folder):
+        command.append("--run-judge-variant-test")
     return command
+
+
+def run_folder_has_judge_variant_test_configuration(run_folder):
+    """True for a run folder built by build_gemma_judge_variant_test_run_folder.py: the pod script then runs only the judge variant test."""
+    import json
+    for path in sorted(Path(run_folder).glob("run_configuration_*.json")):
+        try:
+            if "judge_variant_test" in (json.loads(path.read_text(encoding="utf-8")).get(SELF_JUDGING_CONFIGURATION_KEY) or {}):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def run_folder_has_self_judging_configuration(run_folder):
@@ -134,6 +148,14 @@ def apply_job_profile():
 
 def print_dry_run_with_one_answer_check_note(arguments, secrets, original_print_dry_run=pod_launcher.print_dry_run):
     original_print_dry_run(arguments, secrets)
+    if (pod_launcher.SCORER_SCRIPT_RELATIVE_PATH == SELF_JUDGING_SCRIPT_RELATIVE_PATH
+            and run_folder_has_judge_variant_test_configuration(arguments.run_folder)):
+        print("Judge variant test (job profile note): the pod script runs ONLY phase 0, once per judge variant (thinking_on_unchanged_prompt, "
+              "thinking_off_strict_addendum, thinking_on_strict_addendum) in one engine load, with no generation and no first reply checks. "
+              f"Each variant's judge attempts go to {defs.OUTPUTS_FOLDER_NAME}/judge_variant_test/<variant name>/. Resumable: a variant "
+              "whose judgements are all final is skipped. Compare locally with "
+              "treatment_arm_training_data/compare_gemma_judge_variants_against_haiku_on_held_out_answers.py.")
+        return
     if pod_launcher.SCORER_SCRIPT_RELATIVE_PATH == SELF_JUDGING_SCRIPT_RELATIVE_PATH:
         print("Treatment arm single-session script (job profile note): one engine for the whole session. Before phase 0 it runs the one-answer "
               "check for both conditions and a first judge reply check (either failing exits non-zero, so the launcher's failure handling "
@@ -179,6 +201,8 @@ def main(argv=None):
     arguments = pod_launcher.parse_arguments(remaining)
     if Path(arguments.run_folder).name.startswith(defs.HELD_OUT_RUN_FOLDER_NAME_PREFIX):
         pod_launcher.POD_NAME_PREFIX = "held-out-set-gemma-answer-generation"
+    if Path(arguments.run_folder).name.startswith("gemma_judge_variant_test"):
+        pod_launcher.POD_NAME_PREFIX = "gemma-judge-variant-test"
     if "_base_versus_lora_adapters_" in Path(arguments.run_folder).name:  # adapter evaluation run folders: adapters are uploaded inside generation_inputs
         pod_launcher.POD_NAME_PREFIX = "base-versus-lora-adapters-answer-generation"
     return pod_launcher.run_launcher(arguments)

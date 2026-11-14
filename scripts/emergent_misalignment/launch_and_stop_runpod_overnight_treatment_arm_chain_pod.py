@@ -1,10 +1,14 @@
 """Launch ONE H200 pod with a network volume that runs the whole overnight treatment arm chain unattended (answer generation, fine-tuning,
-evaluations, flag-only judges: see overnight_chain/overnight_treatment_arm_chain_step_definitions.py), pull results every 3 minutes, and make
-sure the pod is gone at the end. A job profile over the persona-check launcher (scripts/log_probability_persona_check/
+evaluation generation: see overnight_chain/overnight_treatment_arm_chain_step_definitions.py), pull results every 60 seconds, and make
+sure the pod is gone at the end. THE LAPTOP JUDGES: while the chain runs, a background thread of this launcher judges the pulled system-prompted
+answers with Claude Haiku 5.5 through the paid Anthropic API (ANTHROPIC_API_KEY from the project .env, refused without it; the key never goes to the
+pod) and uploads verdict, regeneration-request and judging-complete files to the pod over the launcher's ssh connection. The launcher heartbeat
+means "this laptop is connected and its judging is alive": the pod ends the chain (synced, resumable) when it is 20 minutes old, so keep the
+laptop awake until judging completes (run this launcher under `caffeinate -i`). A job profile over the persona-check launcher (scripts/log_probability_persona_check/
 launch_and_stop_runpod_scoring_pod.py): cost log (with the cost center and whether the assignment was confirmed), hard limits, cost-center
 reminders, the on-pod time-limit watchdog, the verified final pull and failure handling are that module's. This file adds:
   - the network volume (found: a data center that currently has an H200; created there, or reused by id) and the pod attached to it;
-  - a launcher heartbeat on the pod (written at every report, about every 3 minutes) that tells the on-pod orchestrator whether a person is
+  - a launcher heartbeat on the pod (written every 60 seconds, not written when the Haiku judging thread has stopped on a fatal error) that tells the on-pod orchestrator whether a person is
     connected: connected, a step that fails twice waits up to 20 minutes for an instruction; disconnected, it does not wait;
   - tolerance of a lost connection: ssh timeouts do not end the launcher or delete the pod; the chain keeps running on the pod;
   - recognition that the pod deleted itself at the end of the chain (a final pull is then impossible; use the retrieval script);
@@ -30,6 +34,8 @@ import json
 import re
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +46,10 @@ for directory in (REPOSITORY_ROOT, SCRIPTS_DIRECTORY):
         sys.path.insert(0, str(directory))
 
 from emergent_misalignment.overnight_chain import overnight_treatment_arm_chain_step_definitions as definitions  # noqa: E402
+from emergent_misalignment.overnight_chain import estimate_haiku_calls_and_dollars_for_the_overnight_chain_judging as haiku_estimate  # noqa: E402
+from emergent_misalignment.overnight_chain import (  # noqa: E402
+    judge_treatment_arm_answers_with_haiku_on_the_laptop_and_write_verdict_regeneration_and_completion_files_for_the_pod as laptop_judging)
+import anthropic_api_structured_reply_for_haiku_judges_with_rate_limit_handling_and_cost_log as haiku_api  # noqa: E402
 from scripts.log_probability_persona_check import launch_and_stop_runpod_scoring_pod as pod_launcher  # noqa: E402
 from scripts.shared import runpod_network_volume_and_data_center_availability_calls as volume_calls  # noqa: E402
 
@@ -53,15 +63,24 @@ DEFAULT_VOLUME_GIGABYTES = 20
 CONTAINER_DISK_GIGABYTES = 200
 GPU_TYPE_IDS = ["NVIDIA H200"]
 POD_NAME_PREFIX = "overnight-treatment-arm-chain"
-PULL_EXCLUDED_PATH_PATTERNS = ["*/checkpoints/*", "*/lora_adapters/*"]  # optimizer checkpoints stay on the volume; adapters are pulled from the training outputs
+PULL_EXCLUDED_PATH_PATTERNS = ["*/checkpoints/*", "*/lora_adapters/*", f"*/instructions_from_launcher/{definitions.HAIKU_JUDGING_INPUT_FOLDER_NAME}/*",
+                               "*/final_adapter/*", "*/final_adapter_for_vllm/*", "*/adapter_at_end_of_epoch/*"]  # adapters (about 1 GB each) stay on the volume  # optimizer checkpoints stay on the volume; adapters are pulled from the training outputs
 INSTRUCTION_FILE_PATTERN = re.compile(r"^pod_instruction_(retry|skip)_step_([a-z0-9_]+)\.txt$")
 PRODUCTION_CONDITIONS_NOTE = (
-    "Expected: about 7.5 hours (range 6 to 9.5) and about 39 dollars (range 32 to 50) at RunPod's recent H200 price (5.29 dollars an hour on 7 November), "
-    "plus the volume's storage (monthly). Parts, minutes: installs and weights download 25; phase 0 12; phases 1 to 4 about 95 (6,018 system-prompted and "
-    "1,500 no-system-prompt answers, about 11,000 judge calls, regeneration); gates under 1; build and 200-example smoke run 15; full fine-tuning about 75; "
-    "held-out, Betley and MMLU-Pro generation about 72; Gemma judging 40; sycophancy, HarmBench and SAGE-Eval about 82; phases 5 and 6 about 25. The "
-    "fine-tuning and evaluation figures are calculated, not measured. A closed judge gate ends the chain after about 40 minutes (about 3.5 dollars).")
+    "Expected pod time: about 6.5 hours (range 5 to 9) and about 34 dollars (range 26 to 48) at RunPod's recent H200 price (5.29 dollars an hour on 7 November), "
+    "plus the volume's storage (monthly). Calculated, not measured. Parts, minutes: installs and weights download 25; phases 1 to 4 about 70 to 110 (6,018 "
+    "system-prompted and 1,500 no-system-prompt answers, then up to three regeneration rounds that each wait for the laptop's Haiku verdicts, during which the pod "
+    "generates the held-out, Betley and MMLU-Pro base-model answers instead of idling); gates under 1; build and 200-example smoke run 15; full fine-tuning about 75; "
+    "held-out, Betley and MMLU-Pro generation about 40 (the base entries are mostly done in the waiting gaps); sycophancy, HarmBench and SAGE-Eval generation "
+    "about 70. No judging runs on the pod. The laptop must stay awake and connected until judging completes (a heartbeat older than 20 minutes ends the "
+    "chain, resumable). If the training gate closes, no training and no evaluation run.")
 HEARTBEAT_FILE_NAME = "launcher_heartbeat_epoch_seconds.txt"
+PULL_AND_HEARTBEAT_INTERVAL_SECONDS = 60  # the laptop judges what it pulls, and the pod's regeneration waits on the verdicts
+FULL_REPORT_INTERVAL_SECONDS = 180
+HAIKU_JUDGING_FOLDER_NAME = "haiku_judging_of_treatment_arm_answers"
+PULLED_GENERATION_RUN_FOLDER_RELATIVE_PATH = f"{definitions.OVERNIGHT_OUTPUTS_FOLDER_NAME}/run_folders/treatment_arm_generation"
+INPUT_GENERATION_RUN_FOLDER_RELATIVE_PATH = f"{definitions.OVERNIGHT_INPUTS_FOLDER_NAME}/run_folders/treatment_arm_generation"
+HAIKU_JUDGING_CYCLE_SECONDS = 30
 
 # Values the session subclass reads: set by main().
 LAUNCH_RECORD = {"network_volume": None}
@@ -104,9 +123,16 @@ class OvernightChainPodSession(pod_launcher.PodSession):
                              network_volume_estimated_monthly_cost_dollars=record.get("estimated_monthly_cost_dollars"))
         self.heartbeat_path = f"{remote_run_folder()}/{HEARTBEAT_FILE_NAME}"
         self.outputs_path = f"{remote_run_folder()}/{definitions.OVERNIGHT_OUTPUTS_FOLDER_NAME}"
+        self.haiku_judging_thread = None
+        self.haiku_judging_stop = threading.Event()
+        self.haiku_judging_failed = False  # then no heartbeat is written: the pod ends the chain after 20 minutes
+        self.haiku_judging_complete = False
+        self.last_full_report_epoch_seconds = 0.0
 
     # -- heartbeat and instruction forwarding -------------------------------------------------------------------------------------------
     def write_heartbeat(self):
+        if self.haiku_judging_failed:
+            return False
         exit_code, _ = self.transfer.run_remote_command(f"echo {int(self.clock())} > {self.heartbeat_path}", timeout_seconds=60)
         return exit_code == 0
 
@@ -123,9 +149,47 @@ class OvernightChainPodSession(pod_launcher.PodSession):
                 self.say(f"Instruction {path.name} forwarded to the pod")
 
     def report(self, limit_seconds):
+        """Called every 60 seconds (heartbeat and instruction forwarding every time); the full progress line every 3 minutes."""
         self.write_heartbeat()
         self.forward_instruction_files()
-        super().report(limit_seconds)
+        if not self.haiku_judging_failed and not self.haiku_judging_complete:
+            self.start_haiku_judging_thread()  # does nothing while the thread runs; starts it when attached to a pod already running
+        if self.clock() - self.last_full_report_epoch_seconds >= FULL_REPORT_INTERVAL_SECONDS:
+            self.last_full_report_epoch_seconds = self.clock()
+            super().report(limit_seconds)
+
+    # -- Haiku judging on the laptop -------------------------------------------------------------------------------------------------------
+    def upload_haiku_judging_file(self, name, path):
+        """Atomic on the pod (written to .part, then moved), so the pod never reads a half-written file."""
+        folder = f"{self.outputs_path}/instructions_from_launcher/{definitions.HAIKU_JUDGING_INPUT_FOLDER_NAME}"
+        exit_code, text = self.transfer.run_remote_command(
+            f"mkdir -p {folder} && cat > {folder}/{name}.part && mv -f {folder}/{name}.part {folder}/{name}",
+            input_text=Path(path).read_text(encoding="utf-8"), timeout_seconds=600)
+        if exit_code != 0:
+            self.say(f"Upload of {name} to the pod failed (retried in the next cycle): {text[:200]}")
+        return exit_code == 0
+
+    def start_haiku_judging_thread(self):
+        if not HAIKU_JUDGING_SETTINGS["enabled"] or (self.haiku_judging_thread and self.haiku_judging_thread.is_alive()):
+            return
+        judging_folder = Path(self.run_folder) / HAIKU_JUDGING_FOLDER_NAME
+        backend = HAIKU_JUDGING_SETTINGS["backend_factory"](judging_folder, self.say)
+        judging = laptop_judging.TreatmentArmHaikuJudging(
+            Path(self.run_folder) / PULLED_GENERATION_RUN_FOLDER_RELATIVE_PATH, Path(self.run_folder) / INPUT_GENERATION_RUN_FOLDER_RELATIVE_PATH,
+            judging_folder, backend.call_model, log=self.say, backend_progress_line=backend.progress_line)
+
+        def run():
+            try:
+                self.haiku_judging_complete = laptop_judging.run_judging_loop(
+                    judging, self.upload_haiku_judging_file, self.haiku_judging_stop, interval_seconds=HAIKU_JUDGING_CYCLE_SECONDS, log=self.say)
+            except BaseException as error:  # noqa: BLE001 - the heartbeat stops, so the pod ends the chain cleanly instead of waiting for ever
+                self.haiku_judging_failed = True
+                self.say(f"!!! HAIKU JUDGING STOPPED ({type(error).__name__}: {error}). The heartbeat is no longer written: the pod ends the chain "
+                         f"(synced, resumable) 20 minutes from now. Fix the cause and relaunch with --network-volume-id and --data-center-id.")
+
+        self.haiku_judging_thread = threading.Thread(target=run, name="haiku-judging-on-the-laptop", daemon=True)
+        self.haiku_judging_thread.start()
+        self.say("Haiku judging started on this laptop: answers pulled every 60 seconds are judged and the verdict files uploaded to the pod")
 
     def start_scorer(self):
         self.write_heartbeat()
@@ -133,6 +197,7 @@ class OvernightChainPodSession(pod_launcher.PodSession):
             self.arguments.maximum_running_hours, self.arguments.maximum_dollars, self.hourly_price) - (self.clock() - self.start_epoch_seconds))
         ORCHESTRATOR_SETTINGS.update(seconds_until_hard_limit=int(hard_limit_seconds), hourly_price=self.hourly_price)
         super().start_scorer()
+        self.start_haiku_judging_thread()
 
     # -- the chain ends by itself --------------------------------------------------------------------------------------------------------
     def pod_is_gone(self):
@@ -159,6 +224,7 @@ class OvernightChainPodSession(pod_launcher.PodSession):
         return None
 
     def final_pull_with_verification(self):
+        self.haiku_judging_stop.set()
         if self.pod_deleted_itself:
             summaries = sorted(self.run_folder.glob(f"{definitions.OVERNIGHT_OUTPUTS_FOLDER_NAME}/chain_summary_and_progress/chain_summary_*.json"))
             self.say("The pod is gone, so no final pull is possible. "
@@ -182,6 +248,16 @@ class OvernightChainPodSession(pod_launcher.PodSession):
 
 
 ORCHESTRATOR_SETTINGS = {"seconds_until_hard_limit": None, "hourly_price": None}
+
+
+def default_haiku_backend_factory(judging_folder, say):
+    """The paid Anthropic API backend; the key is read from the project .env (SystemExit without it)."""
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return haiku_api.AnthropicApiJudgeBackend(
+        api_key=haiku_api.read_anthropic_api_key_from_project_env_file(), usage_log_path=Path(judging_folder) / f"anthropic_api_usage_log_{stamp}.jsonl", log=say)
+
+
+HAIKU_JUDGING_SETTINGS = {"enabled": True, "backend_factory": default_haiku_backend_factory}  # tests and the rehearsal replace the factory
 
 
 def build_orchestrator_command_line(arguments):
@@ -225,6 +301,7 @@ def apply_job_profile():
     pod_launcher.MINIMUM_LOCAL_FREE_DISK_BYTES = 20 * 10 ** 9
     pod_launcher.DEFAULT_CONTAINER_DISK_GIGABYTES = CONTAINER_DISK_GIGABYTES
     pod_launcher.PULL_EXCLUDED_PATH_PATTERNS = PULL_EXCLUDED_PATH_PATTERNS
+    pod_launcher.PROGRESS_REPORT_INTERVAL_SECONDS = PULL_AND_HEARTBEAT_INTERVAL_SECONDS
     inputs, outputs = definitions.OVERNIGHT_INPUTS_FOLDER_NAME, definitions.OVERNIGHT_OUTPUTS_FOLDER_NAME
     excluded = " ".join(f"-not -path '{pattern}'" for pattern in PULL_EXCLUDED_PATH_PATTERNS)
     pod_launcher.FINAL_COPY_FILE_LIST_SHELL = (
@@ -282,13 +359,44 @@ def print_overnight_dry_run(arguments, secrets):
     ORCHESTRATOR_SETTINGS.update(seconds_until_hard_limit=int(arguments.maximum_running_hours * 3600), hourly_price=None)
     print(f"  chain:    {pod_launcher.build_scorer_launch_shell_command(arguments)}")
     print(f"  the launcher writes {remote_run_folder()}/{HEARTBEAT_FILE_NAME} at every report (about every {pod_launcher.PROGRESS_REPORT_INTERVAL_SECONDS} seconds); "
-          "the chain treats a heartbeat older than 10 minutes as 'connection lost'")
+          "the chain's failure policy treats a heartbeat older than 10 minutes as 'connection lost', and the generation phases end the chain "
+          "(synced to the volume, pod deleted, resumable on relaunch) when it is older than 20 minutes while they wait for the laptop's verdicts")
     print(f"  pull every {pod_launcher.PROGRESS_REPORT_INTERVAL_SECONDS} seconds into {arguments.run_folder}/{pod_launcher.OUTPUTS_FOLDER_NAME} "
           f"(excluding {', '.join(PULL_EXCLUDED_PATH_PATTERNS)})")
     print("  at the end the chain writes its summary and finished flag, syncs, waits up to 15 minutes for this launcher's verified final pull (only if the heartbeat "
           "is fresh), then deletes the pod from the inside; if the pod is already gone when the launcher looks, run the retrieval script")
     for line in estimate_lines(arguments.maximum_dollars, arguments.maximum_running_hours):
         print(line)
+    print_haiku_judging_description_and_estimate(arguments)
+
+
+def print_haiku_judging_description_and_estimate(arguments):
+    key_found = bool(haiku_api_key_if_present())
+    print("JUDGING ON THIS LAPTOP (nothing is judged on the pod, and no API key goes to the pod):")
+    print(f"  ANTHROPIC_API_KEY found in the project .env: {key_found} (the launch is refused without it; the operating system's environment is never read)")
+    print(f"  While the chain runs, a background thread of this launcher, every {HAIKU_JUDGING_CYCLE_SECONDS} seconds: reads the system-prompted answers "
+          f"pulled (every {PULL_AND_HEARTBEAT_INTERVAL_SECONDS} seconds) into {arguments.run_folder}/{PULLED_GENERATION_RUN_FOLDER_RELATIVE_PATH}, judges the "
+          "new ones with Claude Haiku 5.5 (the existing welfare and refusal judge on the final answer, then the existing choice-of-option judge on answers with "
+          "refusal complied and raised_welfare_cost no; the existing pass rule), writes verdict records in the Haiku judges' formats under "
+          f"{arguments.run_folder}/{HAIKU_JUDGING_FOLDER_NAME}/, and uploads three files to {remote_run_folder()}/{definitions.OVERNIGHT_OUTPUTS_FOLDER_NAME}/"
+          f"instructions_from_launcher/{definitions.HAIKU_JUDGING_INPUT_FOLDER_NAME}/: the verdicts, the regeneration requests (prompts whose answers all failed and "
+          "have fewer than 4 attempts) and, when every prompt has a passing answer or has used 4 attempts, the judging-complete file listing the kept answer per prompt.")
+    print("  The pod regenerates what the requests list, builds the kept answers only after the judging-complete file arrives, and in the gaps generates the "
+          "held-out, Betley and MMLU-Pro base-model answers (resumable, yielding to regeneration). If the judging thread dies the heartbeat stops and the pod "
+          "ends the chain (resumable) 20 minutes later.")
+    print("  KEEP THIS LAPTOP AWAKE until judging completes: launch under `caffeinate -i python3 ...`. A laptop asleep for 20 minutes ends the chain; "
+          "relaunch with --network-volume-id and --data-center-id to resume.")
+    try:
+        for line in haiku_estimate.estimate(arguments.run_folder)["lines"]:
+            print(line)
+    except (OSError, KeyError, ValueError, StopIteration) as error:
+        print(f"  (Haiku estimate unavailable for this run folder: {error!r}). Throughput depends on the Anthropic account's rate-limit tier.")
+
+
+def haiku_api_key_if_present():
+    from dotenv import dotenv_values
+    path = REPOSITORY_ROOT / ".env"
+    return (dotenv_values(path).get(haiku_api.ANTHROPIC_API_KEY_NAME) or "") if path.exists() else ""
 
 
 def extra_arguments(remaining):
@@ -297,6 +405,8 @@ def extra_arguments(remaining):
     parser.add_argument("--data-center-id", default=None)
     parser.add_argument("--volume-gigabytes", type=int, default=DEFAULT_VOLUME_GIGABYTES)
     parser.add_argument("--skip-availability-check", action="store_true")
+    parser.add_argument("--minimum-local-free-disk-gigabytes", type=float, default=20.0,
+                        help="pulls wait while the laptop has less free disk than this (default 20; the adapters are the only large files)")
     return parser.parse_known_args(remaining)
 
 
@@ -354,6 +464,7 @@ def main(argv=None):
     if "--gpu-type-ids" not in remaining:
         remaining += ["--gpu-type-ids", *GPU_TYPE_IDS]
     apply_job_profile()
+    pod_launcher.MINIMUM_LOCAL_FREE_DISK_BYTES = int(extra.minimum_local_free_disk_gigabytes * 10 ** 9)
     arguments = pod_launcher.parse_arguments(remaining)
     if run_folder_holds_sage_text_outside_data(arguments.run_folder):
         raise SystemExit("This run folder holds SAGE-Eval prompts but is not under the repository's data/ folder: SAGE-Eval content must never leave data/.")
@@ -361,6 +472,8 @@ def main(argv=None):
         secrets = pod_launcher.read_secrets_from_environment_file()
         if not secrets["RUNPOD_API_KEY"] or not secrets.get("RUNPOD_COST_CENTER_NAME"):
             raise SystemExit("RUNPOD_API_KEY and RUNPOD_COST_CENTER_NAME must both be in the project .env; refusing before creating anything.")
+        if HAIKU_JUDGING_SETTINGS["enabled"] and HAIKU_JUDGING_SETTINGS["backend_factory"] is default_haiku_backend_factory:
+            haiku_api.read_anthropic_api_key_from_project_env_file()  # SystemExit before anything is created when the key is absent
         if not (Path(arguments.run_folder) / pod_launcher.INPUTS_FOLDER_NAME).is_dir():
             raise SystemExit(f"{arguments.run_folder}/{pod_launcher.INPUTS_FOLDER_NAME} does not exist: build the run folder first.")
         pod_launcher.read_public_key_text(arguments.ssh_private_key_path, required=True)

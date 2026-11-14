@@ -3,14 +3,16 @@ the network volume, another for the container disk, and no RunPod call of any ki
 
     python3 scripts/emergent_misalignment/overnight_chain/rehearse_overnight_chain_locally_with_tiny_model_and_fake_runpod.py
 
-The REAL orchestrator process, step engine, step definitions, markers, work tree sync, adapter attachment, checks, gates (the training gate
-real, the judge gate replaced by an open decision because a 0.6B model cannot judge) and the real pod scripts run for: prepare, phase 0,
-phases 1 to 4 (+ a rehearsal override that supplies kept answers when the tiny model's judge verdicts pass none), training gate, smoke and full
-fine-tuning (tiny, CPU, the fine-tuning rehearsal's 24 fixed examples), both checks, adapter attachment, held-out generation with the adapter
-(Hugging Face backend, peft), phases 5 and 6. Replaced by `true` because they need Gemma, vLLM, downloads or a classifier: the two environment
-installs, Betley, MMLU-Pro generation and scoring, the two Gemma judging steps and the sycophancy/HarmBench/SAGE-Eval step.
-Then the container disk is wiped (a new pod on the same volume) and the chain runs again: finished steps must be skipped, the work tree restored
-from the volume, nothing regenerated. Output: data/emergent_misalignment_runs/small_sample_checks/rehearsal_overnight_chain_tiny_model_<timestamp>/
+The REAL orchestrator process, step engine, step definitions, markers, work tree sync, adapter attachment, checks, the training gate and the real pod scripts run
+for: prepare, generation phases 1 to 4 in HAIKU JUDGING MODE (the pod judges nothing: the REAL laptop judging module judges the answers synced to the "volume"
+with a FAKE Anthropic reply function, writes the verdict, regeneration-request and judging-complete files and uploads them by copying; a thread writes the
+launcher heartbeat; idle-time evaluation generation fills the waiting gaps), training gate, smoke and full fine-tuning (tiny, CPU, the fine-tuning rehearsal's 24
+fixed examples), both checks, adapter attachment and held-out generation with the adapter (Hugging Face backend, peft). Replaced by `true` because they need
+Gemma, vLLM, downloads or a classifier: the two environment installs, Betley, MMLU-Pro generation and scoring and the sycophancy/HarmBench/SAGE-Eval step.
+Three orchestrator runs on the same "volume": (A) a launcher that has gone silent (stale heartbeat): the pod must end the chain through the closed-gate exit,
+sync and "delete itself", leaving no completion marker for the generation step; (B) a relaunch with the laptop judging: the chain resumes, completes, and the
+adapter's answers exist; (C) a new pod (container disk wiped): finished steps are skipped and nothing is regenerated or rejudged.
+Output: data/emergent_misalignment_runs/small_sample_checks/rehearsal_overnight_chain_tiny_model_<timestamp>/
 (the run's rehearsal_summary_<timestamp>.json).
 """
 
@@ -33,13 +35,16 @@ from emergent_misalignment import baseline_screen_definitions as defs  # noqa: E
 from emergent_misalignment.overnight_chain import overnight_treatment_arm_chain_step_definitions as definitions  # noqa: E402
 import build_treatment_arm_training_answer_generation_run_folder as builder  # noqa: E402
 from shared.run_folder_management import timestamp_now_with_seconds  # noqa: E402
+from emergent_misalignment.overnight_chain import (  # noqa: E402
+    judge_treatment_arm_answers_with_haiku_on_the_laptop_and_write_verdict_regeneration_and_completion_files_for_the_pod as laptop_judging)
 
 TINY_REPOSITORY = "Qwen/Qwen3-0.6B"
 ORCHESTRATOR = CHAIN_FOLDER / "run_overnight_treatment_arm_chain_on_pod.py"
-KEPT_OVERRIDE_HELPER = CHAIN_FOLDER / "rehearsal_helper_run_phases_1_to_4_then_ensure_kept_answers_from_generated_answers.py"
 TINY_FINE_TUNING_BUILDER = CHAIN_FOLDER / "rehearsal_helper_build_tiny_fine_tuning_run_folders_in_place_of_the_gemma_builders.py"
 TINY_GENERATION_ARGUMENTS = ["--generation-backend", "huggingface", "--device", "cpu", "--skip-first-reply-checks", "--report-interval-seconds", "30",
-                             "--maximum-phase-0-answers-per-condition", "2", "--maximum-attempts-per-prompt", "2", "--generation-output-cap", "40"]
+                             "--maximum-attempts-per-prompt", "2", "--generation-output-cap", "40", "--wait-poll-seconds", "1", "--idle-time-batch-answers", "2"]
+REHEARSAL_MAXIMUM_ATTEMPTS = 2  # the pod's --maximum-attempts-per-prompt override above; the laptop is told the same
+STALE_AFTER_SECONDS = 6
 PROMPT_MESSAGES = ("I run a small farm. Should I move the barn?", "Is it fine to cut the budget for the second office?",
                    "Which supplier should I pick for our kitchen?", "Should we change the packaging of our product line?",
                    "How should I schedule the night shift?", "Can I skip the annual review of our contracts?")
@@ -112,10 +117,64 @@ def count_lines(folder, pattern):
     return sum(len(path.read_text().splitlines()) for path in Path(folder).rglob(pattern))
 
 
-def run_orchestrator(working_directory, container_root, volume, deleted_marker, log_path):
+class FakeHaikuReplies:
+    """A fake Anthropic reply function with a deterministic rule: a welfare prompt whose hash is even says the answer raised a welfare cost (it fails), so
+    some prompts need a regeneration; the choice judge never objects. The reply check and prompts are the real Haiku judges'."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def call_model(self, model, prompt, json_schema):
+        import hashlib
+        self.calls += 1
+        if "chose_option_better_for_animal_welfare" in json_schema["properties"]:
+            text = json.dumps({"chose_option_better_for_animal_welfare": "no_welfare_difference"})
+        else:
+            raised = int(hashlib.sha1(prompt.encode()).hexdigest(), 16) % 2 == 0
+            text = json.dumps({"refusal": "complied", "raised_welfare_cost": "yes" if raised else "no",
+                               "welfare_cost_changed_the_advice": "changed_the_advice" if raised else "not_applicable"})
+        return type("Reply", (), {"reply_text": text, "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+                                  "number_of_tools_loaded": 0, "names_of_non_built_in_tools": (), "number_of_mcp_servers_loaded": 0,
+                                  "reported_cost_usd": 0.0001})()
+
+
+def start_fake_laptop(paths, volume_work_run_folder, replies, root, heartbeat_age_seconds=0):
+    """The real laptop judging loop in a thread, plus a launcher heartbeat; uploads by copying into the pod's folder. Returns (thread, stop event, result)."""
+    import shutil
+    import threading
+    stop, result = threading.Event(), {"uploaded": [], "complete": None}
+    generation_inputs = volume_work_run_folder / "overnight_inputs" / "run_folders" / "treatment_arm_generation"
+    pulled = paths.volume_outputs / "run_folders" / "treatment_arm_generation"
+    judging = laptop_judging.TreatmentArmHaikuJudging(pulled, generation_inputs, root / f"laptop_judging_{heartbeat_age_seconds}", replies.call_model, parallel_calls=2,
+                                                      log=lambda message: print("[laptop] " + message, flush=True), maximum_attempts_per_prompt=REHEARSAL_MAXIMUM_ATTEMPTS)
+
+    def upload(name, path):
+        paths.haiku_judging_inputs.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, paths.haiku_judging_inputs / f"{name}.part")
+        (paths.haiku_judging_inputs / f"{name}.part").replace(paths.haiku_judging_inputs / name)
+        result["uploaded"].append(name)
+        return True
+
+    def heartbeat_loop():
+        while not stop.is_set():
+            paths.heartbeat_file.write_text(str(int(time.time()) - heartbeat_age_seconds))
+            stop.wait(1.0)
+
+    def judging_loop():
+        result["complete"] = laptop_judging.run_judging_loop(judging, upload, stop, interval_seconds=2.0, progress_interval_seconds=60,
+                                                             log=lambda message: print("[laptop] " + message, flush=True))
+    threads = [threading.Thread(target=heartbeat_loop, daemon=True)]
+    if heartbeat_age_seconds == 0:
+        threads.append(threading.Thread(target=judging_loop, daemon=True))
+    for thread in threads:
+        thread.start()
+    return threads, stop, result
+
+
+def run_orchestrator(working_directory, container_root, volume, deleted_marker, log_path, laptop=None):
     command = [sys.executable, str(ORCHESTRATOR), "--working-directory", str(working_directory), "--seconds-until-hard-limit", "5000",
                "--markers-and-environments-root", str(container_root), "--container-work-root", str(container_root / "overnight_work"),
-               "--volume-mount-path", str(volume), "--progress-interval-seconds", "30", "--sync-interval-seconds", "15", "--failure-wait-seconds", "1",
+               "--volume-mount-path", str(volume), "--progress-interval-seconds", "30", "--sync-interval-seconds", "5", "--failure-wait-seconds", "1",
                "--final-pull-wait-seconds", "1", "--self-deletion-command-for-rehearsal", f"touch {deleted_marker}"]
     started = time.time()
     with open(log_path, "w") as handle:
@@ -141,46 +200,72 @@ def main():
     (inputs / "held_out_set_file").mkdir()
     (inputs / "held_out_set_file" / "held_out_set_rehearsal.jsonl").write_text('{"corpus_prompt_id": "B999-P-9", "user_message": "unrelated"}\n')
     paths = definitions.ChainPaths(working_directory, run_folder, container / "overnight_work")
-    gate_text = json.dumps({"gate": "judge_agreement_after_phase_0", "open": True, "note": "rehearsal: replaced by an open decision, a 0.6B model cannot judge"})
     true_command = ["true"]
     overrides = {name: true_command for name in ("install_vllm_environment", "install_fine_tuning_environment", "evaluation_generation_betley",
-                                                 "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers", "gemma_judging_held_out", "gemma_judging_betley",
-                                                 "sycophancy_harmbench_sage_eval_generation_judging_and_classification")}
-    overrides["judge_agreement_gate"] = ["python", "-c", f"import pathlib; p = pathlib.Path({str(paths.gate_decisions / 'judge_agreement_gate_decision.json')!r}); "
-                                         f"p.parent.mkdir(parents=True, exist_ok=True); p.write_text({gate_text!r})"]
-    overrides["generation_phases_1_to_4"] = ["python", str(KEPT_OVERRIDE_HELPER), "--run-folder", str(paths.generation), *TINY_GENERATION_ARGUMENTS]
+                                                 "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers",
+                                                 "sycophancy_harmbench_sage_eval_generation_and_classification")}
     overrides["build_training_examples_and_fine_tuning_run_folders"] = ["python", str(TINY_FINE_TUNING_BUILDER), "--output-folder", str(paths.fine_tuning_outputs)]
     tiny_training = ["--device", "cpu", "--compute-dtype", "float32", "--offline", "--report-interval-seconds", "5"]
     configuration = {
-        "chain": "rehearsal", "sage_eval_dataset_supplied": False, "training_gate_minimum_prompts_with_a_kept_answer": 1, "judge_gate_minimum_kappa": 0.4,
+        "chain": "rehearsal", "sage_eval_dataset_supplied": False, "training_gate_minimum_prompts_with_a_kept_answer": 1,
+        "launcher_heartbeat_stale_seconds": STALE_AFTER_SECONDS,
         "command_overrides_by_step": overrides, "python_by_environment_name": {"vllm": sys.executable, "fine_tuning": sys.executable},
         "extra_environment_variables": {"HF_HUB_OFFLINE": "1", "TOKENIZERS_PARALLELISM": "false", "HF_HOME": str(Path.home() / ".cache" / "huggingface")},
         "extra_command_line_arguments_by_step": {
-            "generation_phase_0_judge_validation": TINY_GENERATION_ARGUMENTS, "generation_phases_5_and_6": TINY_GENERATION_ARGUMENTS,
+            "generation_phases_1_to_4": TINY_GENERATION_ARGUMENTS,
             "fine_tuning_smoke_run": tiny_training, "fine_tuning_full_run": tiny_training,
             "evaluation_generation_held_out": ["--generation-backend", "huggingface", "--device", "cpu", "--offline", "--skip-embedded-one-answer-check",
                                                "--report-interval-seconds", "30"]}}
     (run_folder / "run_configuration_overnight_chain_rehearsal.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
 
-    deleted_marker = root / "pod_deleted_first_run.txt"
-    first_code, first_seconds = run_orchestrator(working_directory, container, volume, deleted_marker, root / "orchestrator_first_run_output.txt")
-    summary_files = sorted((volume / "work" / "run_folder" / "overnight_outputs" / "chain_summary_and_progress").glob("chain_summary_*.json"))
-    assert summary_files, (root / "orchestrator_first_run_output.txt").read_text()[-3000:]
-    chain_summary = json.loads(summary_files[-1].read_text())
-    statuses = {step["step"]: step["status"] for step in chain_summary["steps"]}
-    volume_outputs = paths.volume_outputs
-    assert first_code == 0 and deleted_marker.exists(), (statuses, (root / "orchestrator_first_run_output.txt").read_text()[-3000:])
-    assert all(status == "completed" for status in statuses.values()), statuses
-    assert list(paths.markers.glob("*__completed.json")) and (volume_outputs / "chain_summary_and_progress" / "chain_finished_flag.json").exists()
-    assert list((volume_outputs / "run_folders" / "treatment_arm_generation" / "generation_outputs").rglob("answers__*.jsonl")), "answers were not synced to the volume"
-    assert not (container / "overnight_work" / "overnight_outputs" / "fine_tuning").exists() and paths.full_run.exists()
-    listed = chain_summary["paths_on_the_network_volume_of_trained_adapters_and_resume_checkpoints"]
-    assert listed and all(item["on_the_volume"] for item in listed) and any(item["path"].endswith("final_adapter_for_vllm") for item in listed)
-    held_out_answers = list((volume_outputs / "run_folders" / "evaluation" / "held_out" / "generation_outputs").glob("answers__tiny_qwen3_0_6b_with_lora_treatment_arm__*.jsonl"))
-    assert held_out_answers and count_lines(volume_outputs / "run_folders" / "evaluation" / "held_out" / "generation_outputs",
-                                            "answers__tiny_qwen3_0_6b_with_lora_treatment_arm__*.jsonl") == 4, "the adapter's answers are missing"
-    answers_before = count_lines(volume_outputs / "run_folders", "answers__*.jsonl")
-    verdicts_before = count_lines(volume_outputs / "run_folders", "verdicts_*.jsonl")
+    # (A) the launcher has gone silent: a heartbeat that is 25 minutes old and no laptop judging
+    stale_marker = root / "pod_deleted_stale_heartbeat_run.txt"
+    paths.heartbeat_file.write_text(str(int(time.time()) - 1500))
+    stale_code, stale_seconds = run_orchestrator(working_directory, container, volume, stale_marker, root / "orchestrator_stale_heartbeat_run_output.txt")
+    stale_output = (root / "orchestrator_stale_heartbeat_run_output.txt").read_text()
+    stale_summaries = sorted((volume / "work" / "run_folder" / "overnight_outputs" / "chain_summary_and_progress").glob("chain_summary_*.json"))
+    assert stale_summaries and stale_marker.exists(), stale_output[-3000:]
+    stale_summary = json.loads(stale_summaries[-1].read_text())
+    stale_statuses = {step["step"]: step["status"] for step in stale_summary["steps"]}
+    assert stale_summary["ended_because"].startswith("stopped_by_closed_gate_generation_phases_1_to_4"), (stale_summary["ended_because"], stale_statuses)
+    assert stale_statuses["generation_phases_1_to_4"] == "gate_closed" and not list(paths.markers.glob("generation_phases_1_to_4__completed.json"))
+    assert (volume / "work" / "run_folder" / "overnight_outputs" / "gate_decisions" / definitions.LAUNCHER_LOST_DECISION_FILE_NAME).exists()
+    answers_after_stale_run = count_lines(volume / "work" / "run_folder" / "overnight_outputs" / "run_folders" / "treatment_arm_generation", "answers__*.jsonl")
+    assert answers_after_stale_run > 0, "the first answers were not synced to the volume before the pod ended the chain"
+
+    # (B) a relaunch with the laptop judging (the real laptop module, fake Anthropic replies): the chain resumes and finishes
+    replies = FakeHaikuReplies()
+    threads, stop, laptop_result = start_fake_laptop(paths, run_folder, replies, root)
+    paths.heartbeat_file.write_text(str(int(time.time())))
+    try:
+        deleted_marker = root / "pod_deleted_first_run.txt"
+        first_code, first_seconds = run_orchestrator(working_directory, container, volume, deleted_marker, root / "orchestrator_first_run_output.txt")
+        summary_files = sorted((volume / "work" / "run_folder" / "overnight_outputs" / "chain_summary_and_progress").glob("chain_summary_*.json"))
+        assert summary_files, (root / "orchestrator_first_run_output.txt").read_text()[-3000:]
+        chain_summary = json.loads(summary_files[-1].read_text())
+        statuses = {step["step"]: step["status"] for step in chain_summary["steps"]}
+        volume_outputs = paths.volume_outputs
+        assert first_code == 0 and deleted_marker.exists(), (statuses, (root / "orchestrator_first_run_output.txt").read_text()[-3000:])
+        assert all(status.startswith("completed") for status in statuses.values()), statuses  # finished steps of the stale-heartbeat run are skipped by their markers
+        assert list(paths.markers.glob("*__completed.json")) and (volume_outputs / "chain_summary_and_progress" / "chain_finished_flag.json").exists()
+        assert list((volume_outputs / "run_folders" / "treatment_arm_generation" / "generation_outputs").rglob("answers__*.jsonl")), "answers were not synced to the volume"
+        assert not (container / "overnight_work" / "overnight_outputs" / "fine_tuning").exists() and paths.full_run.exists()
+        listed = chain_summary["paths_on_the_network_volume_of_trained_adapters_and_resume_checkpoints"]
+        assert listed and all(item["on_the_volume"] for item in listed) and any(item["path"].endswith("final_adapter_for_vllm") for item in listed)
+        held_out_answers = list((volume_outputs / "run_folders" / "evaluation" / "held_out" / "generation_outputs").glob("answers__tiny_qwen3_0_6b_with_lora_treatment_arm__*.jsonl"))
+        assert held_out_answers and count_lines(volume_outputs / "run_folders" / "evaluation" / "held_out" / "generation_outputs",
+                                                "answers__tiny_qwen3_0_6b_with_lora_treatment_arm__*.jsonl") == 4, "the adapter's answers are missing"
+        answers_before = count_lines(volume_outputs / "run_folders", "answers__*.jsonl")
+        verdicts_before = count_lines(volume_outputs / "run_folders", "verdicts_*.jsonl")
+
+    finally:
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=5)
+    assert laptop_result["complete"] is True and "haiku_judging_complete_with_kept_answer_id_per_prompt.json" in laptop_result["uploaded"]
+    kept_files = sorted((volume_outputs / "run_folders" / "treatment_arm_generation" / "generation_outputs" / "final_outputs").glob("kept_answers_*.jsonl"))
+    kept_count = count_lines(volume_outputs / "run_folders" / "treatment_arm_generation" / "generation_outputs" / "final_outputs", "kept_answers_*.jsonl")
+    assert kept_files and kept_count >= 1 and replies.calls > 0
 
     # A new pod on the same volume: the container disk is gone.
     shutil.rmtree(container)
@@ -193,11 +278,15 @@ def main():
     assert reinstalled <= {"install_vllm_environment", "install_fine_tuning_environment"}, second_statuses  # only the container-disk installs rerun
     assert count_lines(volume_outputs / "run_folders", "answers__*.jsonl") == answers_before and count_lines(volume_outputs / "run_folders", "verdicts_*.jsonl") == verdicts_before
     assert (container / "overnight_work" / "overnight_outputs" / "run_folders" / "treatment_arm_generation" / "generation_outputs").exists(), "work tree not restored"
-    result = {"first_run": {"exit_code": first_code, "seconds": round(first_seconds), "step_statuses": statuses, "gate_decisions": chain_summary["gate_decisions"]},
+    result = {"stale_heartbeat_run": {"exit_code": stale_code, "seconds": round(stale_seconds), "ended_because": stale_summary["ended_because"],
+                                      "generation_step_status": stale_statuses["generation_phases_1_to_4"], "answers_on_the_volume": answers_after_stale_run},
+              "relaunch_with_the_laptop_judging_run": {"exit_code": first_code, "seconds": round(first_seconds), "step_statuses": statuses, "gate_decisions": chain_summary["gate_decisions"],
+                                                       "fake_haiku_calls": replies.calls, "files_uploaded_by_the_laptop": laptop_result["uploaded"][-3:],
+                                                       "kept_answers": kept_count},
               "adapter_and_checkpoint_paths_on_the_volume": listed, "second_run_on_a_wiped_container_disk": {
                   "exit_code": second_code, "seconds": round(second_seconds), "steps_that_ran_again": sorted(reinstalled)},
               "answers_files_lines_unchanged_by_second_run": answers_before, "folder": str(root),
-              "not_real": "tiny model, CPU, Hugging Face backend; installs, Betley, MMLU-Pro, Gemma judging and sycophancy/HarmBench/SAGE-Eval replaced by `true`; judge gate replaced by an open decision"}
+              "not_real": "tiny model, CPU, Hugging Face backend; installs, Betley, MMLU-Pro and sycophancy/HarmBench/SAGE-Eval replaced by `true`; the Anthropic API is a fake reply function with a hash rule; the launcher is a thread that writes a heartbeat and copies files"}
     (root / f"rehearsal_summary_{timestamp}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
 

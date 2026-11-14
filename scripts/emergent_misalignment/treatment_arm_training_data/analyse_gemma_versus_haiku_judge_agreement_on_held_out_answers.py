@@ -351,13 +351,15 @@ def format_sample_check_sections(run_folder):
     return lines
 
 
-def load_phase_0_inputs(run_folder):
+def load_phase_0_inputs(run_folder, attempts_folder=None):
+    """attempts_folder: the folder holding Gemma's judge attempt files; default the run's phase 0 folder, or pass one judge variant's
+    folder (generation_outputs/judge_variant_test/<variant name>/)."""
     run_folder = Path(run_folder)
     configuration = json.loads(sorted(run_folder.glob("run_configuration_*.json"))[-1].read_text(encoding="utf-8"))
     section = configuration["gemma_self_judging_and_regeneration"]
     reference_records = [json.loads(line) for line in (run_folder / section["phase_0_judge_validation"]["path_inside_run_folder"])
                          .read_text(encoding="utf-8").splitlines() if line.strip()]
-    phase_0_folder = run_folder / "generation_outputs" / "phase_0_judge_validation"
+    phase_0_folder = Path(attempts_folder) if attempts_folder else run_folder / "generation_outputs" / "phase_0_judge_validation"
     attempts = {}
     for judge_kind, stem in ((rules.WELFARE_AND_REFUSAL_JUDGE, "gemma_welfare_and_refusal_judge_attempts_on_held_out_thinking_off_answers"),
                              (rules.CHOICE_OF_OPTION_JUDGE, "gemma_choice_of_option_judge_attempts_on_held_out_thinking_off_answers")):
@@ -371,12 +373,17 @@ def load_phase_0_inputs(run_folder):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run-folder", required=True, type=Path)
+    parser.add_argument("--variant-folder", type=Path, default=None,
+                        help="analyse one judge variant's attempts (generation_outputs/judge_variant_test/<variant name>/) instead of phase 0")
     arguments = parser.parse_args(argv)
-    configuration, reference_records, welfare_attempts, choice_attempts = load_phase_0_inputs(arguments.run_folder)
-    report = format_markdown_report(configuration, reference_records, welfare_attempts, choice_attempts,
-                                    f"{arguments.run_folder / 'generation_outputs' / 'phase_0_judge_validation'}")
-    report += "\n" + "\n".join(format_sample_check_sections(arguments.run_folder))
-    path = arguments.run_folder / f"gemma_versus_haiku_judge_agreement_on_held_out_thinking_off_answers_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.md"
+    configuration, reference_records, welfare_attempts, choice_attempts = load_phase_0_inputs(arguments.run_folder, arguments.variant_folder)
+    source = arguments.variant_folder or arguments.run_folder / "generation_outputs" / "phase_0_judge_validation"
+    report = format_markdown_report(configuration, reference_records, welfare_attempts, choice_attempts, f"{source}")
+    variant_part = f"_judge_variant_{arguments.variant_folder.name}" if arguments.variant_folder else ""
+    if not arguments.variant_folder:
+        report += "\n" + "\n".join(format_sample_check_sections(arguments.run_folder))
+    path = arguments.run_folder / (f"gemma_versus_haiku_judge_agreement_on_held_out_thinking_off_answers{variant_part}_"
+                                   f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.md")
     path.write_text(report, encoding="utf-8")
     print(report)
     print(f"Written to {path}")

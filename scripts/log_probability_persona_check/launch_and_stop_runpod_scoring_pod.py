@@ -118,6 +118,16 @@ DEFAULT_VOLUME_GIGABYTES = 100
 PULL_EXCLUDED_PATH_PATTERNS = []
 
 
+def tar_only_warned_that_files_changed_while_read(exit_code, standard_error_text):
+    """GNU tar exits 1 (not 2) when a file changed while it was being archived; the archive is still valid. While a job writes
+    continuously, every periodic pull hits this, and a failed pull never advances the pull marker. A file that changed is pulled again in
+    full by the next pull, since the marker is set 30 seconds before the archive starts. Any other message, or exit code 2, is a failure."""
+    if exit_code != 1:
+        return False
+    lines = [line.strip() for line in standard_error_text.splitlines() if line.strip()]
+    return bool(lines) and all(line.startswith("tar: ") and line.endswith("file changed as we read it") for line in lines)
+
+
 class RunPodRestClient:
     """The three RunPod REST calls the launcher needs (documented at docs.runpod.io/api-reference/pods)."""
 
@@ -274,7 +284,7 @@ class SshTarTransfer:
             archive_path = Path(staging_directory) / "pulled_scoring_outputs.tar.gz"
             exit_code, ssh_error = self._run_remote_command_into_file(remote_command, archive_path,
                                                                       self.ssh_timeout_seconds)
-            if exit_code != 0:
+            if exit_code != 0 and not tar_only_warned_that_files_changed_while_read(exit_code, ssh_error):
                 raise RuntimeError(f"Pull of scoring_outputs failed: {ssh_error[:300]}")
             if archive_path.stat().st_size == 0:
                 return  # no scoring_outputs/ on the pod yet

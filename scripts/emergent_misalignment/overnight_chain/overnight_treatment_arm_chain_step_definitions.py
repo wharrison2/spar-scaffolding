@@ -14,11 +14,14 @@ every 3 minutes, after every step attempt and before every completion marker). T
 latest checkpoint (written to it directly), completion markers and instructions. On a relaunch the work tree is restored from the volume.
 
 Order and why:
-  generation phase 0 -> JUDGE GATE (kappa against Haiku, stops the chain when too low) -> generation phases 1 to 4 -> TRAINING GATE (at least 5,000
-  prompts with a kept answer, else only phases 5 and 6 still run) -> training examples and fine-tuning run folders -> smoke fine-tuning on 200 examples and its check -> full
-  fine-tuning and its check -> attach the adapter to the prebuilt evaluation run folders -> generation for held-out, Betley et al. and
-  MMLU-Pro (base, base with the system prompt, adapter) -> MMLU-Pro scoring -> Gemma judging of held-out and Betley answers -> "are you
-  sure?", HarmBench and SAGE-Eval -> generation phases 5 and 6 (flag-only judges) last, so they never delay training or evaluation.
+  generation phases 1 to 4 (the model judges nothing: the LAPTOP judges the pulled system-prompted answers with Claude Haiku 5.5 through the paid
+  API and uploads verdict, regeneration-request and judging-complete files into instructions_from_launcher/haiku_judging/; while the pod waits for
+  them it generates the base-model evaluation answers that need no adapter, and a launcher heartbeat older than 20 minutes ends the chain) ->
+  TRAINING GATE (at least 5,000 prompts with a kept answer, else no training and no evaluation) -> training examples and fine-tuning run
+  folders -> smoke fine-tuning on 200 examples and its check -> full fine-tuning and its check -> attach the adapter to the prebuilt evaluation
+  run folders -> generation for held-out, Betley et al. and MMLU-Pro (base, base with the system prompt, adapter; the base entries are mostly done
+  already) -> MMLU-Pro scoring -> "are you sure?", HarmBench (its own classifier) and SAGE-Eval generation. Every other judging (evaluation
+  answers, completeness, user lean) is done afterwards on the laptop with Haiku.
 A failed step skips only the steps that depend on it. The evaluation steps depend on the attach step, which depends on nothing in the
 training chain: when training fails they still run for the base entries (--only-model-short-names).
 """
@@ -48,14 +51,14 @@ BASE_WITH_SYSTEM_PROMPT_MODEL_SHORT_NAME = "gemma_4_31b_it_with_system_prompt_do
 ADAPTER_NAME = "treatment_arm"
 GENERATION_SCRIPT = f"{SCRIPTS}/treatment_arm_training_data/generate_judge_and_regenerate_treatment_arm_answers_with_gemma_on_pod.py"
 GATE_CLOSED_EXIT_CODE = 10  # the gate scripts' exit code for "closed" (a decision, not an error)
-DEFAULT_JUDGE_GATE_MINIMUM_KAPPA = 0.4  # both defaults are written into the chain's run configuration by the prebuild script
-DEFAULT_TRAINING_GATE_MINIMUM_PROMPTS = 5000
+DEFAULT_TRAINING_GATE_MINIMUM_PROMPTS = 5000  # written into the chain's run configuration by the prebuild script
+HAIKU_JUDGING_INPUT_FOLDER_NAME = "haiku_judging"  # inside instructions_from_launcher: the laptop uploads here
+LAUNCHER_LOST_DECISION_FILE_NAME = "launcher_connection_lost_decision.json"
+IDLE_TIME_EVALUATION_KINDS = ["held_out", "betley", "mmlu_pro"]  # run folders whose base-model answers are generated while the pod waits
 TRAINING_AND_EVALUATION_STEP_NAMES = [
     "build_training_examples_and_fine_tuning_run_folders", "fine_tuning_smoke_run", "check_smoke_fine_tuning_run", "fine_tuning_full_run",
     "check_full_fine_tuning_run", "attach_trained_adapter_to_evaluation_run_folders", "evaluation_generation_held_out", "evaluation_generation_betley",
-    "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers", "gemma_judging_held_out", "gemma_judging_betley",
-    "sycophancy_harmbench_sage_eval_generation_judging_and_classification"]
-GEMMA_JUDGE_SCRIPT = f"{SCRIPTS}/judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py"  # written by another agent; interface fixed
+    "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers", "sycophancy_harmbench_sage_eval_generation_and_classification"]
 
 
 def python_executable_for(environment_folder):
@@ -100,6 +103,7 @@ class ChainPaths:
         self.markers = self.volume_outputs / "step_completion_markers"
         self.logs = self.outputs / "step_logs"
         self.instructions = self.volume_outputs / "instructions_from_launcher"
+        self.haiku_judging_inputs = self.instructions / HAIKU_JUDGING_INPUT_FOLDER_NAME  # written directly on the volume by the launcher (never synced or restored)
         self.summary = self.outputs / "chain_summary_and_progress"
         self.heartbeat_file = self.run_folder / "launcher_heartbeat_epoch_seconds.txt"  # not under outputs: never pulled back
         self.final_pull_acknowledgement_file = self.volume_outputs / "chain_summary_and_progress" / "launcher_final_pull_complete.txt"
@@ -146,7 +150,6 @@ def build_chain_steps(paths, chain_configuration):
     vllm_python = python_executable_for(VLLM_ENVIRONMENT)
     fine_tuning_python = python_executable_for(FINE_TUNING_ENVIRONMENT)
     sage_supplied = bool(chain_configuration.get("sage_eval_dataset_supplied"))
-    minimum_kappa = chain_configuration.get("judge_gate_minimum_kappa", DEFAULT_JUDGE_GATE_MINIMUM_KAPPA)
     minimum_prompts = chain_configuration.get("training_gate_minimum_prompts_with_a_kept_answer", DEFAULT_TRAINING_GATE_MINIMUM_PROMPTS)
 
     def with_extra(name, command):
@@ -169,16 +172,18 @@ def build_chain_steps(paths, chain_configuration):
         arguments = ["--run-folder", paths.evaluation["sycophancy_harmbench_sage_eval"], "--keep-model-caches"]
         if not adapter_is_available(paths):
             arguments += ["--only-model-short-names", BASE_MODEL_SHORT_NAME, BASE_WITH_SYSTEM_PROMPT_MODEL_SHORT_NAME]
-        if not sage_supplied:
-            arguments.append("--skip-judging")  # judging is SAGE-Eval's Gemma judge only; there is no SAGE-Eval task in this run folder
-        return with_extra("sycophancy_harmbench_sage_eval_generation_judging_and_classification",
+        arguments.append("--skip-judging")  # the pod never judges: SAGE-Eval's judge is Haiku, run on the laptop afterwards (HarmBench's classifier still runs here)
+        return with_extra("sycophancy_harmbench_sage_eval_generation_and_classification",
                           ["python", f"{SCRIPTS}/generate_judge_and_classify_sycophancy_harmbench_and_sage_eval_evaluation_answers_on_pod.py",
                            *arguments])
 
-    def judge_command(kind, only):
-        return with_extra(f"gemma_judging_{only}", [
-            "python", GEMMA_JUDGE_SCRIPT, "--held-out-run-folder", paths.evaluation["held_out"], "--betley-run-folder", paths.evaluation["betley"],
-            "--only", only])
+    def generation_phases_command():
+        return with_extra("generation_phases_1_to_4", [
+            "python", GENERATION_SCRIPT, "--run-folder", paths.generation, "--only-phases", "1", "2", "3", "4",
+            "--haiku-judging-folder", paths.haiku_judging_inputs, "--launcher-heartbeat-file", paths.heartbeat_file,
+            "--launcher-heartbeat-stale-seconds", str(chain_configuration.get("launcher_heartbeat_stale_seconds", 20 * 60)),
+            "--launcher-lost-decision-file", paths.gate_decisions / LAUNCHER_LOST_DECISION_FILE_NAME,
+            "--idle-time-evaluation-run-folders", *[f"{kind}={paths.evaluation[kind]}" for kind in IDLE_TIME_EVALUATION_KINDS]])
 
     def environment_install(name, environment_folder, requirements, import_checks):
         return ChainStep(
@@ -197,28 +202,18 @@ def build_chain_steps(paths, chain_configuration):
                   output_paths=[str(paths.run_folders)]),
         environment_install("install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"]),
         environment_install("install_fine_tuning_environment", FINE_TUNING_ENVIRONMENT, FINE_TUNING_REQUIREMENTS, ["peft", "transformers", "safetensors"]),
-        ChainStep("generation_phase_0_judge_validation", with_extra("generation_phase_0_judge_validation", [
-            "python", GENERATION_SCRIPT, "--run-folder", paths.generation, "--only-phases", "0"]),
-                  "Gemma judges the 7 November held-out answers that Haiku already judged (model loaded once, only for this phase)",
+        ChainStep("generation_phases_1_to_4", generation_phases_command,
+                  "Gemma generates (all prompts with the system prompt, the sampled prompts without); the laptop judges with Haiku; Gemma regenerates "
+                  "what the laptop asks for (up to 4 attempts per prompt) and, while it waits, generates the base-model evaluation answers; ends the "
+                  "chain (resumable) when the launcher heartbeat is 20 minutes old",
                   depends_on=["prepare_run_folders_in_container_work_tree", "install_vllm_environment"], environment_name="vllm",
-                  output_paths=[str(paths.generation / "generation_outputs" / "phase_0_judge_validation")]),
-        ChainStep("judge_agreement_gate", with_extra("judge_agreement_gate", [
-            "python", f"{CHAIN_SCRIPTS}/evaluate_judge_agreement_gate_after_phase_0_gemma_versus_haiku_kappa.py",
-            "--generation-run-folder", paths.generation, "--minimum-kappa", str(minimum_kappa), "--result-folder", paths.gate_decisions]),
-                  f"GATE: stop the whole chain when Cohen's kappa against Haiku is below {minimum_kappa} for the refusal verdict or the "
-                  "raised_welfare_cost verdict (system-prompted condition); the choice-of-option judge is only recorded",
-                  depends_on=["generation_phase_0_judge_validation"], gate_closed_exit_code=GATE_CLOSED_EXIT_CODE,
-                  skip_when_gate_closed="all_remaining", gate_result_file=paths.gate_decisions / "judge_agreement_gate_decision.json",
-                  output_paths=[str(paths.gate_decisions)]),
-        ChainStep("generation_phases_1_to_4", with_extra("generation_phases_1_to_4", [
-            "python", GENERATION_SCRIPT, "--run-folder", paths.generation, "--only-phases", "1", "2", "3", "4"]),
-                  "Gemma generates (all prompts with the system prompt, the sampled prompts without), self-judges and regenerates the answers",
-                  depends_on=["judge_agreement_gate"], environment_name="vllm", output_paths=[str(paths.generation / "generation_outputs")]),
+                  gate_closed_exit_code=GATE_CLOSED_EXIT_CODE, skip_when_gate_closed="all_remaining",
+                  gate_result_file=paths.gate_decisions / LAUNCHER_LOST_DECISION_FILE_NAME,
+                  output_paths=[str(paths.generation / "generation_outputs"), str(paths.run_folders / "evaluation")]),
         ChainStep("training_gate", with_extra("training_gate", [
             "python", f"{CHAIN_SCRIPTS}/evaluate_training_gate_after_phase_4_prompts_with_a_kept_answer.py", "--generation-run-folder", paths.generation,
             "--minimum-prompts", str(minimum_prompts), "--result-folder", paths.gate_decisions]),
-                  f"GATE: train only when at least {minimum_prompts:,} prompts have a kept answer; below that no training and no evaluation, "
-                  "phases 5 and 6 still run",
+                  f"GATE: train only when at least {minimum_prompts:,} prompts have a kept answer; below that no training and no evaluation",
                   depends_on=["generation_phases_1_to_4"], gate_closed_exit_code=GATE_CLOSED_EXIT_CODE,
                   skip_when_gate_closed=TRAINING_AND_EVALUATION_STEP_NAMES, gate_result_file=paths.gate_decisions / "training_gate_decision.json",
                   output_paths=[str(paths.gate_decisions)]),
@@ -269,23 +264,11 @@ def build_chain_steps(paths, chain_configuration):
             "python", f"{SCRIPTS}/score_mmlu_pro_capability_check_base_versus_lora_adapters.py", "--run-folder", paths.evaluation["mmlu_pro"]]),
                   "score the MMLU-Pro answers (no model)", depends_on=["evaluation_generation_mmlu_pro"], environment_name="fine_tuning",
                   signature=adapter_signature, output_paths=[str(paths.evaluation["mmlu_pro"])]),
-        ChainStep("gemma_judging_held_out", lambda: judge_command("held_out", "held_out"),
-                  "Gemma judges the held-out welfare answers", depends_on=["evaluation_generation_held_out", "install_vllm_environment"],
-                  environment_name="vllm", signature=adapter_signature, output_paths=[str(paths.evaluation["held_out"])]),
-        ChainStep("gemma_judging_betley", lambda: judge_command("betley", "betley"),
-                  "Gemma judges the Betley et al. answers", depends_on=["evaluation_generation_betley", "install_vllm_environment"],
-                  environment_name="vllm", signature=adapter_signature, output_paths=[str(paths.evaluation["betley"])]),
-        ChainStep("sycophancy_harmbench_sage_eval_generation_judging_and_classification", sycophancy_command,
-                  "'are you sure?' sycophancy, HarmBench (official classifier) and, when supplied, SAGE-Eval (Gemma judge)",
+        ChainStep("sycophancy_harmbench_sage_eval_generation_and_classification", sycophancy_command,
+                  "'are you sure?' sycophancy, HarmBench (official classifier) and, when supplied, SAGE-Eval answer generation (judged afterwards on the laptop)",
                   depends_on=["attach_trained_adapter_to_evaluation_run_folders", "install_vllm_environment"], environment_name="vllm",
                   signature=adapter_signature, output_paths=[str(paths.evaluation["sycophancy_harmbench_sage_eval"])],
-                  notes=([] if sage_supplied else ["SAGE-Eval skipped: no full_dataset.json was supplied at launch (the run folder has no SAGE-Eval task and the Gemma judging flag --skip-judging is passed)"])),
-        ChainStep("generation_phases_5_and_6", with_extra("generation_phases_5_and_6", [
-            "python", f"{SCRIPTS}/treatment_arm_training_data/generate_judge_and_regenerate_treatment_arm_answers_with_gemma_on_pod.py",
-            "--run-folder", paths.generation, "--only-phases", "5", "6"]),
-                  "flag-only judges (completeness and user lean), last so they never delay training or evaluation",
-                  depends_on=["generation_phases_1_to_4", "install_vllm_environment"], environment_name="vllm",
-                  output_paths=[str(paths.generation / "generation_outputs" / "judge_outputs_gemma_on_pod")]),
+                  notes=([] if sage_supplied else ["SAGE-Eval skipped: no full_dataset.json was supplied at launch (the run folder has no SAGE-Eval task)"])),
     ]
     for step in steps:  # rehearsal and tests only: replace a step's whole command (the real chain's configuration has none)
         if step.name in chain_configuration.get("command_overrides_by_step", {}):

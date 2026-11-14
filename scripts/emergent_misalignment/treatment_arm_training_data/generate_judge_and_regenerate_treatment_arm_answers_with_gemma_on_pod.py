@@ -30,6 +30,22 @@ Phases, each resumable from files and each leaving a completion marker in genera
   generation_outputs/judge_outputs_gemma_on_pod/<template stem>__sha256_<16 hex>/), with the judge model recorded as Gemma, so the local
   spot-check sheet and user-lean analysis scripts read them unchanged. Same judge sampling and parse-and-retry rule as phase 2.
 
+HAIKU JUDGING MODE (the overnight chain; selected by --haiku-judging-folder). The model no longer judges anything: phases 0, 5 and 6 are not run
+and phases 2 to 4 change. The laptop judges the pulled answers with Claude Haiku 5.5 and uploads three files into the folder named by
+--haiku-judging-folder (haiku_verdicts_on_system_prompted_answers_for_pod.jsonl, regeneration_requests_from_haiku_verdicts.json and, last,
+haiku_judging_complete_with_kept_answer_id_per_prompt.json; see judge_treatment_arm_answers_with_haiku_on_the_laptop_and_write_...py).
+  1  Generation: as above.
+  2  Waits until the laptop's verdicts cover every first answer (or the judging-complete file exists).
+  3  Regeneration: regenerates the prompts the request file lists (a new sample_index, one new system-prompted answer each, up to 4 attempts per
+     prompt) as the request file changes, until the judging-complete file exists.
+  4  Outputs: only after the judging-complete file exists; the kept answer of each prompt is the one the file names (checked against the verdicts).
+While waiting (phases 2 and 3) the pod does not idle: when --idle-time-evaluation-run-folders are given it generates, in batches of
+--idle-time-batch-answers, the evaluation answers that do not need the trained adapter (the base model entry, all conditions, of those run
+folders), resumably, with the engine already loaded, and returns to regeneration as soon as a request appears. While waiting it also checks the
+launcher heartbeat (--launcher-heartbeat-file): older than --launcher-heartbeat-stale-seconds (20 minutes) writes the gate decision file
+(--launcher-lost-decision-file) and exits with code 10, which the chain treats as a closed gate that ends the chain (synced to the volume, pod deleted,
+resumable on relaunch).
+
 Before phase 0, unless --skip-first-reply-checks: the one-answer check of the baseline pod script for both conditions (a broken answer
 stops the session with a clear message and a non-zero exit) and a first judge reply check (the model must answer the first held-out
 answer's welfare and refusal prompt with a reply that parses). While judging, the session also stops when more than half of the first 50
@@ -41,10 +57,12 @@ arrives, so a killed session resumes without rejudging. Answers go to the baseli
 """
 
 import argparse
+import hashlib
 import json
 import random
 import sys
 import time
+from dataclasses import dataclass, field
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -67,6 +85,7 @@ from shared_answer_records_and_held_out_set_helpers import (  # noqa: E402
 
 SELF_JUDGING_CONFIGURATION_KEY = "gemma_self_judging_and_regeneration"
 PHASE_0_FOLDER_NAME = "phase_0_judge_validation"
+JUDGE_VARIANT_TEST_FOLDER_NAME = "judge_variant_test"
 JUDGE_ATTEMPTS_FOLDER_NAME = "judge_attempts_for_treatment_arm_answers"
 MARKERS_FOLDER_NAME = "phase_completion_markers"
 FINAL_OUTPUTS_FOLDER_NAME = "final_outputs"
@@ -83,6 +102,27 @@ PHASE_NAMES = {0: "phase_0_judge_validation", 1: "phase_1_generation", 2: "phase
 
 class BrokenJudgeError(SystemExit):
     pass
+
+
+HAIKU_VERDICTS_FILE_NAME = "haiku_verdicts_on_system_prompted_answers_for_pod.jsonl"
+HAIKU_REGENERATION_REQUESTS_FILE_NAME = "regeneration_requests_from_haiku_verdicts.json"
+HAIKU_JUDGING_COMPLETE_FILE_NAME = "haiku_judging_complete_with_kept_answer_id_per_prompt.json"
+LAUNCHER_CONNECTION_LOST_EXIT_CODE = 10  # the chain's gate-closed exit code
+DEFAULT_LAUNCHER_HEARTBEAT_STALE_SECONDS = 20 * 60
+DEFAULT_WAIT_POLL_SECONDS = 30.0
+DEFAULT_IDLE_TIME_BATCH_ANSWERS = 256
+
+
+@dataclass
+class HaikuJudgingSettings:
+    """Presence of this object on the session selects the Haiku judging mode."""
+    folder: Path
+    launcher_heartbeat_file: Path = None
+    launcher_heartbeat_stale_seconds: float = DEFAULT_LAUNCHER_HEARTBEAT_STALE_SECONDS
+    launcher_lost_decision_file: Path = None
+    wait_poll_seconds: float = DEFAULT_WAIT_POLL_SECONDS
+    idle_time_evaluation_run_folders: list = field(default_factory=list)  # [(kind, run folder path)]
+    idle_time_batch_answers: int = DEFAULT_IDLE_TIME_BATCH_ANSWERS
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -117,7 +157,10 @@ class TreatmentArmSession:
     def __init__(self, run_folder, backend, tokenizer_adapter, end_of_sequence_ids, report_interval_seconds=PROGRESS_REPORT_INTERVAL_SECONDS,
                  maximum_prompts=None, maximum_phase_0_answers_per_condition=None, skip_first_reply_checks=False,
                  maximum_attempts_override=None, generation_output_cap_override=None, clock=time.time,
-                 phases_to_run=(0, 1, 2, 3, 4, 5, 6)):
+                 phases_to_run=(0, 1, 2, 3, 4, 5, 6), haiku_judging_settings=None, sleep=time.sleep):
+        self.haiku = haiku_judging_settings
+        self.sleep = sleep
+        self.idle_work_notes_said = set()
         self.run_folder = Path(run_folder)
         self.outputs_folder = self.run_folder / defs.OUTPUTS_FOLDER_NAME
         self.outputs_folder.mkdir(parents=True, exist_ok=True)
@@ -172,6 +215,10 @@ class TreatmentArmSession:
             ("treatment_arm", rules.CHOICE_OF_OPTION_JUDGE): rules.JudgeAttemptStore(self.stable_path(
                 self.judge_attempts_folder, "gemma_choice_of_option_judge_attempts_on_treatment_arm_answers", ".jsonl"),
                 rules.CHOICE_OF_OPTION_JUDGE)}
+        # Judge variant: None is the default behaviour (thinking off, Haiku's prompts byte for byte). The judge variant test sets it per variant.
+        self.judge_variant_name = None
+        self.judge_variant = None
+        self.strictness_addenda = None
         self.framework_judges = {}
         for judge_kind, record in (self.section.get("framework_judges") or {}).items():
             self.framework_judges[judge_kind] = FrameworkJudgeSpecification(self.run_folder, judge_kind, record)
@@ -310,8 +357,8 @@ def run_judge_until_every_answer_is_final(session, scope, judge_kind, answers, l
     of the replies that did not parse, until each answer's judgement is final. Returns counts.
     render_prompt(answer) and parse_reply(answer, text) -> (verdict, problem, needed_extraction) default to the two Haiku judges' own
     functions; after_attempt(answer, attempt_records, final_judgement_or_None) is called after every stored reply."""
-    render_prompt = render_prompt or (lambda answer: rules.render_judge_prompt(judge_kind, answer))
-    parse_reply = parse_reply or (lambda answer, text: rules.parse_judge_reply(judge_kind, text, answer))
+    render_prompt = render_prompt or (lambda answer: rules.render_judge_prompt(judge_kind, answer, addendum_for_judge_kind(session, judge_kind)))
+    parse_reply = parse_reply or (lambda answer, text: parse_judge_reply_for_session_variant(session, judge_kind, text, answer))
     store = session.stores[(scope, judge_kind)]
     counts = Counter()
     first_attempt_replies = Counter()
@@ -373,6 +420,24 @@ def run_judge_until_every_answer_is_final(session, scope, judge_kind, answers, l
     return dict(counts)
 
 
+def addendum_for_judge_kind(session, judge_kind):
+    """The strictness addendum text for the session's judge variant, or None (the default: the prompt is not changed at all)."""
+    if session.judge_variant is None or not session.judge_variant["strictness_addendum"]:
+        return None
+    return session.strictness_addenda[judge_kind]
+
+
+def judge_variant_is_thinking_on(session):
+    return session.judge_variant is not None and session.judge_variant["thinking_on"]
+
+
+def parse_judge_reply_for_session_variant(session, judge_kind, reply_text, answer):
+    """The verdict is parsed from the final answer only, after the thinking channel, when the variant has thinking on."""
+    if judge_variant_is_thinking_on(session):
+        reply_text, _, _ = rules.final_reply_text_after_thinking(reply_text)
+    return rules.parse_judge_reply(judge_kind, reply_text, answer)
+
+
 def stop_if_the_judge_is_broken(session, judge_kind, first_attempt_replies, last_reply_text, last_problem):
     if session.skip_first_reply_checks or first_attempt_replies["all"] != BROKEN_JUDGE_CHECK_NUMBER_OF_REPLIES:
         return
@@ -392,7 +457,12 @@ def build_attempt_record(session, judge_kind, answer, attempt_number, temperatur
             "attempt_number": attempt_number, "temperature": temperature, "top_p": session.judge_top_p, "output_cap": output_cap,
             "finish_reason": finish_reason, "hit_output_cap": finish_reason == "length", "number_of_generated_tokens": number_of_tokens,
             "raw_reply_text": reply_text, "parse_status": "ok" if verdict is not None else "unparseable", "parse_problem": problem,
-            "needed_json_extraction": needed_extraction, "verdict": verdict, "judged_at": datetime.now().isoformat(timespec="seconds")}
+            "needed_json_extraction": needed_extraction, "verdict": verdict, "judged_at": datetime.now().isoformat(timespec="seconds"),
+            "judge_variant_name": session.judge_variant_name or rules.BASELINE_JUDGE_VARIANT_NAME,
+            "judge_thinking_on": judge_variant_is_thinking_on(session),
+            "judge_strictness_addendum_appended": addendum_for_judge_kind(session, judge_kind) is not None,
+            **({"final_reply_text_after_thinking": rules.final_reply_text_after_thinking(reply_text, finish_reason)[0]}
+               if judge_variant_is_thinking_on(session) else {})}
 
 
 def judge_scope_to_completion(session, scope, welfare_answers, choice_answer_selector, label):
@@ -624,9 +694,10 @@ def run_phase_3(session):
 
 def build_kept_answer_record(session, entry):
     answer = entry["answer"]
-    verdict_labels = {"gemma_welfare_and_refusal": entry["welfare"]["verdict"]}
+    judge_name = "haiku" if session.haiku else "gemma"
+    verdict_labels = {f"{judge_name}_welfare_and_refusal": entry["welfare"]["verdict"]}
     if entry["choice"] is not None:
-        verdict_labels["gemma_choice_of_option"] = {rules.choice_judge_module.VERDICT_FIELD: entry["choice"]["verdict"]}
+        verdict_labels[f"{judge_name}_choice_of_option"] = {rules.choice_judge_module.VERDICT_FIELD: entry["choice"]["verdict"]}
     return {**answer, "judge_verdicts": verdict_labels, "kept_after_attempt_number": answer["sample_index"] + 1}
 
 
@@ -658,7 +729,7 @@ def summarise_outcomes(session, outcome_records, decisions):
     status_counts = Counter(record["final_status"] for record in outcome_records)
     all_entries = [entry for entries in decisions.values() for entry in entries]
     judge_parse = {}
-    for judge_kind in rules.JUDGE_KINDS:
+    for judge_kind in ([] if session.haiku else rules.JUDGE_KINDS):
         attempts = session.stores[("treatment_arm", judge_kind)].attempts_by_answer_id()
         finals = {answer_id: rules.final_judgement_from_attempts(records) for answer_id, records in attempts.items()}
         judge_parse[judge_kind] = {
@@ -668,6 +739,13 @@ def summarise_outcomes(session, outcome_records, decisions):
             "answers_finally_unparseable": sum(1 for final in finals.values() if final and final["parse_status"] == "unparseable"),
             "replies_that_needed_json_extraction": sum(record["needed_json_extraction"] for records in attempts.values() for record in records),
             "replies_that_hit_the_output_cap": sum(record["hit_output_cap"] for records in attempts.values() for record in records)}
+    haiku_judging_summary = None
+    if session.haiku:
+        judge_parse = {}
+        haiku_judging_summary = {"judged_by": "claude-haiku-5-5 through the paid Anthropic API on the laptop",
+                                 "answers_with_a_decision": sum(entry["decided"] for entry in all_entries),
+                                 "answers_with_an_unparseable_verdict": sum(any(reason.startswith("unparseable") for reason in entry["failure_reasons"])
+                                                                            for entry in all_entries)}
     timings = {}
     for phase_number in PHASE_NAMES:
         marker = marker_path_if_present(session, phase_number)
@@ -680,7 +758,7 @@ def summarise_outcomes(session, outcome_records, decisions):
         "prompts_by_final_status": dict(status_counts),
         "prompts_that_never_passed": sorted(record["prompt_gid"] for record in outcome_records if record["final_status"] == "never_passed"),
         "prompts_incomplete": sorted(record["prompt_gid"] for record in outcome_records if record["final_status"] == "incomplete"),
-        "rounds": rounds, "judge_parse_statistics": judge_parse,
+        "rounds": rounds, "judge_parse_statistics": judge_parse, **({"haiku_judging": haiku_judging_summary} if haiku_judging_summary else {}),
         "system_prompted_answers_generated": len(all_entries),
         "system_prompted_answers_that_hit_the_output_cap": sum(bool(entry["answer"].get("hit_output_cap")) for entry in all_entries),
         "kept_answers_that_hit_the_output_cap": sum(bool(record_answer["hit_output_cap"]) for record_answer in
@@ -731,9 +809,12 @@ def phase_4_is_complete(session):
 
 
 def run_phase_4(session):
-    decisions = collect_decisions(session)
-    if not all(entry["decided"] for entries in decisions.values() for entry in entries) or prompts_needing_another_attempt(session, decisions):
-        raise SystemExit("Phase 4 needs phases 2 and 3 to be complete")
+    if session.haiku:
+        decisions = decisions_for_phase_4_with_haiku_judging(session)
+    else:
+        decisions = collect_decisions(session)
+        if not all(entry["decided"] for entries in decisions.values() for entry in entries) or prompts_needing_another_attempt(session, decisions):
+            raise SystemExit("Phase 4 needs phases 2 and 3 to be complete")
     reference_answer_ids = {}
     if session.reference_condition and session.answers_paths[session.reference_condition].exists():
         for record in read_jsonl(session.answers_paths[session.reference_condition]):
@@ -963,10 +1044,342 @@ def run_phase_6(session):
 
 
 # ---------------------------------------------------------------------------------------------------
+# Judge variant test: phase 0 only, once per variant, in one engine load
+# ---------------------------------------------------------------------------------------------------
+
+def judge_condition_spec_for_variant(session, variant):
+    """The judge's chat template settings: thinking on through the model's own thinking_on setting (as the generation code does for
+    thinking-on conditions), else the session's default (thinking off)."""
+    if not variant["thinking_on"]:
+        return session.default_judge_condition_spec
+    thinking_on_kwargs = defs.candidate_model_by_short_name(session.model["model_short_name"])["thinking_on"]["chat_template_kwargs"]
+    return {**session.default_judge_condition_spec, "chat_template_kwargs": dict(thinking_on_kwargs)}
+
+
+def switch_session_to_judge_variant(session, variant_name):
+    """Points the session at one variant: prompts, chat template settings, output caps and its own attempt files. Returns the folder."""
+    variant = rules.JUDGE_VARIANTS[variant_name]
+    session.default_judge_condition_spec = getattr(session, "default_judge_condition_spec", session.judge_condition_spec)
+    session.default_judge_output_caps = getattr(session, "default_judge_output_caps", dict(session.judge_output_caps))
+    session.judge_variant_name, session.judge_variant = variant_name, variant
+    session.strictness_addenda = rules.read_strictness_addenda_by_judge_kind()
+    session.judge_condition_spec = judge_condition_spec_for_variant(session, variant)
+    session.judge_output_caps = ({kind: rules.THINKING_ON_JUDGE_OUTPUT_CAP for kind in session.default_judge_output_caps}
+                                 if variant["thinking_on"] else dict(session.default_judge_output_caps))
+    folder = session.outputs_folder / JUDGE_VARIANT_TEST_FOLDER_NAME / variant_name
+    for judge_kind, stem in ((rules.WELFARE_AND_REFUSAL_JUDGE, "gemma_welfare_and_refusal_judge_attempts_on_held_out_thinking_off_answers"),
+                             (rules.CHOICE_OF_OPTION_JUDGE, "gemma_choice_of_option_judge_attempts_on_held_out_thinking_off_answers")):
+        session.stores[(variant_name, judge_kind)] = rules.JudgeAttemptStore(
+            session.stable_path(folder, f"{stem}__{variant_name}", ".jsonl"), judge_kind)
+    return folder
+
+
+def write_judge_variant_settings(session, variant_name, folder):
+    placements = {}
+    for judge_kind in rules.JUDGE_KINDS:
+        first_answer = phase_0_answers(session)[0]
+        plain = rules.render_judge_prompt(judge_kind, first_answer)
+        _, placements[judge_kind] = (rules.locate_strictness_addendum_insertion_point(plain)
+                                     if session.judge_variant["strictness_addendum"] else (None, "no_addendum"))
+    settings = {"judge_variant_name": variant_name, **session.judge_variant,
+                "output_caps": session.judge_output_caps, "temperature_first_attempt": session.first_attempt_temperature,
+                "temperature_retry": session.retry_temperature, "top_p": session.judge_top_p,
+                "chat_template_kwargs": session.judge_condition_spec["chat_template_kwargs"],
+                "verdict_parsed_from": "final answer after the thinking channel only" if session.judge_variant["thinking_on"] else "whole reply",
+                "addendum_placement": placements,
+                "addendum_files": ({kind: name for kind, name in rules.STRICTNESS_ADDENDUM_FILE_NAMES.items()}
+                                   if session.judge_variant["strictness_addendum"] else None),
+                "addendum_sha256": ({kind: hashlib.sha256(text.encode("utf-8")).hexdigest() for kind, text in
+                                     session.strictness_addenda.items()} if session.judge_variant["strictness_addendum"] else None),
+                "model": session.model["model_repository"], "model_revision": session.model["model_revision"],
+                "written_at": datetime.now().isoformat(timespec="seconds")}
+    path = session.stable_path(folder, f"judge_variant_settings__{variant_name}", ".json")
+    path.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def judge_variant_is_complete(session, variant_name):
+    answers = [answer for answer in phase_0_answers(session) if (answer.get("final_answer_text") or "").strip()]
+    if not all_judgements_are_final(session, variant_name, rules.WELFARE_AND_REFUSAL_JUDGE, answers):
+        return False
+    selected = select_choice_answers_for_phase_0(session)(answers, None)
+    return all_judgements_are_final(session, variant_name, rules.CHOICE_OF_OPTION_JUDGE, selected)
+
+
+def run_judge_variant_test(session, variant_names):
+    """Judges the phase 0 answers once per variant (welfare and refusal judge, then the choice judge on the answers the Haiku audit
+    selected), each variant's attempts in its own folder. Resumable: a variant whose judgements are all final is skipped."""
+    session.skip_first_reply_checks = True  # the broken-judge stop would end the other variants too; parse statistics are logged per variant
+    verify_inputs(session)
+    results = {}
+    for variant_name in variant_names:
+        folder = switch_session_to_judge_variant(session, variant_name)
+        if judge_variant_is_complete(session, variant_name):
+            session.say(f"judge variant {variant_name}: every judgement is final; skipped")
+            continue
+        session.say(f"judge variant {variant_name}: starting (session so far {format_duration(session.seconds_since_start())})")
+        write_judge_variant_settings(session, variant_name, folder)
+        start = session.clock()
+        counts = judge_scope_to_completion(session, variant_name, phase_0_answers(session), select_choice_answers_for_phase_0(session),
+                                           f"judge variant {variant_name}")
+        seconds = session.clock() - start
+        for line in agreement.format_agreement_log_lines(
+                phase_0_answers(session), session.stores[(variant_name, rules.WELFARE_AND_REFUSAL_JUDGE)].attempts_by_answer_id(),
+                session.stores[(variant_name, rules.CHOICE_OF_OPTION_JUDGE)].attempts_by_answer_id()):
+            session.say(f"[{variant_name}] {line}")
+        marker = session.stable_path(folder, f"judge_variant_completed__{variant_name}", ".json")
+        marker.write_text(json.dumps({"judge_variant_name": variant_name, "completed_at": datetime.now().isoformat(timespec="seconds"),
+                                      "seconds_this_session": seconds, "counts": counts}, indent=2), encoding="utf-8")
+        session.say(f"judge variant {variant_name}: done in {format_duration(seconds)}; {json.dumps(counts)[:400]}")
+        results[variant_name] = counts
+    session.say(f"Judge variant test done in {format_duration(session.seconds_since_start())}")
+    return results
+
+
+# ---------------------------------------------------------------------------------------------------
+# Haiku judging mode: the laptop judges; the pod waits, regenerates what the laptop asks for, and fills the gaps with evaluation answers
+# ---------------------------------------------------------------------------------------------------
+
+def read_haiku_verdicts_by_answer_id(session):
+    path = session.haiku.folder / HAIKU_VERDICTS_FILE_NAME
+    return {record["answer_id"]: record for record in read_jsonl(path)} if path.exists() else {}
+
+
+def read_haiku_regeneration_requests(session):
+    path = session.haiku.folder / HAIKU_REGENERATION_REQUESTS_FILE_NAME
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))["requests"]
+    except (ValueError, KeyError):
+        return []
+
+
+def read_haiku_judging_complete(session):
+    path = session.haiku.folder / HAIKU_JUDGING_COMPLETE_FILE_NAME
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    return record if record.get("judging_complete") else None
+
+
+def collect_decisions_from_haiku_verdicts(session):
+    """Same shape as collect_decisions, the verdicts and decisions being the laptop's (an answer without a record is undecided)."""
+    verdicts = read_haiku_verdicts_by_answer_id(session)
+    decisions, prompt_gids = {}, {prompt["prompt_gid"] for prompt in session.prompts}
+    for prompt_gid, answers in read_system_prompted_answers_by_prompt(session).items():
+        if prompt_gid not in prompt_gids:
+            continue
+        entries = []
+        for answer in answers:
+            record = verdicts.get(answer["answer_id"])
+            if record is None:
+                entries.append({"answer": answer, "welfare": None, "choice": None, "decided": False, "passed": False, "failure_reasons": []})
+            else:
+                entries.append({"answer": answer, "welfare": record["welfare"], "choice": record["choice"], "decided": record["decided"],
+                                "passed": record["passed"], "failure_reasons": record["failure_reasons"]})
+        decisions[prompt_gid] = entries
+    return decisions
+
+
+def haiku_first_answers_are_all_decided(session):
+    decisions = collect_decisions_from_haiku_verdicts(session)
+    return all(decisions.get(prompt["prompt_gid"]) and decisions[prompt["prompt_gid"]][0]["decided"] for prompt in session.prompts)
+
+
+def haiku_phase_2_is_complete(session):
+    return read_haiku_judging_complete(session) is not None or haiku_first_answers_are_all_decided(session)
+
+
+def haiku_phase_3_is_complete(session):
+    return read_haiku_judging_complete(session) is not None
+
+
+def prompts_to_regenerate_from_haiku_requests(session):
+    """[(prompt, sample_index)] for the laptop's requests whose answer has not been generated yet (the request file lags the pod)."""
+    prompts_by_gid = {prompt["prompt_gid"]: prompt for prompt in session.prompts}
+    answers_by_prompt = read_system_prompted_answers_by_prompt(session)
+    pending = []
+    for request in read_haiku_regeneration_requests(session):
+        prompt, index = prompts_by_gid.get(request["prompt_gid"]), request["next_sample_index"]
+        if prompt is None or index >= session.maximum_attempts_per_prompt:
+            continue
+        if any(answer["sample_index"] >= index for answer in answers_by_prompt.get(request["prompt_gid"], [])):
+            continue
+        pending.append((prompt, index))
+    return pending
+
+
+def regenerate_requested_prompts(session, pending):
+    session.say(f"regenerating {len(pending)} prompts the laptop's Haiku verdicts asked for")
+    plan = generation_plans(session, only_pending_regeneration=pending)[0]
+    baseline_pod.generate_conditions_together(session.model, [plan], session.backend, session.tokenizer_adapter, session.end_of_sequence_ids,
+                                              session.log_path, session.report_interval_seconds)
+
+
+def launcher_heartbeat_age_seconds(session, waiting_since):
+    path = session.haiku.launcher_heartbeat_file
+    if path is not None and Path(path).exists():
+        try:
+            return session.clock() - float(Path(path).read_text(encoding="utf-8").strip().splitlines()[0])
+        except (ValueError, IndexError, OSError):
+            pass
+    return session.clock() - waiting_since  # no readable heartbeat: counted from the start of this wait
+
+
+def stop_when_the_launcher_heartbeat_is_stale(session, waiting_since):
+    age = launcher_heartbeat_age_seconds(session, waiting_since)
+    if age < session.haiku.launcher_heartbeat_stale_seconds:
+        return
+    decision = {"gate": "launcher_connection_lost_while_waiting_for_haiku_verdicts", "open": False, "heartbeat_age_seconds": round(age),
+                "stale_after_seconds": session.haiku.launcher_heartbeat_stale_seconds,
+                "reasons_closed": [f"the launcher heartbeat is {age / 60:.0f} minutes old: the laptop (which judges with Haiku) is not connected"],
+                "decided_at": datetime.now().isoformat(timespec="seconds"),
+                "next_step": "relaunch with --network-volume-id and --data-center-id: the chain resumes from the volume"}
+    if session.haiku.launcher_lost_decision_file:
+        Path(session.haiku.launcher_lost_decision_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(session.haiku.launcher_lost_decision_file).write_text(json.dumps(decision, indent=2), encoding="utf-8")
+    session.say("LAUNCHER CONNECTION LOST: " + decision["reasons_closed"][0] + "; exiting so the chain syncs to the volume and deletes the pod")
+    raise SystemExit(LAUNCHER_CONNECTION_LOST_EXIT_CODE)
+
+
+def next_idle_time_evaluation_plan(session):
+    """(model entry, condition plan) for the next small batch of base-model evaluation answers still missing, or None. Entries with an adapter
+    are never touched; a run folder whose model is not the session's, or whose longest prompt plus cap does not fit the loaded engine, is skipped."""
+    for kind, folder in session.haiku.idle_time_evaluation_run_folders:
+        if not Path(folder).is_dir():
+            note = f"idle-time evaluation generation skips {kind}: no run folder at {folder}"
+            if note not in session.idle_work_notes_said:
+                session.idle_work_notes_said.add(note)
+                session.say(note)
+            continue
+        configuration = baseline_pod.load_run_configuration(folder)
+        prompts = baseline_pod.load_prompts(folder, configuration)
+        for model in configuration["models"]:
+            if model.get("is_lora_fine_tuned") or model.get("lora_adapter"):
+                continue
+            if (model["model_repository"], model["model_revision"]) != (session.model["model_repository"], session.model["model_revision"]):
+                note = f"idle-time evaluation generation skips {kind}: its base model is not the loaded model"
+                if note not in session.idle_work_notes_said:
+                    session.idle_work_notes_said.add(note)
+                    session.say(note)
+                continue
+            for entry in baseline_pod.condition_entries_for_model(configuration, model):
+                plan = baseline_pod.build_condition_plan(model, entry["condition"], prompts, configuration["samples_per_prompt"], entry["output_cap"],
+                                                         baseline_pod.answer_file_path(folder, model["model_short_name"], entry["condition"]),
+                                                         entry["condition_spec"])
+                if not plan["pending_answers"]:
+                    continue
+                longest = max(len(session.tokenizer_adapter.prompt_token_ids(prompt["user_message"], entry["condition_spec"]))
+                              for prompt, _ in plan["pending_answers"])
+                if longest + entry["output_cap"] > session.maximum_model_length:
+                    note = (f"idle-time evaluation generation skips {kind} {entry['condition']}: longest prompt {longest} tokens plus cap "
+                            f"{entry['output_cap']} exceeds the loaded engine's maximum model length {session.maximum_model_length}")
+                    if note not in session.idle_work_notes_said:
+                        session.idle_work_notes_said.add(note)
+                        session.say(note)
+                    continue
+                plan["pending_answers"] = plan["pending_answers"][:session.haiku.idle_time_batch_answers]
+                return kind, model, plan
+    return None
+
+
+def run_one_idle_time_evaluation_batch(session):
+    """Generates one small batch; True when something was generated (False: nothing left that this session can do)."""
+    if not session.haiku.idle_time_evaluation_run_folders:
+        return False
+    found = next_idle_time_evaluation_plan(session)
+    if found is None:
+        if "all" not in session.idle_work_notes_said:
+            session.idle_work_notes_said.add("all")
+            session.say("idle-time evaluation generation: every base-model answer this session can generate is saved")
+        return False
+    kind, model, plan = found
+    session.say(f"idle-time evaluation generation ({kind}, {model['model_short_name']}, {plan['condition']}): a batch of {len(plan['pending_answers'])} answers")
+    baseline_pod.generate_conditions_together(model, [plan], session.backend, session.tokenizer_adapter, session.end_of_sequence_ids,
+                                              session.log_path, session.report_interval_seconds)
+    return True
+
+
+def wait_for_haiku_files_while_doing_useful_work(session, finished, label, regenerate_requests):
+    """Loops until finished(): regenerates what the laptop asks for (when regenerate_requests), else runs one idle-time evaluation batch, else
+    sleeps; checks the launcher heartbeat on every turn and reports about every report interval."""
+    waiting_since = last_report = session.clock()
+    while not finished():
+        stop_when_the_launcher_heartbeat_is_stale(session, waiting_since)
+        pending = prompts_to_regenerate_from_haiku_requests(session) if regenerate_requests else []
+        if pending:
+            regenerate_requested_prompts(session, pending)
+            continue
+        if run_one_idle_time_evaluation_batch(session):
+            continue
+        session.sleep(session.haiku.wait_poll_seconds)
+        if session.clock() - last_report >= session.report_interval_seconds:
+            last_report = session.clock()
+            decided = sum(entry["decided"] for entries in collect_decisions_from_haiku_verdicts(session).values() for entry in entries)
+            session.say(f"{label}: waiting for the laptop's Haiku files ({decided} answers decided so far, "
+                        f"{len(read_haiku_regeneration_requests(session))} regeneration requests open); heartbeat "
+                        f"{launcher_heartbeat_age_seconds(session, waiting_since) / 60:.1f} minutes old")
+
+
+def run_haiku_phase_2(session):
+    wait_for_haiku_files_while_doing_useful_work(session, lambda: haiku_phase_2_is_complete(session), "phase 2", regenerate_requests=False)
+    return {"first_answers_decided_by_haiku": sum(bool(entries and entries[0]["decided"])
+                                                  for entries in collect_decisions_from_haiku_verdicts(session).values())}
+
+
+def run_haiku_phase_3(session):
+    before = sum(len(entries) for entries in read_system_prompted_answers_by_prompt(session).values())
+    wait_for_haiku_files_while_doing_useful_work(session, lambda: haiku_phase_3_is_complete(session), "phase 3", regenerate_requests=True)
+    after = sum(len(entries) for entries in read_system_prompted_answers_by_prompt(session).values())
+    return {"answers_regenerated_in_this_phase": after - before}
+
+
+def decisions_for_phase_4_with_haiku_judging(session):
+    """Needs the judging-complete file; the kept answer of every prompt must be the earliest passing answer of the verdicts."""
+    complete = read_haiku_judging_complete(session)
+    if complete is None:
+        raise SystemExit("Phase 4 needs the laptop's judging-complete file")
+    decisions = collect_decisions_from_haiku_verdicts(session)
+    kept_by_prompt = complete["kept_answer_id_by_prompt_gid"]
+    for prompt in session.prompts:
+        entries = decisions.get(prompt["prompt_gid"], [])
+        passing = [entry for entry in entries if entry["passed"]]
+        expected = passing[0]["answer"]["answer_id"] if passing else None
+        if kept_by_prompt.get(prompt["prompt_gid"]) != expected:
+            raise SystemExit(f"The judging-complete file keeps {kept_by_prompt.get(prompt['prompt_gid'])!r} for {prompt['prompt_gid']} but the "
+                             f"verdicts say {expected!r}; nothing was written")
+        if not passing and (not entries or not all(entry["decided"] for entry in entries)):
+            raise SystemExit(f"{prompt['prompt_gid']} has undecided or no answers although judging is complete; nothing was written")
+    return decisions
+
+
+def run_all_phases_with_haiku_judging(session):
+    verify_inputs(session)
+    longest_prompt = baseline_pod.check_prompt_lengths(session.prompts, list(session.condition_entries.values()), session.tokenizer_adapter,
+                                                      session.configuration["maximum_prompt_tokens_allowed"])
+    session.say(f"HAIKU JUDGING MODE: {len(session.prompts)} prompts, longest rendered prompt {longest_prompt} tokens, up to "
+                f"{session.maximum_attempts_per_prompt} attempts per prompt; the laptop judges, the verdict files come from {session.haiku.folder}")
+    phases_to_run = set(session.phases_to_run)
+    if not session.skip_first_reply_checks and 1 in phases_to_run:
+        run_embedded_one_answer_check(session)
+    for phase_number, is_complete, run in ((1, phase_1_is_complete, run_phase_1), (2, haiku_phase_2_is_complete, run_haiku_phase_2),
+                                           (3, haiku_phase_3_is_complete, run_haiku_phase_3), (4, phase_4_is_complete, run_phase_4)):
+        if phase_number in phases_to_run:
+            run_phase(session, phase_number, lambda is_complete=is_complete: is_complete(session), lambda run=run: run(session))
+    session.say(f"All phases done in {format_duration(session.seconds_since_start())}")
+    return 0
+
+
+# ---------------------------------------------------------------------------------------------------
 # The whole session
 # ---------------------------------------------------------------------------------------------------
 
 def run_all_phases(session):
+    if session.haiku:
+        return run_all_phases_with_haiku_judging(session)
     verify_inputs(session)
     longest_prompt = baseline_pod.check_prompt_lengths(session.prompts, list(session.condition_entries.values()), session.tokenizer_adapter,
                                                       session.configuration["maximum_prompt_tokens_allowed"])
@@ -992,6 +1405,22 @@ def run_all_phases(session):
     return 0
 
 
+def haiku_judging_settings_from_arguments(arguments):
+    if not arguments.haiku_judging_folder:
+        return None
+    if set(arguments.only_phases) - {1, 2, 3, 4}:
+        raise SystemExit("With --haiku-judging-folder only phases 1 to 4 exist (the model judges nothing: no phases 0, 5 or 6)")
+    folders = []
+    for item in arguments.idle_time_evaluation_run_folders or []:
+        kind, _, path = item.partition("=")
+        folders.append((kind, Path(path)))
+    return HaikuJudgingSettings(
+        folder=Path(arguments.haiku_judging_folder), launcher_heartbeat_file=Path(arguments.launcher_heartbeat_file) if arguments.launcher_heartbeat_file else None,
+        launcher_heartbeat_stale_seconds=arguments.launcher_heartbeat_stale_seconds,
+        launcher_lost_decision_file=Path(arguments.launcher_lost_decision_file) if arguments.launcher_lost_decision_file else None,
+        wait_poll_seconds=arguments.wait_poll_seconds, idle_time_evaluation_run_folders=folders, idle_time_batch_answers=arguments.idle_time_batch_answers)
+
+
 def build_real_session(arguments):
     from transformers import AutoTokenizer
     run_folder = Path(arguments.run_folder)
@@ -1005,7 +1434,8 @@ def build_real_session(arguments):
     return TreatmentArmSession(run_folder, backend, tokenizer_adapter, end_of_sequence_ids, arguments.report_interval_seconds,
                                arguments.maximum_prompts, arguments.maximum_phase_0_answers_per_condition,
                                arguments.skip_first_reply_checks, arguments.maximum_attempts_per_prompt,
-                               arguments.generation_output_cap, phases_to_run=arguments.only_phases)
+                               arguments.generation_output_cap, phases_to_run=arguments.only_phases,
+                               haiku_judging_settings=haiku_judging_settings_from_arguments(arguments))
 
 
 def parse_arguments(argv=None):
@@ -1014,25 +1444,51 @@ def parse_arguments(argv=None):
     parser.add_argument("--generation-backend", choices=["vllm", "huggingface"], default="vllm")
     parser.add_argument("--device", default="cuda", help="huggingface backend only")
     parser.add_argument("--report-interval-seconds", type=float, default=PROGRESS_REPORT_INTERVAL_SECONDS)
-    parser.add_argument("--only-phases", type=int, nargs="+", choices=range(7), default=list(range(7)), metavar="PHASE",
-                        help="run only these phases (default all, 0 to 6). The overnight chain runs 0 1 2 3 4 first and 5 6 last; phases "
+    parser.add_argument("--only-phases", type=int, nargs="+", choices=range(7), default=None, metavar="PHASE",
+                        help="run only these phases (default all, 0 to 6; 1 to 4 with --haiku-judging-folder). The overnight chain runs 0 1 2 3 4 first and 5 6 last; phases "
                              "5 and 6 read the phase 4 outputs, and the first-reply checks run only when a phase from 0 to 3 is selected")
+    parser.add_argument("--run-judge-variant-test", action="store_true",
+                        help="run only the judge variant test: phase 0 judged once per variant listed in the run configuration's "
+                             "judge_variant_test section, in one engine load, each variant in its own folder under generation_outputs/judge_variant_test/")
     parser.add_argument("--skip-first-reply-checks", action="store_true",
                         help="rehearsal: skip the one-answer check, the first judge reply check and the broken-judge stop")
     parser.add_argument("--maximum-prompts", type=int, default=None, help="rehearsal: use only the first prompts")
     parser.add_argument("--maximum-phase-0-answers-per-condition", type=int, default=None, help="rehearsal: judge only the first answers")
     parser.add_argument("--maximum-attempts-per-prompt", type=int, default=None, help="rehearsal: override the configuration")
     parser.add_argument("--generation-output-cap", type=int, default=None, help="rehearsal: override both conditions' output cap")
+    parser.add_argument("--haiku-judging-folder", default=None, help="selects the Haiku judging mode: the folder the laptop's verdict, request and "
+                        "completion files are uploaded into (phases 1 to 4 only)")
+    parser.add_argument("--launcher-heartbeat-file", default=None)
+    parser.add_argument("--launcher-heartbeat-stale-seconds", type=float, default=DEFAULT_LAUNCHER_HEARTBEAT_STALE_SECONDS)
+    parser.add_argument("--launcher-lost-decision-file", default=None, help="gate decision json written before exiting with code 10")
+    parser.add_argument("--wait-poll-seconds", type=float, default=DEFAULT_WAIT_POLL_SECONDS)
+    parser.add_argument("--idle-time-evaluation-run-folders", nargs="*", default=None, metavar="KIND=PATH",
+                        help="evaluation run folders whose base-model answers are generated while waiting for the laptop")
+    parser.add_argument("--idle-time-batch-answers", type=int, default=DEFAULT_IDLE_TIME_BATCH_ANSWERS)
     # Accepted so that the shared launcher can pass its usual options; they do nothing for this script.
     parser.add_argument("--offline", action="store_true", help="rehearsal: set HF_HUB_OFFLINE=1 in the environment instead")
     parser.add_argument("--keep-model-caches", action="store_true")
-    return parser.parse_args(argv)
+    arguments = parser.parse_args(argv)
+    if arguments.only_phases is None:
+        arguments.only_phases = [1, 2, 3, 4] if arguments.haiku_judging_folder else list(range(7))
+    return arguments
 
 
 def main(argv=None):
     arguments = parse_arguments(argv)
     session = build_real_session(arguments)
+    if arguments.run_judge_variant_test:
+        return run_judge_variant_test_from_configuration(session)
     return run_all_phases(session)
+
+
+def run_judge_variant_test_from_configuration(session):
+    variant_section = session.section.get("judge_variant_test")
+    if not variant_section:
+        raise SystemExit("The run configuration has no judge_variant_test section: build the run folder with "
+                         "build_gemma_judge_variant_test_run_folder.py")
+    run_judge_variant_test(session, variant_section["variant_names"])
+    return 0
 
 
 if __name__ == "__main__":

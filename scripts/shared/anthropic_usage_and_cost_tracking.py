@@ -18,6 +18,7 @@ from pathlib import Path
 PRICES_PER_MILLION_TOKENS_BY_ANTHROPIC_MODEL = {
     "claude-opus-5": {"input": 5.00, "output": 25.00},
     "claude-opus-5-5": {"input": 4.00, "output": 20.00},  # possible refusal-fallback model
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},  # the judge of the overnight chain (paid API from the laptop)
 }
 CACHE_READ_PRICE_FRACTION_OF_INPUT = 0.10
 CACHE_WRITE_PRICE_FRACTION_OF_INPUT = 1.25

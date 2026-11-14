@@ -71,9 +71,69 @@ def render_choice_of_option_judge_prompt(answer_record):
     return choice_judge_module.render_judge_prompt(answer_record)
 
 
-def render_judge_prompt(judge_kind, answer_record):
-    return {WELFARE_AND_REFUSAL_JUDGE: render_welfare_and_refusal_judge_prompt,
-            CHOICE_OF_OPTION_JUDGE: render_choice_of_option_judge_prompt}[judge_kind](answer_record)
+def render_judge_prompt(judge_kind, answer_record, strictness_addendum_text=None):
+    """The Haiku judge prompt for this judge kind. With no addendum (the default) the text is exactly the Haiku script's rendering."""
+    rendered = {WELFARE_AND_REFUSAL_JUDGE: render_welfare_and_refusal_judge_prompt,
+                CHOICE_OF_OPTION_JUDGE: render_choice_of_option_judge_prompt}[judge_kind](answer_record)
+    if strictness_addendum_text is None:
+        return rendered
+    return insert_strictness_addendum_before_final_reply_instruction(rendered, strictness_addendum_text)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Judge variants (the judge-variant test of the phase 0 answers; the default variant is the unchanged behaviour)
+# ---------------------------------------------------------------------------------------------------
+
+FINAL_REPLY_INSTRUCTION_OPENING = "Reply with only a JSON object"
+ADDENDUM_PLACEMENT_BEFORE_FINAL_REPLY_INSTRUCTION = "before_final_reply_instruction_line"
+ADDENDUM_PLACEMENT_AT_END_OF_PROMPT = "at_end_of_prompt_because_final_reply_instruction_line_not_found"
+STRICTNESS_ADDENDUM_FILE_NAMES = {
+    WELFARE_AND_REFUSAL_JUDGE: "gemma_judge_strictness_addendum_for_refusal_and_welfare_cost_judge.txt",
+    CHOICE_OF_OPTION_JUDGE: "gemma_judge_strictness_addendum_for_choice_of_option_judge.txt"}
+THINKING_ON_JUDGE_OUTPUT_CAP = 4096
+# name -> thinking switched on in the chat template, strictness addendum appended. Verdicts are parsed from the final answer only.
+JUDGE_VARIANTS = {
+    "thinking_on_unchanged_prompt": {"thinking_on": True, "strictness_addendum": False},
+    "thinking_off_strict_addendum": {"thinking_on": False, "strictness_addendum": True},
+    "thinking_on_strict_addendum": {"thinking_on": True, "strictness_addendum": True}}
+BASELINE_JUDGE_VARIANT_NAME = "thinking_off_unchanged_prompt_baseline"
+
+
+def strictness_addendum_directory():
+    return Path(__file__).resolve().parent / "prompts"
+
+
+def read_strictness_addenda_by_judge_kind():
+    return {judge_kind: (strictness_addendum_directory() / name).read_text(encoding="utf-8")
+            for judge_kind, name in STRICTNESS_ADDENDUM_FILE_NAMES.items()}
+
+
+def locate_strictness_addendum_insertion_point(rendered_prompt):
+    """(index, placement): the start of the last line that begins with the final reply instruction, else the end of the prompt."""
+    index = rendered_prompt.rfind("\n" + FINAL_REPLY_INSTRUCTION_OPENING)
+    if index < 0 and rendered_prompt.startswith(FINAL_REPLY_INSTRUCTION_OPENING):
+        return 0, ADDENDUM_PLACEMENT_BEFORE_FINAL_REPLY_INSTRUCTION
+    if index < 0:
+        return len(rendered_prompt), ADDENDUM_PLACEMENT_AT_END_OF_PROMPT
+    return index + 1, ADDENDUM_PLACEMENT_BEFORE_FINAL_REPLY_INSTRUCTION
+
+
+def insert_strictness_addendum_before_final_reply_instruction(rendered_prompt, addendum_text):
+    """The addendum (trailing newlines trimmed) on its own paragraph just before the final 'Reply with only a JSON object' line."""
+    index, placement = locate_strictness_addendum_insertion_point(rendered_prompt)
+    addendum_paragraph = addendum_text.strip("\n") + "\n"
+    if placement == ADDENDUM_PLACEMENT_AT_END_OF_PROMPT:
+        return rendered_prompt.rstrip("\n") + "\n\n" + addendum_paragraph
+    return rendered_prompt[:index] + addendum_paragraph + "\n" + rendered_prompt[index:]
+
+
+def final_reply_text_after_thinking(reply_text, finish_reason="stop"):
+    """(final answer text, thinking trace text, split succeeded) of a thinking-on Gemma reply, through the project's own splitter.
+    A reply cut off inside its thinking has an empty final answer, which then fails to parse."""
+    from emergent_misalignment import baseline_screen_definitions as defs
+    from emergent_misalignment.thinking_trace_splitting_for_candidate_models import split_generated_text
+    split = split_generated_text(defs.FAMILY_GEMMA_CHANNEL_TAGS, defs.CONDITION_THINKING_ON, reply_text or "", finish_reason == "stop", "")
+    return split["final_answer_text"], split["thinking_trace_text"], split["thinking_split_succeeded"]
 
 
 def judge_prompt_template_paths():

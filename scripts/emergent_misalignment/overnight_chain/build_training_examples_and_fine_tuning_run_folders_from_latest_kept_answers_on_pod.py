@@ -14,6 +14,7 @@ Resumable: an existing training examples file and existing run folders are reuse
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -43,13 +44,14 @@ def build_one_run_folder(python_executable, examples_file, model_short_name, fin
     staging = final_folder.parent / f"{final_folder.name}_builder_staging"
     run([python_executable, RUN_FOLDER_BUILDER, "--model-short-name", model_short_name, "--training-examples-file", examples_file,
          "--runs-root", staging, *extra_arguments])
-    built = [path for path in staging.iterdir() if path.is_dir()]
+    # The builder puts timing runs under small_sample_checks/<run folder>, so look for the folder holding the run configuration at any depth
+    built = sorted({path.parent for path in staging.rglob("run_configuration_*.json")})
     if len(built) != 1:
-        raise SystemExit(f"expected exactly one run folder in {staging}, found {len(built)}")
+        raise SystemExit(f"expected exactly one run folder (with a run_configuration file) under {staging}, found {len(built)}")
     if final_folder.exists():
         os.rename(final_folder, final_folder.parent / f"{final_folder.name}_incomplete_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     os.replace(built[0], final_folder)
-    staging.rmdir()
+    shutil.rmtree(staging)  # only empty folders are left (small_sample_checks/ for timing runs)
 
 
 def main(argv=None):
