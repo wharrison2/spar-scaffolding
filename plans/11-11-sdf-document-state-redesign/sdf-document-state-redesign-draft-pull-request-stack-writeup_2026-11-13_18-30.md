@@ -37,6 +37,10 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Work item 5, evals part, branch `william/sdf-evals-read-through-document-state-loader` (one squashed commit): `audit_sdf.py` description rewrite audit, `report_sdf.py`, shoehorning postprocess read through the loader; loader extensions (plan record variables, planned description, draft text, plan-shaped records, empty list for a bare corpus path). Publisher dry-run staging, offline audit and report output and the website build byte-identical on all 7 committed SDF runs (capture scripts in the session scratchpad). 2,526 passed. Draft #199.
 - Restacked onto #199: runner 2,549; score and gate 2,568; critique and revise 2,590 passed. Runner pushed, draft #200. Plan step rebase conflict (event fold test) handed back to its subagent. Real-run replay running for score and gate and critique and revise.
 - Work item 7d (description rewrite) running from the 7b branch.
+- Real-run replay of score and gate and critique and revise: 355 requests each, 0 differences from origin/main. Output: `data/sdf_real_run_request_replay_score_and_gate_steps_and_critique_and_revise_steps_against_origin_main_2026-11-13_18-06/`. Drafts #201 (score and gate) and #202 (critique and revise) opened.
+- Plan step rebased onto #202 by its subagent (`161bd6a`, `b5faec3`, `7a25b5a`); 2,598 passed. Replay running.
+- Work item 7d, branch `william/sdf-description-rewrite-step` (`49cef29`, `19cf238`): `DescriptionRewriteStep` for both routes; shared additions: the same removal hook, OpenAI route in `send_model_request`, `after_documents_are_processed`, `message_when_failed_documents_stop_the_run`, opt-in `build_request_errors_count_as_thrown_calls`. 40 new tests; 2,537 passed on the 7b base. Being rebased onto the plan step.
+- Work item 7e (consideration scoring and assignment) running from the plan step branch.
 
 ## Deviations from the plan
 
@@ -52,6 +56,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Work item 7b changes run behaviour without changing requests: critiques for all documents now run before any revise (they were interleaved per document), so printed lines are reordered and, with several workers, a revise no longer overlaps the next document's critique. Prompt-rendering errors now raise instead of counting as a thrown call. The old layer's systemic stop (thrown calls across both calls together) is kept by counting in `run()`.
 - Work item 5 left these reading files: the Hugging Face publisher (loader-derived corpus reorders rows of two resumed committed runs, which would change published bytes); the final-corpus audits and persona builder (bare corpus paths; judge order pinned); screen, description rewrite and selector batch tables; `scripts/rerun_considerations_selector_on_stored_plans.py` (builds model requests, no test covers it); `website/sdf.py` and `viewer/loader.py` (see judgement items). The website-and-viewer branch has no commits and no pull request.
 - Shoehorning postprocess: its "no drafts found" console message now names the run's draft stage instead of a file path.
+- The plan's `Removed` outcome alone could not reproduce today's files for plan (incoherent) and description rewrite (dealt-value conflict): both are written to the stage file and checkpointed today, so a `stage_file_record_for_removal` hook was added.
 
 ## New risks
 
@@ -68,6 +73,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | Audit equivalence does not cover `variable_persistence_sdf` and the persona builder on the five-layer layout (they stop on records without `variables`), so a loader change there goes untested | Recorded that they stop | Decide whether those readers should support five-layer runs at all |
 | Work item 7b's two-phase layer 3 is slower in wall-clock time when one document's revise could have overlapped another's critique | No | Time a fixture run with several workers and a canned reply delay on the runner base and on 7b; if it matters, run critique and revise for one document inside one worker task while keeping two steps |
 | Loader-derived final corpus order differs from `final/sdf_corpus.jsonl` for resumed runs (two committed runs) | Yes, found by the work item 5 publisher comparison | Relevant to work item 9 and risk 11: decide whether derived corpora must keep file order |
+| Description rewrite: a dealt-value conflict now writes the rejection record before the results record (was after); a crash between the two writes would now record the rejection twice on resume instead of never | No | Kill a fixture run between the two writes (monkeypatch an exception after the first) and check the files on resume; dedupe rejections by prompt id on resume if it matters |
 
 ## Needs William's judgement
 
