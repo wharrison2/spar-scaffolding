@@ -113,8 +113,8 @@ The new code keeps that behaviour and makes it visible: the new assignment is a 
 
 Each stage is its own pull request and must pass the prompt-equivalence test before merging.
 
-1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request.
-2. **Merge the two open SDF branches** (`sdf-show-rejected-values-paired-test`, `sdf-spec-contradiction-fixes`), rebase the cleanup branch, and regenerate the test's recorded requests in a pull request that changes nothing else.
+1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request. Once the test has merged, add the rule for its recorded requests (see Tests) to the pipeline repository's committed `CLAUDE.md`.
+2. **Merge the two open SDF branches** (`sdf-show-rejected-values-paired-test`, `sdf-spec-contradiction-fixes`), each committing the regenerated recorded requests together with the prompt changes it makes, then rebase the cleanup branch.
 3. **Docs:** the step table above goes into CLAUDE.md and the `run.py` docstring.
 4. **Document state and loader, over today's files.** `load_document_states` reads all three layouts, including the website's pinned run. No pipeline code changes, so no request can change.
 5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher.
@@ -147,7 +147,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | Different screen batches | Batches are a seeded shuffle saved before the round's first call; a different seed string, or a batch plan that is recomputed instead of reused, changes which hands share a call | Equivalence test; batch plan recorded as an event |
 | Different request parameters | Model, max tokens, schema, temperature or caching flag set by the runner instead of the layer | Equivalence test compares these too |
 | Different number of calls | A step retries where today's code does not, or the other way round | Equivalence test compares calls per stage, on a fixture that includes failures and a resume |
-| The recorded requests go stale | Prompt changes merged by other work during the refactor | Regenerated only by its script, in a pull request that changes nothing else |
+| The recorded requests go stale | Prompt changes merged by other work during the refactor | That work regenerates the recording in its own pull request, and the refactor branch rebases onto it; refactor pull requests never change the recording |
 
 ### Changing what a run does without changing a request
 
@@ -180,7 +180,7 @@ All tests in the pipeline repository run offline with stubbed model replies and 
 
 | Test | What it checks |
 |---|---|
-| **Prompt equivalence** | Runs the whole pipeline on a small fixture with canned replies and compares every request, as sent, against a committed file of requests recorded on `origin/main`. Compared per stage and item id: system prompt hash, user message, model, max tokens after thinking headroom, reasoning effort, schema, temperature, caching flag, stage tag, and calls per stage. Any difference fails. The recorded file is regenerated only by its own script |
+| **Prompt equivalence** | Runs the whole pipeline on a small fixture with canned replies and compares every request, as sent, against a committed file of requests recorded on `origin/main`. Compared per stage and item id: system prompt hash, user message, model, max tokens after thinking headroom, reasoning effort, schema, temperature, caching flag, stage tag, and calls per stage. Any difference fails. The recorded file is regenerated only by its own script. A pull request that refactors must leave it untouched, so a failure there is a bug. A pull request that changes requests on purpose runs the script and commits the new recording in the same pull request, so the recording's diff shows reviewers which requests changed |
 | **Final corpus schema** | The fixture run's `final/sdf_corpus.jsonl` has the same fields, order and values as on `origin/main` |
 | **Real-run replay** (a script in this project, not in CI, because the runs are not committed to the pipeline repository) | For each real current-layout run, rebuilds every request from the run's stored inputs and compares it with what `model_calls.jsonl` and `system_prompts/` say was sent. Run before each pull request from work item 6 on. It covers hundreds of real hands, which the fixture cannot |
 
