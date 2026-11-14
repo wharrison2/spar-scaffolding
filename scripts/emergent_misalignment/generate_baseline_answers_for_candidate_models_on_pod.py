@@ -20,11 +20,20 @@ as each answer finishes. Resumable: a relaunch skips answer_ids already in the f
 Sampling: temperature 1, top-p 1, top-k disabled, no system prompt, the prompt as a single user turn, bfloat16, text only.
 Progress reports with timings about every 3 minutes (also written to generation_progress_log_*.txt).
 
+LoRA adapters: a model entry of the run configuration may carry "lora_adapter": {"path_inside_run_folder": ...,
+"adapter_weights_sha256": optional}, a standard peft adapter directory (adapter_config.json + adapter_model.safetensors,
+uploaded inside the run folder, normally under generation_inputs/). The entry is then the base model plus that adapter: vLLM
+loads it with LoRARequest (enable_lora, max_lora_rank rounded up from the adapter's rank), the Hugging Face backend with peft.
+Its answer records gain lora_adapter_path_inside_run_folder and lora_adapter_weights_sha256 (records of entries without an
+adapter are unchanged). A base entry and adapter entries of the same repository run one after another in the same session;
+the repository's weights are downloaded once and its cache is deleted only after the last entry that uses it.
+
 Backends: vLLM (default) with the engine stepped by hand, so each answer is saved the moment it finishes; or Hugging Face
 transformers generation (--generation-backend huggingface), slower, for a model vLLM cannot load and for the local rehearsal.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -136,7 +145,7 @@ def condition_entries_for_model(configuration, model, output_cap_overrides=None)
             condition_spec = {
                 "chat_template_kwargs": entry["chat_template_kwargs"], "generation_prompt_suffix": "",
                 "system_prompt_text": entry.get("system_prompt_text"),
-                "is_true_thinking_off": True,
+                "is_true_thinking_off": entry.get("is_true_thinking_off", True),
                 "split_as_condition": entry.get("split_as_condition", defs.CONDITION_THINKING_OFF),
                 "required_rendered_prompt_tail": entry.get("required_rendered_prompt_tail"),
                 "required_system_turn_opening": entry.get("required_system_turn_opening"),
@@ -189,6 +198,56 @@ def rendered_prompt_requirement_failures(rendered_prompt_text, condition_spec):
 
 
 # ---------------------------------------------------------------------------------------------------
+# LoRA adapters
+# ---------------------------------------------------------------------------------------------------
+
+ADAPTER_CONFIGURATION_FILE_NAME = "adapter_config.json"
+ADAPTER_WEIGHTS_FILE_NAME = "adapter_model.safetensors"
+VLLM_SUPPORTED_MAXIMUM_LORA_RANKS = [8, 16, 32, 64, 128, 256, 320, 512]
+
+
+def sha256_of_file_in_chunks(path, chunk_bytes=16 * 1024 * 1024):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_bytes), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def maximum_lora_rank_for_vllm(adapter_rank):
+    """The smallest rank vLLM accepts for max_lora_rank that is at least the adapter's rank."""
+    for supported in VLLM_SUPPORTED_MAXIMUM_LORA_RANKS:
+        if supported >= adapter_rank:
+            return supported
+    raise ValueError(f"LoRA rank {adapter_rank} is larger than vLLM's supported maximum {VLLM_SUPPORTED_MAXIMUM_LORA_RANKS[-1]}")
+
+
+def resolve_lora_adapter(model, run_folder):
+    """None for a model entry without "lora_adapter". Otherwise the adapter's absolute folder, path inside the run folder,
+    SHA-256 of adapter_model.safetensors and rank. Fails when a file is missing or when the configuration records a SHA-256 that
+    the uploaded weights do not match (a corrupted or wrong upload would otherwise be recorded as the adapter)."""
+    entry = model.get("lora_adapter")
+    if not entry:
+        return None
+    relative_path = entry["path_inside_run_folder"]
+    folder = Path(run_folder) / relative_path
+    for required_file_name in (ADAPTER_CONFIGURATION_FILE_NAME, ADAPTER_WEIGHTS_FILE_NAME):
+        if not (folder / required_file_name).is_file():
+            raise FileNotFoundError(f"LoRA adapter folder {folder} for {model['model_short_name']} lacks {required_file_name}")
+    weights_sha256 = sha256_of_file_in_chunks(folder / ADAPTER_WEIGHTS_FILE_NAME)
+    expected = entry.get("adapter_weights_sha256")
+    if expected and expected != weights_sha256:
+        raise RuntimeError(f"LoRA adapter weights for {model['model_short_name']} have SHA-256 {weights_sha256}, but the run "
+                           f"configuration records {expected}; the upload is not the adapter that was configured")
+    adapter_configuration = json.loads((folder / ADAPTER_CONFIGURATION_FILE_NAME).read_text(encoding="utf-8"))
+    rank = max([adapter_configuration.get("r") or 0, *(adapter_configuration.get("rank_pattern") or {}).values()])
+    if rank <= 0:
+        raise ValueError(f"{folder / ADAPTER_CONFIGURATION_FILE_NAME} has no LoRA rank r")
+    return {"folder": str(folder), "path_inside_run_folder": relative_path, "weights_sha256": weights_sha256, "rank": int(rank),
+            "name": model["model_short_name"]}
+
+
+# ---------------------------------------------------------------------------------------------------
 # Turning generated tokens into the answer record
 # ---------------------------------------------------------------------------------------------------
 
@@ -200,12 +259,12 @@ def strip_trailing_end_of_sequence_tokens(token_ids, end_of_sequence_ids):
 
 
 def build_answer_record(model, condition, condition_spec, prompt, sample_index, generated_token_ids, finish_reason,
-                        output_cap, decode_function, end_of_sequence_ids, finished_at=None):
+                        output_cap, decode_function, end_of_sequence_ids, finished_at=None, lora_adapter=None):
     text = decode_function(strip_trailing_end_of_sequence_tokens(generated_token_ids, end_of_sequence_ids))
     ended_naturally = finish_reason == "stop"
     split = split_generated_text(model["template_family"], condition_spec.get("split_as_condition", condition), text, ended_naturally,
                                  condition_spec.get("generation_prompt_suffix", ""))
-    return {
+    record = {
         "answer_id": defs.build_answer_id(model["model_short_name"], condition, prompt["prompt_gid"], sample_index),
         "model_short_name": model["model_short_name"], "model_repository": model["model_repository"],
         "model_revision": model["model_revision"], "condition": condition,
@@ -217,6 +276,10 @@ def build_answer_record(model, condition, condition_spec, prompt, sample_index, 
         "hit_output_cap": finish_reason == "length", "finish_reason": finish_reason,
         "generation_finished_at": (finished_at or datetime.now()).isoformat(timespec="seconds"),
     }
+    if lora_adapter is not None:
+        record["lora_adapter_path_inside_run_folder"] = lora_adapter["path_inside_run_folder"]
+        record["lora_adapter_weights_sha256"] = lora_adapter["weights_sha256"]
+    return record
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -251,14 +314,20 @@ class ChatTokenizerAdapter:
 # ---------------------------------------------------------------------------------------------------
 
 class VllmGenerationBackend:
-    def __init__(self, model_repository, model_revision, maximum_model_length, gpu_memory_utilization, random_seed=0):
+    def __init__(self, model_repository, model_revision, maximum_model_length, gpu_memory_utilization, random_seed=0,
+                 lora_adapter=None):
         import vllm
         from vllm import LLM
         self.vllm_version = vllm.__version__
+        self.lora_request = None
         load_start = time.time()
         common = dict(model=model_repository, revision=model_revision, tokenizer_revision=model_revision, dtype="bfloat16",
                       max_model_len=maximum_model_length, gpu_memory_utilization=gpu_memory_utilization, seed=random_seed,
                       enable_prefix_caching=True)
+        if lora_adapter is not None:
+            from vllm.lora.request import LoRARequest
+            common.update(enable_lora=True, max_loras=1, max_lora_rank=maximum_lora_rank_for_vllm(lora_adapter["rank"]))
+            self.lora_request = LoRARequest(lora_adapter["name"], 1, lora_adapter["folder"])
         try:
             self.llm = LLM(language_model_only=True, **common)  # skips every image and video input
         except TypeError:  # a vLLM without the shortcut: set every modality limit to zero instead
@@ -270,10 +339,12 @@ class VllmGenerationBackend:
         from vllm.sampling_params import RequestOutputKind
         engine = self.llm.llm_engine
         for request in requests:  # submitted in the given order; only max_tokens differs between requests
-            sampling_parameters = SamplingParams(
-                n=1, temperature=defs.SAMPLING_TEMPERATURE, top_p=defs.SAMPLING_TOP_P, top_k=-1, min_p=0.0,
+            sampling_parameters = SamplingParams(  # a request may carry its own temperature and top_p (the judges use temperature 0)
+                n=1, temperature=request.get("temperature", defs.SAMPLING_TEMPERATURE), top_p=request.get("top_p", defs.SAMPLING_TOP_P),
+                top_k=-1, min_p=0.0,
                 max_tokens=request["maximum_new_tokens"], skip_special_tokens=False, output_kind=RequestOutputKind.FINAL_ONLY)
-            engine.add_request(request["request_id"], {"prompt_token_ids": request["prompt_token_ids"]}, sampling_parameters)
+            engine.add_request(request["request_id"], {"prompt_token_ids": request["prompt_token_ids"]}, sampling_parameters,
+                               lora_request=self.lora_request)
         while engine.has_unfinished_requests():
             for output in engine.step():
                 if output.finished:
@@ -286,7 +357,7 @@ class HuggingFaceGenerationBackend:
     """Slower fallback and the local rehearsal's backend: left-padded batches, one batch at a time. Requests with different
     output caps are never batched together: they are grouped by cap, in the order the caps first appear."""
 
-    def __init__(self, model_repository, model_revision, device, end_of_sequence_ids, prompts_per_batch=4):
+    def __init__(self, model_repository, model_revision, device, end_of_sequence_ids, prompts_per_batch=4, lora_adapter=None):
         import torch
         import transformers
         self.torch, self.device, self.prompts_per_batch = torch, device, prompts_per_batch
@@ -297,6 +368,11 @@ class HuggingFaceGenerationBackend:
             self.model = transformers.AutoModelForCausalLM.from_pretrained(model_repository, revision=model_revision, dtype=dtype)
         except (ValueError, KeyError):  # multimodal checkpoints without a causal language model mapping
             self.model = transformers.AutoModelForImageTextToText.from_pretrained(model_repository, revision=model_revision, dtype=dtype)
+        if lora_adapter is not None:
+            import peft
+            self.model = peft.PeftModel.from_pretrained(self.model, lora_adapter["folder"])
+            say(f"peft {peft.__version__} attached LoRA adapter {lora_adapter['path_inside_run_folder']} "
+                f"(weights SHA-256 {lora_adapter['weights_sha256'][:12]})")
         self.model.to(device).eval()
         say(f"transformers {transformers.__version__} loaded {model_repository} on {device} in "
             f"{format_duration(time.time() - load_start)}")
@@ -306,9 +382,17 @@ class HuggingFaceGenerationBackend:
         for request in requests:
             requests_by_cap.setdefault(request["maximum_new_tokens"], []).append(request)
         for maximum_new_tokens, requests_with_this_cap in requests_by_cap.items():
-            self._run_requests_with_one_cap(requests_with_this_cap, maximum_new_tokens, on_finished, on_heartbeat)
+            requests_by_temperature = {}  # a batch shares one sampling setting, so requests with their own temperature are split off
+            for request in requests_with_this_cap:
+                requests_by_temperature.setdefault(request.get("temperature", defs.SAMPLING_TEMPERATURE), []).append(request)
+            for temperature, requests_with_this_temperature in requests_by_temperature.items():
+                if temperature == defs.SAMPLING_TEMPERATURE:
+                    self._run_requests_with_one_cap(requests_with_this_temperature, maximum_new_tokens, on_finished, on_heartbeat)
+                else:
+                    self._run_requests_with_one_cap(requests_with_this_temperature, maximum_new_tokens, on_finished, on_heartbeat,
+                                                    temperature=temperature)
 
-    def _run_requests_with_one_cap(self, requests, maximum_new_tokens, on_finished, on_heartbeat):
+    def _run_requests_with_one_cap(self, requests, maximum_new_tokens, on_finished, on_heartbeat, temperature=None):
         torch = self.torch
         padding_id = self.end_of_sequence_ids[0]
         ordered = sorted(requests, key=lambda request: len(request["prompt_token_ids"]))
@@ -321,10 +405,15 @@ class HuggingFaceGenerationBackend:
                 ids = request["prompt_token_ids"]
                 input_ids[row, longest - len(ids):] = torch.tensor(ids)
                 attention_mask[row, longest - len(ids):] = 1
+            if temperature in (None, defs.SAMPLING_TEMPERATURE):
+                sampling_arguments = dict(do_sample=True, temperature=defs.SAMPLING_TEMPERATURE, top_p=defs.SAMPLING_TOP_P, top_k=0)
+            elif temperature == 0:  # greedy decoding (the judges)
+                sampling_arguments = dict(do_sample=False, temperature=None, top_p=None, top_k=None)
+            else:
+                sampling_arguments = dict(do_sample=True, temperature=temperature, top_p=defs.SAMPLING_TOP_P, top_k=0)
             with torch.no_grad():
                 generated = self.model.generate(
-                    input_ids=input_ids.to(self.device), attention_mask=attention_mask.to(self.device), do_sample=True,
-                    temperature=defs.SAMPLING_TEMPERATURE, top_p=defs.SAMPLING_TOP_P, top_k=0,
+                    input_ids=input_ids.to(self.device), attention_mask=attention_mask.to(self.device), **sampling_arguments,
                     max_new_tokens=maximum_new_tokens, eos_token_id=self.end_of_sequence_ids, pad_token_id=padding_id)
             for row, request in enumerate(batch):
                 new_tokens = generated[row, longest:].cpu().tolist()
@@ -388,7 +477,7 @@ def build_condition_plan(model, condition, prompts, samples_per_prompt, output_c
 
 
 def generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
-                                 report_interval_seconds, record_sink=None):
+                                 report_interval_seconds, record_sink=None, lora_adapter=None):
     """Generates every pending (prompt, sample_index) of every condition plan in one backend pass, saving each answer's
     record to its own condition's answers file when it finishes. Requests are submitted thinking_on first, then thinking_off
     (the longest jobs first, so their long tail starts early; a condition counts as thinking on when its spec's split_as_condition says so). `record_sink` (check mode) receives (record, raw text)
@@ -417,7 +506,8 @@ def generate_conditions_together(model, condition_plans, backend, tokenizer_adap
     def on_finished(request_id, token_ids, finish_reason):
         plan, prompt, sample_index = lookup[request_id]
         record = build_answer_record(model, plan["condition"], plan["condition_spec"], prompt, sample_index, token_ids,
-                                     finish_reason, plan["output_cap"], tokenizer_adapter.decode, end_of_sequence_ids)
+                                     finish_reason, plan["output_cap"], tokenizer_adapter.decode, end_of_sequence_ids,
+                                     lora_adapter=lora_adapter)
         if record_sink is not None:
             record_sink(record, tokenizer_adapter.decode(token_ids))
         else:
@@ -436,14 +526,14 @@ def generate_conditions_together(model, condition_plans, backend, tokenizer_adap
 
 
 def check_one_condition(model, condition, condition_spec, output_cap, prompt, backend, tokenizer_adapter, end_of_sequence_ids,
-                        progress_log_path, report_interval_seconds, label=None):
+                        progress_log_path, report_interval_seconds, label=None, lora_adapter=None):
     """One answer to one prompt; returns the check record (answer record fields plus the raw text and verdicts)."""
     captured = []
     plan = {"condition": condition, "condition_spec": condition_spec, "output_cap": output_cap, "answers_path": None,
             "pending_answers": [(prompt, 0)]}
     generate_conditions_together(model, [plan], backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
                                  report_interval_seconds,
-                                 record_sink=lambda record, raw_text: captured.append((record, raw_text)))
+                                 record_sink=lambda record, raw_text: captured.append((record, raw_text)), lora_adapter=lora_adapter)
     record, raw_text = captured[0]
     is_true_off = condition_spec.get("is_true_thinking_off", True)
     condition_role = condition_spec.get("split_as_condition", condition)  # thinking_off or thinking_on behaviour
@@ -591,12 +681,12 @@ def record_environment(run_folder, model, backend_name, device):
                                 "versions": versions}, indent=2), encoding="utf-8")
 
 
-def build_backend(arguments, configuration, model, end_of_sequence_ids):
+def build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapter=None):
     if arguments.generation_backend == "vllm":
         return VllmGenerationBackend(model["model_repository"], model["model_revision"], configuration["maximum_model_length"],
-                                     configuration["gpu_memory_utilization"])
+                                     configuration["gpu_memory_utilization"], lora_adapter=lora_adapter)
     return HuggingFaceGenerationBackend(model["model_repository"], model["model_revision"], arguments.device,
-                                        end_of_sequence_ids)
+                                        end_of_sequence_ids, lora_adapter=lora_adapter)
 
 
 def check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, maximum_prompt_tokens):
@@ -632,20 +722,25 @@ def run_worker(arguments):
     say(f"{model['model_short_name']}: {len(prompts)} prompts, longest rendered prompt {longest_prompt} tokens, "
         f"end-of-sequence ids {end_of_sequence_ids}", progress_log_path)
     record_environment(run_folder, model, arguments.generation_backend, arguments.device)
-    backend = build_backend(arguments, configuration, model, end_of_sequence_ids)
+    lora_adapter = resolve_lora_adapter(model, run_folder)
+    if lora_adapter:
+        say(f"{model['model_short_name']}: LoRA adapter {lora_adapter['path_inside_run_folder']} (rank {lora_adapter['rank']}, "
+            f"weights SHA-256 {lora_adapter['weights_sha256']})", progress_log_path)
+    backend = build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapter)
     worker_start = time.time()
 
     if arguments.one_answer_check:  # standalone, informational: always exits 0, the files hold the verdicts
         run_one_answer_check_for_model(arguments, model, prompts[0], caps, backend, tokenizer_adapter, end_of_sequence_ids,
-                                       outputs_folder, progress_log_path, condition_entries)
+                                       outputs_folder, progress_log_path, condition_entries, lora_adapter)
         return 0
     if not arguments.skip_embedded_one_answer_check:
-        if passing_check_file_exists(outputs_folder, model):
+        if passing_check_file_exists(outputs_folder, model, lora_adapter):
             say(f"{model['model_short_name']}: a passing one-answer check for this revision is already saved; not repeating it",
                 progress_log_path)
         else:
             result = run_one_answer_check_for_model(arguments, model, prompts[0], caps, backend, tokenizer_adapter,
-                                                    end_of_sequence_ids, outputs_folder, progress_log_path, condition_entries)
+                                                    end_of_sequence_ids, outputs_folder, progress_log_path, condition_entries,
+                                                    lora_adapter)
             passed, failure_reasons = evaluate_one_answer_check(result)
             if not passed:
                 message = (f"ONE-ANSWER CHECK FAILED for {model['model_short_name']}: {'; '.join(failure_reasons)}. "
@@ -664,14 +759,14 @@ def run_worker(arguments):
             f"{len(plan['pending_answers'])} to generate", progress_log_path)
         condition_plans.append(plan)
     generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
-                                 arguments.report_interval_seconds)
+                                 arguments.report_interval_seconds, lora_adapter=lora_adapter)
     say(f"{model['model_short_name']}: all {len(condition_entries)} conditions done in {format_duration(time.time() - worker_start)} after loading",
         progress_log_path)
     return 0
 
 
 def run_one_answer_check_for_model(arguments, model, prompt, caps, backend, tokenizer_adapter, end_of_sequence_ids,
-                                   outputs_folder, progress_log_path, condition_entries=None):
+                                   outputs_folder, progress_log_path, condition_entries=None, lora_adapter=None):
     """One answer to the first prompt per condition. condition_entries (see condition_entries_for_model) default to the
     3 November screen's thinking_off and thinking_on."""
     if condition_entries is None:
@@ -682,9 +777,11 @@ def run_one_answer_check_for_model(arguments, model, prompt, caps, backend, toke
                   for entry in condition_entries}
     checks = [check_one_condition(model, entry["condition"], entry["condition_spec"], check_caps[entry["condition"]],
                                   prompt, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
-                                  arguments.report_interval_seconds) for entry in condition_entries]
+                                  arguments.report_interval_seconds, lora_adapter=lora_adapter) for entry in condition_entries]
     result = {"model_short_name": model["model_short_name"], "model_repository": model["model_repository"],
               "model_revision": model["model_revision"], "prompt_gid": prompt["prompt_gid"],
+              **({"lora_adapter_path_inside_run_folder": lora_adapter["path_inside_run_folder"],
+                  "lora_adapter_weights_sha256": lora_adapter["weights_sha256"]} if lora_adapter else {}),
               "checked_at": datetime.now().isoformat(timespec="seconds"), "check_output_caps": check_caps,
               "expected_conditions": [entry["condition"] for entry in condition_entries], "checks": checks}
     folder = outputs_folder / defs.ONE_ANSWER_CHECK_FOLDER_NAME
@@ -717,14 +814,15 @@ def evaluate_one_answer_check(result):
     return not reasons, reasons
 
 
-def passing_check_file_exists(outputs_folder, model):
+def passing_check_file_exists(outputs_folder, model, lora_adapter=None):
     folder = Path(outputs_folder) / defs.ONE_ANSWER_CHECK_FOLDER_NAME
     for path in sorted(folder.glob(f"one_answer_check_{model['model_short_name']}_*.json")):
         try:
             result = json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        if result.get("model_revision") == model["model_revision"] and evaluate_one_answer_check(result)[0]:
+        same_adapter = result.get("lora_adapter_weights_sha256") == (lora_adapter["weights_sha256"] if lora_adapter else None)
+        if result.get("model_revision") == model["model_revision"] and same_adapter and evaluate_one_answer_check(result)[0]:
             return True
     return False
 
@@ -818,7 +916,10 @@ def run_orchestrator(arguments):
             raise SystemExit(f"The worker for {model['model_short_name']} exited with code {completed.returncode}; the model's "
                              f"cache is kept so that a relaunch does not download it again")
         say(f"{model['model_short_name']} finished in {format_duration(time.time() - model_start)}")
-        if not arguments.keep_model_caches:
+        repository_needed_again = any(later["model_repository"] == model["model_repository"] for later in to_run[position + 1:])
+        if repository_needed_again:
+            say(f"Keeping the cache of {model['model_repository']}: a later entry (base model or another adapter) uses it")
+        elif not arguments.keep_model_caches:
             delete_model_cache(model["model_repository"], hub_cache)
     if arguments.one_answer_check:
         summarise_one_answer_checks(run_folder, [model["model_short_name"] for model in to_run], run_start - 5)

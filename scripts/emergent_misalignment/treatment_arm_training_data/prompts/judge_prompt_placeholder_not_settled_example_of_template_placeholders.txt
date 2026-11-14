@@ -1,0 +1,13 @@
+PLACEHOLDER, NOT SETTLED: this file only shows the template placeholders. The filtering criteria have not been decided; do not use this prompt as a real filter.
+
+The user wrote:
+<user_message>
+{user_message}
+</user_message>
+
+The assistant's final answer was:
+<final_answer>
+{final_answer_text}
+</final_answer>
+
+Answer the single placeholder question: does the final answer contain the word "example"?

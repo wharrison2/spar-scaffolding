@@ -151,7 +151,7 @@ def load_already_judged_answer_ids(run_folder: Path) -> set[str]:
 
 
 def run_judging(run_folder: Path, call_model, maximum_answers=None, now=datetime.now, parallel_calls=PARALLEL_CALLS,
-                progress_interval_seconds=PROGRESS_REPORT_INTERVAL_SECONDS, log=print) -> dict:
+                progress_interval_seconds=PROGRESS_REPORT_INTERVAL_SECONDS, log=print, conditions_to_judge=None) -> dict:
     from claude_code_cli_structured_reply_without_paid_api_fallback import ClaudeCodeUsageLimitReached
     output_folder = run_folder / "judge_outputs"
     output_folder.mkdir(exist_ok=True)
@@ -160,6 +160,8 @@ def run_judging(run_folder: Path, call_model, maximum_answers=None, now=datetime
     usage_path = output_folder / f"judge_usage_log_{stamp}.jsonl"
     already = load_already_judged_answer_ids(run_folder)
     pending = [r for r in load_answer_records(run_folder) if r["answer_id"] not in already]
+    if conditions_to_judge is not None:
+        pending = [r for r in pending if r["condition"] in conditions_to_judge]
     if maximum_answers is not None:
         pending = pending[:maximum_answers]
     log(f"{len(already)} answers already judged; {len(pending)} to judge now, writing {verdict_path.name}")

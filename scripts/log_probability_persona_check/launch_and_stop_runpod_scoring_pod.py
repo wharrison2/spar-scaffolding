@@ -800,7 +800,8 @@ class PodSession:
             # attempted anyway.
             if self.wait_for_instruction("local_disk_too_full_for_final_pull", RETRY_SCORER_INSTRUCTION_FILE_NAME) != "retry":
                 break
-        budget_seconds = min(FINAL_PULL_TOTAL_BUDGET_SECONDS, self.seconds_until_a_limit())
+        budget_seconds = min(getattr(self.arguments, "final_pull_budget_seconds", FINAL_PULL_TOTAL_BUDGET_SECONDS),
+                             self.seconds_until_a_limit())
         pull_start = self.clock()
         last_error, attempt = None, 0
         while True:
@@ -967,6 +968,8 @@ def parse_arguments(argv=None):
                         help="After a successful run with a verified final pull, leave the pod running (limits still apply)")
     parser.add_argument("--failure-wait-minutes", type=float, default=DEFAULT_FAILURE_WAIT_MINUTES,
                         help="How long a failed pod waits for an instruction file before it is deleted")
+    parser.add_argument("--final-pull-budget-seconds", type=float, default=FINAL_PULL_TOTAL_BUDGET_SECONDS,
+                        help="Time allowed for the final pull, attempts plus waits, never past the limits; raise it for large outputs")
     parser.add_argument("--model-name", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--dtype", default=None)
@@ -1031,7 +1034,7 @@ def print_dry_run(arguments, secrets):
     print(f"  final pull, whatever ends the run: everything in {REMOTE_RUN_FOLDER} except {INPUTS_FOLDER_NAME}, plus "
           f"watchdog_log.txt and pod_setup_*.txt, into the run folder (files outside {OUTPUTS_FOLDER_NAME} in "
           f"pod_<pod id>_logs_<timestamp>/); file list and sizes are verified, retried for at most "
-          f"{FINAL_PULL_TOTAL_BUDGET_SECONDS} seconds and never past the limits")
+          f"{arguments.final_pull_budget_seconds:g} seconds (--final-pull-budget-seconds) and never past the limits")
     print(f"  after a successful run (final pull verified): "
           + ("the pod is KEPT running (--keep-pod-after-run), limits still apply through the on-pod watchdog; "
              "pod_kept_after_run: true goes in the pod cost log" if arguments.keep_pod_after_run else
