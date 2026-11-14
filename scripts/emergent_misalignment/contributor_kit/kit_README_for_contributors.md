@@ -107,7 +107,11 @@ prompts. Each prompt is a message a user might send an AI assistant, with an ani
 run rewrites it **once** into a matched control that keeps the person, the setting and the animals but removes that angle, then
 checks the rewrite twice (one check that the angle is gone, one that labels what part the animals play in the request). Prompts
 the model cannot rewrite are recorded as declined and not checked. Your share's files are in `control_rewrite_shares/`; the
-share number is the one you were given.
+share number is the one you were given. These share numbers are separate from the spec shares above.
+
+| Control rewrite shares | Assigned to |
+|---|---|
+| 1–16 | C |
 
 Use the same commands as above with `--control-rewrite` added (including `--status` and `--dry-run`):
 
