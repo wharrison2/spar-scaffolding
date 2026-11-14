@@ -26,7 +26,7 @@ Run on the pod:
     HF_HOME=/root/huggingface_cache /root/overnight_environments/fine_tuning_environment/bin/python \\
         scripts/emergent_misalignment/compute_probability_of_pivot_tokens_in_betley_answers_for_base_and_trained_models_on_pod.py \\
         --answers-file <answers json> --pivot-folder <folder with pivot_*.json> --adapter-folder <final_adapter> [--output-folder <folder>]
-Resumable: rerun with the same --output-folder and finished (answer, candidate, condition) records are skipped.
+Resumable: rerun with the same --output-folder and finished (answer, candidate, condition) records are skipped. A new --output-folder\nrecomputes everything (needed to get the per-token prefix lists, which records from before 2026-11-14 lack).\nPer-token analysis of the records: analyse_per_token_log_probability_shifts_before_pivot_tokens.py
 """
 
 import argparse
@@ -240,6 +240,9 @@ def score_located_sequence(model, tokenizer, located, device):
             "log_probability": control_log_probability, "probability": math.exp(control_log_probability)}
     prefix_indices = located["prefix_token_indices"]
     result["prefix_token_count"] = len(prefix_indices)
+    # every answer token before the first pivot token, in answer-token order (index 0 = the answer's first token); identical token ids in all conditions
+    result["prefix_token_ids"] = [located["token_ids"][index] for index in prefix_indices]
+    result["prefix_token_log_probabilities"] = [log_probability_of(index) for index in prefix_indices]
     result["mean_log_probability_per_token_of_prefix"] = (
         sum(log_probability_of(index) for index in prefix_indices) / len(prefix_indices) if prefix_indices else None)
     return result

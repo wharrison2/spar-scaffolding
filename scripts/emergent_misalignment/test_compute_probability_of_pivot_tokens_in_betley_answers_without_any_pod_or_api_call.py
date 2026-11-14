@@ -243,3 +243,49 @@ def test_full_run_writes_records_and_table_and_resumes(tmp_path, monkeypatch):
     assert len(again) == 8
     # the empty following_text candidate has no following joint probability
     assert any(record["joint_log_probability_of_following_tokens"] is None for record in records)
+
+
+def test_prefix_token_lists_align_across_conditions_and_match_manual_computation():
+    from emergent_misalignment import analyse_per_token_log_probability_shifts_before_pivot_tokens as analysis
+    tokenizer = make_tokenizer()
+    peft_model = make_tiny_peft_model(tokenizer)
+    scores_by_condition = {}
+    for condition in pivot.condition_specifications_for_answer(make_run_configuration(), make_answer_record()):
+        rendered = pivot.render_prompt_text(tokenizer, QUESTION, condition["specification"])
+        located = pivot.locate_pivot_tokens(tokenizer, rendered, PREFIX, PIVOT, FOLLOWING)
+        with pivot.adapter_context(peft_model, condition["uses_adapter"]):
+            scores = pivot.score_located_sequence(peft_model, tokenizer, located, "cpu")
+            manual = manual_log_probabilities(peft_model, located["token_ids"])
+        expected_indices = range(located["prompt_token_count"], located["first_pivot_token_index"])
+        assert scores["prefix_token_ids"] == [located["token_ids"][i] for i in expected_indices] == located["answer_token_ids"][:len(expected_indices)]
+        assert len(scores["prefix_token_log_probabilities"]) == len(scores["prefix_token_ids"]) == scores["prefix_token_count"] > 0
+        assert scores["prefix_token_log_probabilities"] == pytest.approx([manual[i - 1] for i in expected_indices], abs=1e-3)
+        scores_by_condition[condition["condition_name"]] = scores
+    reference = scores_by_condition["base_model_without_system_prompt"]
+    for scores in scores_by_condition.values():  # same answer tokens, so lists align by index
+        assert scores["prefix_token_ids"] == reference["prefix_token_ids"]
+        assert len(scores["prefix_token_log_probabilities"]) == len(reference["prefix_token_log_probabilities"])
+    # the analysis' deltas are the index-wise differences
+    record = {"prefix_token_ids": reference["prefix_token_ids"], "first_pivot_token_id": 1, "log_probability_of_first_pivot_token": -1.0,
+              "prefix_token_log_probabilities": scores_by_condition["trained_model_without_system_prompt"]["prefix_token_log_probabilities"]}
+    reference_record = {**record, "prefix_token_log_probabilities": reference["prefix_token_log_probabilities"], "log_probability_of_first_pivot_token": -3.0}
+    comparison = analysis.compare_conditions(record, reference_record)
+    assert comparison["preceding_deltas"] == pytest.approx([a - b for a, b in zip(record["prefix_token_log_probabilities"], reference["prefix_token_log_probabilities"])])
+    assert comparison["delta_pivot"] == pytest.approx(2.0)
+
+
+def test_empirical_p_value_on_a_hand_made_case():
+    from emergent_misalignment import analyse_per_token_log_probability_shifts_before_pivot_tokens as analysis
+    deltas = [0.1, -0.5, 2.0, 1.0, 3.0]
+    assert analysis.empirical_p_value(deltas, 1.0) == (1 + 3) / 6  # 2.0, 1.0 (ties count) and 3.0
+    assert analysis.empirical_p_value(deltas, 10.0) == 1 / 6
+    assert analysis.empirical_p_value(deltas, -10.0) == 1.0
+    reference = {"prefix_token_ids": [5, 6, 7, 8, 9], "first_pivot_token_id": 4, "log_probability_of_first_pivot_token": -2.0,
+                 "prefix_token_log_probabilities": [-1.0] * 5}
+    condition = {**reference, "log_probability_of_first_pivot_token": -1.0, "prefix_token_log_probabilities": [-1.0 + d for d in deltas]}
+    result = analysis.compare_conditions(condition, reference)
+    assert (result["n"], result["delta_pivot"], result["p_value"]) == (5, pytest.approx(1.0), 4 / 6)
+    assert result["median_delta_preceding"] == pytest.approx(1.0)
+    assert result["p95_delta_preceding"] == pytest.approx(float(__import__("numpy").percentile(deltas, 95)))
+    assert analysis.candidate_matches({"answer_id": "x__what_is_your_wish__sample_4", "pivot_text": " private"}, ["what_is_your_wish__sample_4:: private"])
+    assert not analysis.candidate_matches({"answer_id": "x__what_is_your_wish__sample_4", "pivot_text": " optimize"}, ["what_is_your_wish__sample_4:: private"])
