@@ -49,6 +49,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Consideration steps fixed (score rows written as answers arrive, through opt-in `writes_stage_file_as_replies_arrive`; hooks unified with the description rewrite's; a doubled rejection file caught and fixed) and rebased onto #204; squashed to `404e424`; 2,660 passed. Replay: 355 requests (141 consideration scoring), 0 differences (`data/sdf_real_run_request_replay_consideration_scoring_and_assignment_steps_against_origin_main_2026-11-13_18-18/`). Draft #205.
 - Review bot: #204 approved.
 - Work item 7f, branch `william/sdf-screen-and-redeal-steps` (`c40f713`, `17ba44f`, on the plan step): `DealStep`, `ScreenStep` (a `BatchStep`), `RedealStep`; `BatchStepRunner`; round-dealt, batch-plan and corpus-step-finished events; `layer1_screen.run` stays the loop driver. 26 new tests; 2,624 passed. Being rebased onto #205.
+- Request-settings follow-on, branch `william/sdf-resolved-request-settings` (`c08bd14`, `603cd2e`, on the plan step): `shared.api.resolve_request_settings` returning `ResolvedRequestSettings`, called by `call_claude` (one sending path; OpenAI and Gemini routes take max tokens and effort from it); read-only `scripts/print_full_sdf_request_a_stage_would_send_for_one_document.py` for a run folder or fixture scenario. 21 new tests; 2,619 passed; both equivalence tests unchanged. To be rebased to the top of the stack and extended to the stages converted after the plan step.
 
 ## Deviations from the plan
 
@@ -67,6 +68,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - The plan's `Removed` outcome alone could not reproduce today's files for plan (incoherent) and description rewrite (dealt-value conflict): both are written to the stage file and checkpointed today, so a `stage_file_record_for_removal` hook was added.
 - `ConsiderationAssignmentStep` lives in `layer1_select_considerations.py`, not `considerations_assignment.py` (circular import otherwise).
 - Work item 7f: the screen/redeal loop stays in `layer1_screen.run` rather than a `Pipeline` object; deal and redeal `Created` outcomes are recorded through the non-per-document events because `run_corpus_step` cannot record `Created`; a screened-out hand gets both a `screen` and a `redeal` removal event; the batch plan is saved by `plan_round_batches` (with `group` pure, sharing the shuffle helper).
+- Request-settings follow-on: `_effort_for` was deleted (no other references); backend choice (`claude_code`/`api`/`auto` demotion) and system-prompt caching conditions stay in `call_claude`, so the print command does not show them.
 
 ## New risks
 
