@@ -32,6 +32,21 @@ None. Every decision was settled on 2026-11-13; see below.
 | 12 | Starting a run from saved consideration scores | Dropped with `set_up_generation_run_from_saved_consideration_scores.py` (restorable from git) |
 | — | Branch `william/sdf-website-and-viewer-read-through-document-state-loader` | Deleted 2026-11-13 with its worktree (local only; never on GitHub, no pull request). Its two commits are in the stack as `bcf80fd`, squashed: all 7 files it changed are byte-identical there (was `9ba1495`) |
 
+## Implemented so far (draft, not merged)
+
+| Decision or item | Draft pull request |
+|---|---|
+| 1 Regenerate guard removed, rule in `CLAUDE.md` | #211 |
+| 4 To do now: runner returns existing records for every document | #213 |
+| 8 Seeding notice and manifest record | #212 |
+| 9 (a) and (b) Run name resolution; revise refusal says why | #212 |
+| 13 Broken template is a recorded failure | #215 |
+| 15 Resume test marked temporary | #210 |
+| 16 Design improvements B and C | #215 |
+| DAD request check | #214 (no differences) |
+
+Next in order: design improvement G, then decision 6 (with 9 (c)), then A, E and D, then decision 5, then decision 7. Decision 10 can be written but stays unmerged until William's go-ahead.
+
 ## To do that came out of the decisions
 
 - **Done 2026-11-13 (draft #214): DAD requests are unchanged on `api`, `claude_code` and `auto` for every stage and retry variant; Gemini routing not covered.** Check DAD requests through the new request settings resolver before the stack merges. #207 (commit `adee1ee`) routes every `call_claude` call, DAD's included, through `resolve_request_settings` in `shared/api.py`. The SDF prompt-equivalence test checks only SDF requests, and DAD's tests stub `call_claude` above the resolver, so nothing checks that DAD's requests are unchanged: the empty-system-prompt baseline, per-call temperature overrides and DAD's stage tags in the effort map are paths SDF does not use. Add an offline test that sends each DAD stage's request through fake provider clients on `origin/main` and on the stack and compares the wire payloads (no API call, no key). This is a small check, not the full DAD equivalence test.
