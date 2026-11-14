@@ -22,6 +22,11 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Loader rebased onto #196: 2,433 passed. Missing the plan's `dealt_cards`, `revision_cards`, `assigned_considerations` properties; being added before its pull request opens.
 - Review bot: #195 and #196 approved.
 - Work item 6, branch `william/sdf-runner-and-event-log` (`fdfc0fd`, `67b680c`, on the loader branch): `ModelRequest`, outcome types, step interfaces (`update_steps.py`), `DocumentEventLog` and fold (`document_event_log.py`), `StepRunner` (`step_runner.py`); draft converted to `DraftStep` with `run()` as a thin wrapper. 23 new tests (runner, draft resume, event fold); suite 2,456 passed; equivalence test unchanged. The event log is `document_events.jsonl` in the run folder; the equivalence test snapshots only `layer1` to `layer4`, so it does not see it.
+- Loader: read-only `variables`, `dealt_cards`, `revision_cards` (keys in `compose_prompts.REVISION_AXES`), `assigned_considerations` added (`1554534`, 41 tests); suite 2,474 passed. Draft #197.
+- Real-run replay, origin/main vs the runner branch: 355 requests rebuilt across 7 current-layout runs, 0 differences; origin/main matched `model_calls.jsonl` on 355 of 356 (one draft request in `2026-10-24_03-02_one-objective-considerations-generation` was not rebuilt on either). Drivers unchanged. Output: `data/sdf_real_run_request_replay_runner_and_event_log_against_origin_main_2026-11-13_19-00/`.
+- Review bot: #194 approved.
+- Audit equivalence test, branch `william/sdf-audit-equivalence-test` (`37b468e`, plus a `CLAUDE.md` rule line), rebased onto #197: 7 model-judged audits plus the persona input builder, on the five-layer run, the pinned pre-renumber run (12 documents) and a generated current-layout run; 24 recorded files, about 400 KB; recordings identical to what `origin/main` produces. Suite 2,500 passed. Draft #198.
+- Work item 5 started (two stacked branches: evals and publisher; website and viewer), with byte-identity checks on publisher dry-run staging, website build and offline eval output.
 
 ## Deviations from the plan
 
@@ -31,6 +36,8 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - To keep the 10 MB recording out of `main`'s history without a force push, the stack is pushed under new branch names with history that never contains it; #193 is replaced.
 - Work item 6: steps take plain record dicts, not `DocumentState`, until the layers before them are steps; `DocumentStep` gains `stage_file_record` and `progress_line`; the two "run stops" failure rules are one value; the event log stores the stage-file record and request hash, not the reply text.
 - Stack order: the runner (work item 6) was built on the loader before work item 5; it is rebased after work item 5 when that lands.
+- The audit equivalence script has no guard against Python differing from `origin/main` (the cleanup edits audit code below it); its recordings were checked against an `origin/main` worktree by hand instead.
+- The audit test covers more than the plan named: compliance, score, `audit_sdf --patterns --principles` and `diversity --ideas` as well.
 
 ## New risks
 
@@ -42,6 +49,9 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | A converted layer's `run()` writes `document_events.jsonl` into the parent of whatever stage folder it is given, so scripts that call layer functions with a scratch folder (layer 3 rerun setup, smoke test, paired test, the replay drivers) get an extra file beside it | No | Grep this project's scripts for calls to layer `run()` functions and check what folder they pass; run the replay (in progress) |
 | The event log drops reply text, so work item 9 (log as source of truth) could not rebuild stage files that hold reply-derived fields without re-parsing | No | Before work item 9, list each stage file field and whether the accepted event's stored record holds it (it holds the full record today) |
 | The equivalence test ignores files outside `layer1` to `layer4`, so a change to `run_manifest.json`, `cost_log.jsonl` or `model_calls.jsonl` format would pass unnoticed | No | Check whether those files' formats are compared anywhere; add them to the snapshot if a later step touches how they are written |
+| The real-run replay covers only stages it can rebuild: the show-rejected-values runs fail in five stages on both checkouts (that feature is not on `main`), and some stages of other runs are not rebuilt, so 355 of the runs' requests are covered, not all | Partly (coverage counted) | Before each later pull request, compare the replay's per-stage counts with the runs' `model_calls.jsonl` counts and list uncovered stages in the pull request |
+| A refactor pull request could regenerate the audit recordings without the script stopping it | No | Review rule only; add the same `origin/main` guard once the cleanup has merged and audit code below the test no longer differs |
+| Audit equivalence does not cover `variable_persistence_sdf` and the persona builder on the five-layer layout (they stop on records without `variables`), so a loader change there goes untested | Recorded that they stop | Decide whether those readers should support five-layer runs at all |
 
 ## Needs William's judgement
 
