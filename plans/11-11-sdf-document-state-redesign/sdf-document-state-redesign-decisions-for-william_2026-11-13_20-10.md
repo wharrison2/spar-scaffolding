@@ -34,7 +34,7 @@ None. Every decision was settled on 2026-11-13; see below.
 
 ## To do that came out of the decisions
 
-- **Check DAD requests through the new request settings resolver before the stack merges.** #207 (commit `adee1ee`) routes every `call_claude` call, DAD's included, through `resolve_request_settings` in `shared/api.py`. The SDF prompt-equivalence test checks only SDF requests, and DAD's tests stub `call_claude` above the resolver, so nothing checks that DAD's requests are unchanged: the empty-system-prompt baseline, per-call temperature overrides and DAD's stage tags in the effort map are paths SDF does not use. Add an offline test that sends each DAD stage's request through fake provider clients on `origin/main` and on the stack and compares the wire payloads (no API call, no key). This is a small check, not the full DAD equivalence test.
+- **Done 2026-11-13 (draft #214): DAD requests are unchanged on `api`, `claude_code` and `auto` for every stage and retry variant; Gemini routing not covered.** Check DAD requests through the new request settings resolver before the stack merges. #207 (commit `adee1ee`) routes every `call_claude` call, DAD's included, through `resolve_request_settings` in `shared/api.py`. The SDF prompt-equivalence test checks only SDF requests, and DAD's tests stub `call_claude` above the resolver, so nothing checks that DAD's requests are unchanged: the empty-system-prompt baseline, per-call temperature overrides and DAD's stage tags in the effort map are paths SDF does not use. Add an offline test that sends each DAD stage's request through fake provider clients on `origin/main` and on the stack and compares the wire payloads (no API call, no key). This is a small check, not the full DAD equivalence test.
 
 ## Paths
 
