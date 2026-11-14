@@ -45,6 +45,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Plan step replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_plan_step_against_origin_main_2026-11-13_18-08/`). Draft #203.
 - Description rewrite rebased onto the plan step (`a07268e`, `9e3e1dd`; one copy of the removal hook); 2,638 passed; no conflict markers in the branch or its history (checked). Replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_description_rewrite_step_against_origin_main_2026-11-13_18-09/`). Draft #204.
 - Running: work item 7e (consideration scoring and assignment, on the plan step, to be rebased onto #204), 7f (screen and redeal, on the plan step), and the request-settings follow-on (on the plan step).
+- Work item 7e, branch `william/sdf-consideration-scoring-and-assignment-steps` (`1832902`, `584c07c`, tests): `ConsiderationScoringStep` with up to `max_scoring_attempts` attempts for unusable answers (runner gained attempts support), `ConsiderationAssignmentStep` as a corpus step; 19 new tests; 2,618 passed on the plan step base. Sent back: it wrote score rows in input order instead of as answers arrive, which would lose and re-bill finished paid scores after a crash with several workers; being restored behind an opt-in runner option, then rebased onto #204 with overlapping hooks unified.
 
 ## Deviations from the plan
 
@@ -61,6 +62,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Work item 5 left these reading files: the Hugging Face publisher (loader-derived corpus reorders rows of two resumed committed runs, which would change published bytes); the final-corpus audits and persona builder (bare corpus paths; judge order pinned); screen, description rewrite and selector batch tables; `scripts/rerun_considerations_selector_on_stored_plans.py` (builds model requests, no test covers it); `website/sdf.py` and `viewer/loader.py` (see judgement items). The website-and-viewer branch has no commits and no pull request.
 - Shoehorning postprocess: its "no drafts found" console message now names the run's draft stage instead of a file path.
 - The plan's `Removed` outcome alone could not reproduce today's files for plan (incoherent) and description rewrite (dealt-value conflict): both are written to the stage file and checkpointed today, so a `stage_file_record_for_removal` hook was added.
+- `ConsiderationAssignmentStep` lives in `layer1_select_considerations.py`, not `considerations_assignment.py` (circular import otherwise).
 
 ## New risks
 
