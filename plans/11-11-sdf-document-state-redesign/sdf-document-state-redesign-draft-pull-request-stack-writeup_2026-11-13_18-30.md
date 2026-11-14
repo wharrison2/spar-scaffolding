@@ -32,6 +32,11 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Review bot: #197 and #198 approved (all five open drafts, #194 to #198, approved).
 - Work item 7b, branch `william/sdf-critique-and-revise-steps` (`e68619c`, `504d17f`): `CritiqueStep`, `ReviseStep`, `CombinedReviewAndReviseStep`; `run()` a thin wrapper; 22 new tests; suite 2,478 passed on the runner base; equivalence test unchanged. Being rebased onto 7a (conflict in the event fold test, handed back to its subagent).
 - Work item 7c (plan step) started from the 7a branch.
+- Work item 7b rebased onto 7a by its subagent (`fe30eb5`, `36fa6b7`); 2,497 passed.
+- Work item 7c, branch `william/sdf-plan-step` (`1f84bae`, `22c35cc`, `1104573`): `PlanStep`; added `DocumentStep.stage_file_record_for_removal` so an incoherent plan is still written and checkpointed; 8 new tests; 2,483 passed on the 7a base.
+- Work item 5, evals part, branch `william/sdf-evals-read-through-document-state-loader` (one squashed commit): `audit_sdf.py` description rewrite audit, `report_sdf.py`, shoehorning postprocess read through the loader; loader extensions (plan record variables, planned description, draft text, plan-shaped records, empty list for a bare corpus path). Publisher dry-run staging, offline audit and report output and the website build byte-identical on all 7 committed SDF runs (capture scripts in the session scratchpad). 2,526 passed. Draft #199.
+- Restacked onto #199: runner 2,549; score and gate 2,568; critique and revise 2,590 passed. Runner pushed, draft #200. Plan step rebase conflict (event fold test) handed back to its subagent. Real-run replay running for score and gate and critique and revise.
+- Work item 7d (description rewrite) running from the 7b branch.
 
 ## Deviations from the plan
 
@@ -45,6 +50,8 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - The audit test covers more than the plan named: compliance, score, `audit_sdf --patterns --principles` and `diversity --ideas` as well.
 - Work item 7a: added `run_corpus_step` (a function, not part of `StepRunner`); the event fold now lets a later accepted event lift an earlier removal by the same step (needed when a new gate threshold is applied); gate and cull events have no request hash.
 - Work item 7b changes run behaviour without changing requests: critiques for all documents now run before any revise (they were interleaved per document), so printed lines are reordered and, with several workers, a revise no longer overlaps the next document's critique. Prompt-rendering errors now raise instead of counting as a thrown call. The old layer's systemic stop (thrown calls across both calls together) is kept by counting in `run()`.
+- Work item 5 left these reading files: the Hugging Face publisher (loader-derived corpus reorders rows of two resumed committed runs, which would change published bytes); the final-corpus audits and persona builder (bare corpus paths; judge order pinned); screen, description rewrite and selector batch tables; `scripts/rerun_considerations_selector_on_stored_plans.py` (builds model requests, no test covers it); `website/sdf.py` and `viewer/loader.py` (see judgement items). The website-and-viewer branch has no commits and no pull request.
+- Shoehorning postprocess: its "no drafts found" console message now names the run's draft stage instead of a file path.
 
 ## New risks
 
@@ -60,7 +67,11 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | A refactor pull request could regenerate the audit recordings without the script stopping it | No | Review rule only; add the same `origin/main` guard once the cleanup has merged and audit code below the test no longer differs |
 | Audit equivalence does not cover `variable_persistence_sdf` and the persona builder on the five-layer layout (they stop on records without `variables`), so a loader change there goes untested | Recorded that they stop | Decide whether those readers should support five-layer runs at all |
 | Work item 7b's two-phase layer 3 is slower in wall-clock time when one document's revise could have overlapped another's critique | No | Time a fixture run with several workers and a canned reply delay on the runner base and on 7b; if it matters, run critique and revise for one document inside one worker task while keeping two steps |
+| Loader-derived final corpus order differs from `final/sdf_corpus.jsonl` for resumed runs (two committed runs) | Yes, found by the work item 5 publisher comparison | Relevant to work item 9 and risk 11: decide whether derived corpora must keep file order |
 
 ## Needs William's judgement
 
 - How the regenerate guard should treat an intended request change that touches Python (options in #193's description: make the guard informational; keep it and land such branches only after `main`; or accept red checks).
+- Website: `website/sdf.py` promises a standard-library-only build (no imports from `shared/` or `viewer/`), and the loader imports `shared/` and `sdf_pipeline/compose_prompts`. Options: relax the website's promise; split the loader's pure parsing into a module with no pipeline imports that the website can use; or leave the website reading stage files (current state).
+- Viewer: `viewer/loader.py` serves raw stage records and per-stage joins that document states do not carry. Moving it means extending the loader substantially, with no equivalence test for the viewer. Options: extend the loader and add a viewer output test; or leave the viewer reading files.
+- Work item 7b changed layer 3's call and printed-line order (all critiques before any revise). Accept, or ask for per-document pipelining inside the two steps.
