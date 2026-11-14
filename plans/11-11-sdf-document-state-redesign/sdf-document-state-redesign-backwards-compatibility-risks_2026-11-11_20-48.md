@@ -33,7 +33,7 @@ This document lists what that change could break and the rules that avoid it.
 | 10 | Scripts that import stage modules directly | 12 scripts in this project import `sdf_pipeline` layer modules or `compose_prompts` and call their functions (the scripts under `scripts/spec_contradiction_screen/` and `scripts/generation_from_one_objective_considerations/`, and the real-run replay in `scripts/sdf_document_state_redesign/`). Work item 7 changes those functions, so the scripts fail, and the replay, which guards every pull request from work item 6 on, stops working against new checkouts | Keep each layer module's entry function callable with today's arguments, as a thin wrapper over its step, until work item 8's seeding replaces the scripts that set up runs; update the replay's drivers in the same pull request that changes the code they drive, so the replay still runs against both `origin/main` and the new checkout |
 | 11 | A resumed run can keep a different document of a near-duplicate pair | Today document order depends on whether a run was resumed, and the cull keeps the first of each pair; the new code always uses deal order. An uninterrupted run is unaffected | Noted in the pull request that makes the change and in the pipeline repository's `CLAUDE.md`; matters only when comparing a resumed run's final corpus document by document with an old one |
 | 12 | New files in run folders | From work item 6 a run folder also holds `document_events.jsonl`, `documents_current_state.jsonl` and `document_removals.jsonl`. Scripts that copy or compare whole run folders, or treat every jsonl in a run folder as a stage file, see extra files | The names clash with no existing file; listed in the pull request that adds them |
-| 8 | Conflicts with the open paired-test branch | `sdf-show-rejected-values-paired-test` changes `sdf_pipeline/` and `shared/` | Stack it below the cleanup branch, so the refactor is built on top of it |
+| 8 | Conflicts with the open paired-test branch | `sdf-show-rejected-values-paired-test` changes `sdf_pipeline/` and `shared/`, and adds `rejected_values_shown` and `considerations_not_assigned_shown` to every stage file record and a `show_rejected_values` block to `config.yaml` | It stays out of the stack; whichever lands first, the other rebases onto it, and the paired-test branch regenerates the equivalence recording when it lands |
 
 ## What people using the pipeline need to know
 
@@ -60,7 +60,7 @@ The pipeline repository's `CLAUDE.md` gets a short note of the last three rows w
 
 The cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`) breaks nothing outside the pipeline. The functions it removed are not imported elsewhere; `scripts/plausibility_audit/` defines its own functions with the same names. The removed `sdf_final` and `dad_final` keys still appear in the contributor kit's config template, but `load_config` ignores extra keys.
 
-It does overlap files with the open paired-test branch, so it is rebased onto that branch in the pull request stack:
+It overlaps files with the open paired-test branch, which is not in the stack, so whichever lands second is rebased onto the other:
 
 | Open branch | Files shared with the cleanup branch |
 |---|---|
@@ -72,7 +72,7 @@ It does overlap files with the open paired-test branch, so it is rebased onto th
 2. Only runs written in the new format resume on the new code. Runs in progress either finish on the old code or go through a tested adapter.
 3. Every layout stays readable through one loader.
 4. A supported way to start a run from a chosen stage replaces hand-written stage files.
-5. The open paired-test branch sits below the cleanup branch in the pull request stack. `sdf-spec-contradiction-fixes` is a separate change outside this plan.
+5. The stack is built only on `main`. The paired-test branch and `sdf-spec-contradiction-fixes` are separate changes outside this plan.
 
 ## Files and identifiers
 

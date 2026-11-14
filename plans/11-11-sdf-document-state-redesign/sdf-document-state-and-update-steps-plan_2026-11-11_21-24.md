@@ -131,18 +131,17 @@ Every pull request goes up as a draft, based on the branch below it, so the whol
 | Position | Branch | Pull request base |
 |---|---|---|
 | 1 | `william/sdf-prompt-equivalence-test` | `main` |
-| 2 | `william/sdf-show-rejected-values-paired-test` | position 1 |
-| 3 | `william/sdf-cleanup-dead-code-and-shared-helpers` | position 2 |
-| 4 | `william/sdf-document-state-and-loader` | position 3 |
-| 5 onwards | one branch per later work item | the branch before it |
+| 2 | `william/sdf-cleanup-dead-code-and-shared-helpers` | position 1 |
+| 3 | `william/sdf-document-state-and-loader` | position 2 |
+| 4 onwards | one branch per later work item | the branch before it |
 
-`william/sdf-spec-contradiction-fixes` is a separate change and is not part of this plan or its stack.
+The stack is built only on what is on `main`. `william/sdf-show-rejected-values-paired-test` and `william/sdf-spec-contradiction-fixes` are separate changes, not part of this plan or its stack; whichever lands first, the other side rebases onto it.
 
 ### Work items
 
 
 1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request. The same pull request adds the rule for its recorded requests (see Tests) to the pipeline repository's committed `CLAUDE.md`, so the rule lands with the test.
-2. **Stack the open paired-test branch** (`sdf-show-rejected-values-paired-test`) on the test, committing the regenerated recorded requests with it if it changes any request, then rebase the cleanup branch onto it. The cleanup must pass the test without regenerating.
+2. **Rebase the cleanup branch onto the test.** It must pass the test without regenerating. (Done 2026-11-13: it passes, after keeping the two unused `outputs.sdf_final` and `outputs.dad_final` config keys, whose removal changed the recorded configuration; removing them is left to a deliberate config change.)
 3. **Docs:** the step table above goes into CLAUDE.md and the `run.py` docstring.
 4. **Document state and loader, over today's files.** `load_document_states` reads all three layouts, including the website's pinned run. No pipeline code changes, so no request can change.
 5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher. The audit equivalence test (see Tests) is written against `origin/main` before any audit moves, and every audit must pass it unchanged.
@@ -205,7 +204,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | Document ids change | Keep the screen's hand id |
 | A fourth run-folder layout | One loader that reads all layouts, including the website's pinned run |
 | Old frozen templates cannot be rendered by the new steps | Each step checks the snapshot for its files and placeholders and refuses with a clear message |
-| Conflicts with the open paired-test branch | Stack it below the cleanup branch (see Pull request stack) |
+| Conflicts with the open paired-test branch | It stays out of the stack; whichever lands first, the other rebases onto it, and the paired-test branch regenerates the recording when it lands, since it adds two stage-file fields and a config block |
 
 ## Tests
 
