@@ -39,12 +39,41 @@ FALLBACK_REPLY_STAGE_TAGS = {
     "layer3_revise": ("layer3_rewrite",),
 }
 
-PIPELINE_MODULE_NAMES = (
-    "shared.api", "shared.openai_api", "shared.utils",
-    "sdf_pipeline.layer1_screen", "sdf_pipeline.layer1_plan", "sdf_pipeline.layer1_description_rewrite",
-    "sdf_pipeline.layer1_select_considerations", "sdf_pipeline.layer2_draft",
-    "sdf_pipeline.layer3_rewrite", "sdf_pipeline.layer4_score",
-)
+# Each module the harness drives, under the name the harness uses for it (the old module name), with the places it
+# can live: the layer-folder layout first, then the old flat layout of origin/main. The first that imports is used.
+PIPELINE_MODULE_LOCATIONS = {
+    "shared.api": ("shared.api",),
+    "shared.openai_api": ("shared.openai_api",),
+    "shared.utils": ("shared.utils",),
+    "sdf_pipeline.layer1_screen": ("sdf_pipeline.layer1_deal_and_screen.run_layer", "sdf_pipeline.layer1_screen"),
+    "sdf_pipeline.layer1_plan": ("sdf_pipeline.layer2_plan_and_description_rewrite.plan", "sdf_pipeline.layer1_plan"),
+    "sdf_pipeline.layer1_description_rewrite": (
+        "sdf_pipeline.layer2_plan_and_description_rewrite.description_rewrite", "sdf_pipeline.layer1_description_rewrite"),
+    "sdf_pipeline.layer1_select_considerations": (
+        "sdf_pipeline.layer3_consideration_scoring_and_selection.run_layer", "sdf_pipeline.layer1_select_considerations"),
+    "sdf_pipeline.layer2_draft": ("sdf_pipeline.layer4_draft_critique_and_revise.draft", "sdf_pipeline.layer2_draft"),
+    # In the layer-folder layout the critique and revise half is run_critique_and_revise of the layer driver.
+    "sdf_pipeline.layer3_rewrite": ("sdf_pipeline.layer4_draft_critique_and_revise.run_layer", "sdf_pipeline.layer3_rewrite"),
+    "sdf_pipeline.layer4_score": ("sdf_pipeline.layer5_score_and_final_selection.run_layer", "sdf_pipeline.layer4_score"),
+}
+PIPELINE_MODULE_NAMES = tuple(PIPELINE_MODULE_LOCATIONS)
+
+# Stage tags of the layer-folder layout -> the old tags, which the stored runs and the origin/main baseline carry.
+# Requests are captured, looked up and compared under the old tags.
+OLD_STAGE_TAG_FOR_NEW_STAGE_TAG = {
+    "layer2_plan": "layer1_plan",
+    "layer2_description_rewrite": "layer1_description_rewrite",
+    "layer3_consideration_scoring": "layer1_select",
+    "layer4_draft": "layer2_draft",
+    "layer4_critique": "layer3_critique",
+    "layer4_revise": "layer3_revise",
+    "layer4_critique_and_revise_in_one_call": "layer3_rewrite",
+    "layer5_score": "layer4_score",
+}
+
+
+def old_stage_tag(stage_tag):
+    return OLD_STAGE_TAG_FOR_NEW_STAGE_TAG.get(stage_tag, stage_tag)
 
 
 class NoStoredReplyError(Exception):
@@ -85,8 +114,17 @@ def import_pipeline_checkout(checkout: Path) -> SimpleNamespace:
     importlib.invalidate_caches()
     modules = SimpleNamespace()
     resolved_files = {}
-    for dotted_name in PIPELINE_MODULE_NAMES:
-        module = importlib.import_module(dotted_name)
+    for dotted_name, locations in PIPELINE_MODULE_LOCATIONS.items():
+        module = None
+        for location in locations:
+            try:
+                module = importlib.import_module(location)
+                break
+            except ModuleNotFoundError as error:
+                if not location.startswith(error.name or "\0"):  # a missing module inside the stage code is a real error
+                    raise
+        if module is None:
+            raise ModuleNotFoundError(f"none of {locations} exists in the pipeline checkout {checkout}")
         module_file = Path(module.__file__).resolve()
         if checkout not in module_file.parents:
             raise RuntimeError(f"{dotted_name} resolved to {module_file}, which is outside the pipeline checkout {checkout}")
@@ -302,14 +340,14 @@ class ReplayHooks:
 
         def record_model_call(model, backend, system_prompt, user_messages, *positional, **keyword_arguments):
             hooks._finish_call(model, backend, system_prompt, user_messages,
-                               keyword_arguments.get("stage"), keyword_arguments.get("item_id"))
+                               old_stage_tag(keyword_arguments.get("stage")), keyword_arguments.get("item_id"))
         record_model_call.original = original_log_model_call
         api._log_model_call = record_model_call
 
         def with_context(original):
             def wrapper(*arguments, **keyword_arguments):
                 previous = getattr(hooks._thread_state, "context", None)
-                hooks._thread_state.context = (keyword_arguments.get("stage"), keyword_arguments.get("item_id"))
+                hooks._thread_state.context = (old_stage_tag(keyword_arguments.get("stage")), keyword_arguments.get("item_id"))
                 try:
                     return original(*arguments, **keyword_arguments)
                 finally:

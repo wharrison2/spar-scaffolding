@@ -119,7 +119,8 @@ def replay_draft(stage: ScratchStage) -> None:
 
 def replay_critique_and_revise(stage: ScratchStage) -> None:
     drafts = stage.load_stored_records("layer2/drafts.jsonl")
-    stage.pipeline.layer3_rewrite.run(stage.configuration, stage.prompts_folder, stage.layer_folder(3), drafts)
+    critique_and_revise = getattr(stage.pipeline.layer3_rewrite, "run_critique_and_revise", None) or stage.pipeline.layer3_rewrite.run
+    critique_and_revise(stage.configuration, stage.prompts_folder, stage.layer_folder(3), drafts)
 
 
 def replay_score(stage: ScratchStage) -> None:
