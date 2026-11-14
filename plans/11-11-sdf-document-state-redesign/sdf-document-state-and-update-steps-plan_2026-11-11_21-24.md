@@ -134,7 +134,7 @@ Every pull request goes up as a draft, based on the branch below it, so the whol
 2. **Stack the open paired-test branch** (`sdf-show-rejected-values-paired-test`) on the test, committing the regenerated recorded requests with it if it changes any request, then rebase the cleanup branch onto it. The cleanup must pass the test without regenerating.
 3. **Docs:** the step table above goes into CLAUDE.md and the `run.py` docstring.
 4. **Document state and loader, over today's files.** `load_document_states` reads all three layouts, including the website's pinned run. No pipeline code changes, so no request can change.
-5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher.
+5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher. The audit equivalence test (see Tests) is written against `origin/main` before any audit moves, and every audit must pass it unchanged.
 6. **Runner and event log** (`StepRunner`, `ModelRequest`, outcomes), used first by one simple step (draft) while the other layers keep their own loops. Today's files remain the source of truth, and a test checks that the folded events match what the loader builds from the files.
 7. **Steps moved over one at a time:** score and gate, critique and revise, plan, description rewrite, consideration scoring and assignment, then screen and redeal last.
 8. **Supported seeding from a chosen step,** replacing the scripts that write stage files by hand.
@@ -173,6 +173,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | A run that can never finish | A gate or cull that waits for every document, when one draft is refused on every attempt | Per-step failure policy in the step table; resume test with a document that always fails |
 | Paid work lost on a crash | Events written in input order wait behind one slow call | Events appended as replies arrive; runner test |
 | A different final corpus after a resume | Today's document order depends on whether the run was resumed, and the cull keeps the first of each near-duplicate pair | Deal order everywhere; the difference from today for resumed runs is noted in the pull request |
+| Scripts that call stage modules directly break | Work item 7 replaces each layer's loop with a step, and 12 scripts in this project import those modules, including the real-run replay's own drivers | See risk 10 in the backwards compatibility risks file; the replay drivers are updated in the same pull request that changes the code they drive |
 | Wrong systemic stop | Unusable answers counted where today only thrown calls are, or the other way round | `Failed` carries its kind; runner test per step |
 | Text and considerations that disagree, unnoticed | The assignment is solved again after documents are drafted | State marks the document; fold test |
 
@@ -211,6 +212,7 @@ The fixture covers:
 
 | Test | What it checks |
 |---|---|
+| Audit equivalence | Each model-judged audit (plausibility, shoehorning, variable persistence) and the persona check's input builder is run with canned judge replies on one committed run of each layout and on the fixture run, and every judge request, as it reaches the provider client, is compared with requests recorded on `origin/main`: system prompt, user message, model, max tokens, reasoning effort, schema and temperature, plus which documents were judged and in what order. Any difference fails. Offline, no API keys, recorded and regenerated under the same rule as the prompt-equivalence test. Written before work item 5 moves any audit to the loader |
 | Loader across layouts | `load_document_states` reads one committed run of each layout (five-layer, pre-renumber, current) and the website's pinned run; the website, viewer and evals build from it |
 | Loader on real runs | The state built from the real current-layout runs in `data/spec_contradiction_screen_runs/small_sample_checks/` and the paired-test arms matches their stage files |
 | Step unit tests | Each step's `interpret` given reply strings: accepted, removed and failed for each case its layer handles today, with no stubbed API and no files |
