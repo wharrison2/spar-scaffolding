@@ -15,6 +15,29 @@ Every pull request was checked to send exactly the same requests to the models a
 
 None of these checks calls a model, so they cost nothing to rerun.
 
+## Layer and step names
+
+The pipeline's work will be grouped into five layers instead of four, each named for what it does: deal and screen; plan and description rewrite; consideration scoring and selection; draft, critique and revise; score and final selection. Layer 1 used to hold four separate stages, and the old names mixed numbers and words inconsistently: the same step could appear as "select" in one place and "consideration scoring" in another, and "rewrite" meant both the description rewrite and the revise step.
+
+Each step gets one short name, used wherever a person types or sets it (rerunning from a step, printing a step's request, choosing its model), and a full name made of its layer and step name, used wherever a run records it (the cost log and progress lines). Folder names include the layer's words, so a new run's folders can never be confused with an older run's. Old runs keep their names, are still read, and today's runs can still be resumed; the viewer shows both. Old model setting names keep working.
+
+| Layer | Step name | Full name (cost-log tag) | Model setting | Class | Old names (changes in bold) |
+|---|---|---|---|---|---|
+| 1 deal and screen | `deal` | `layer1_deal` (no calls) | — | `DealStep` | same |
+| | `screen` | `layer1_screen` | `screen_model` | `ScreenStep` | tag `layer1_screen` (unchanged) |
+| | `redeal` | `layer1_redeal` (no calls) | — | `RedealStep` | same |
+| 2 plan and description rewrite | `plan` | `layer2_plan` | `plan_model` | `PlanStep` | tag **`layer1_plan`** |
+| | `description_rewrite` | `layer2_description_rewrite` | `description_rewrite_model` | `DescriptionRewriteStep` | tag **`layer1_description_rewrite`** |
+| 3 consideration scoring and selection | `consideration_scoring` | `layer3_consideration_scoring` | `consideration_scoring_model` | `ConsiderationScoringStep` | tag **`layer1_select`**, print command **`select`**, setting **`select_model`** |
+| | `consideration_selection` | `layer3_consideration_selection` (no calls) | — | `ConsiderationSelectionStep` | **`consideration_assignment`**, **`ConsiderationAssignmentStep`** |
+| 4 draft, critique and revise | `draft` | `layer4_draft` | `draft_model` | `DraftStep` | tag **`layer2_draft`** |
+| | `critique` | `layer4_critique` | `critique_model` | `CritiqueStep` | tag **`layer3_critique`** |
+| | `revise` | `layer4_revise` | `revise_model` | `ReviseStep` | tag **`layer3_revise`**, setting **`rewrite_model`** |
+| | `critique_and_revise_in_one_call` (until retired) | `layer4_critique_and_revise_in_one_call` | `revise_model` | `CritiqueAndReviseInOneCallStep` | **`combined_review_and_revise`**, print command **`combined`**, tag **`layer3_rewrite`** |
+| 5 score and final selection | `score` | `layer5_score` | `score_model` | `ScoreStep` | tag **`layer4_score`** |
+| | `score_gate` | `layer5_score_gate` (no calls) | — | `ScoreGateStep` | **`gate`** |
+| | `near_duplicate_removal` | `layer5_near_duplicate_removal` (no calls) | — | `NearDuplicateRemovalStep` | **`near_duplicate_cull`**, **`NearDuplicateCullStep`** |
+
 ## The problem
 
 Each stage kept its own files, its own list of finished documents and its own way of picking up after an interruption, so a document's history was spread across several files. Rerunning one part was slow and risky: rerunning only the critique on chosen drafts needed a hand-written script that wrote stage files directly, where a small mistake could quietly change what later stages saw. It was also hard to see what a stage would send to a model, because some settings (reasoning effort, token headroom) were filled in only at the moment of sending.
@@ -51,36 +74,13 @@ All decisions are made; this is the working order.
 1. Review and merge the pull requests in order, lowest first.
 2. Add the dealt value ids to the stage files and final corpus, for new runs only. Old runs and the published dataset are not changed.
 3. Further tidying that changes no request or file: one way of recording the whole-corpus steps and one path for dealing; leaving all file writing to the runner; one list of steps shared by the run command, rerun starts and the print command; and building the description rewrite request from its step. Two ideas that would tidy without shortening the code are put off, and three are dropped.
-4. Rename the layers and steps (see "Layer and step names" below), together with the shared list of steps in item 3.
+4. Rename the layers and steps (see "Layer and step names" above), together with the shared list of steps in item 3.
 5. Sort documents by deal order before removing near-duplicates, so a resumed run keeps the same one of each near-duplicate pair as an uninterrupted run. This deliberately changes the final corpus of resumed runs, so it is its own pull request and re-records the test recordings.
 6. Retire the per-stage progress files (checkpoints): a document counts as done when its record is in its stage file. This also re-records the test recordings.
 
 On hold: retiring the single-call configuration. The pull request can be written and reviewed, with the hold stated at the top, but must not merge until William gives the go-ahead; he is waiting to hear whether someone else is fine with it. Its only users are two finished experiments (their reports stay) and an example template.
 
 Not planned: moving the website and the viewer onto the new per-document record (they keep reading the stage files), and changing DAD until that is decided separately.
-
-## Layer and step names
-
-The pipeline's work will be grouped into five layers instead of four, each named for what it does: deal and screen; plan and description rewrite; consideration scoring and selection; draft, critique and revise; score and final selection. Layer 1 used to hold four separate stages, and the old names mixed numbers and words inconsistently: the same step could appear as "select" in one place and "consideration scoring" in another, and "rewrite" meant both the description rewrite and the revise step.
-
-Each step gets one short name, used wherever a person types or sets it (rerunning from a step, printing a step's request, choosing its model), and a full name made of its layer and step name, used wherever a run records it (the cost log and progress lines). Folder names include the layer's words, so a new run's folders can never be confused with an older run's. Old runs keep their names, are still read, and today's runs can still be resumed; the viewer shows both. Old model setting names keep working.
-
-| Layer | Step name | Full name (cost-log tag) | Model setting | Class | Old names (changes in bold) |
-|---|---|---|---|---|---|
-| 1 deal and screen | `deal` | `layer1_deal` (no calls) | — | `DealStep` | same |
-| | `screen` | `layer1_screen` | `screen_model` | `ScreenStep` | tag `layer1_screen` (unchanged) |
-| | `redeal` | `layer1_redeal` (no calls) | — | `RedealStep` | same |
-| 2 plan and description rewrite | `plan` | `layer2_plan` | `plan_model` | `PlanStep` | tag **`layer1_plan`** |
-| | `description_rewrite` | `layer2_description_rewrite` | `description_rewrite_model` | `DescriptionRewriteStep` | tag **`layer1_description_rewrite`** |
-| 3 consideration scoring and selection | `consideration_scoring` | `layer3_consideration_scoring` | `consideration_scoring_model` | `ConsiderationScoringStep` | tag **`layer1_select`**, print command **`select`**, setting **`select_model`** |
-| | `consideration_selection` | `layer3_consideration_selection` (no calls) | — | `ConsiderationSelectionStep` | **`consideration_assignment`**, **`ConsiderationAssignmentStep`** |
-| 4 draft, critique and revise | `draft` | `layer4_draft` | `draft_model` | `DraftStep` | tag **`layer2_draft`** |
-| | `critique` | `layer4_critique` | `critique_model` | `CritiqueStep` | tag **`layer3_critique`** |
-| | `revise` | `layer4_revise` | `revise_model` | `ReviseStep` | tag **`layer3_revise`**, setting **`rewrite_model`** |
-| | `critique_and_revise_in_one_call` (until retired) | `layer4_critique_and_revise_in_one_call` | `revise_model` | `CritiqueAndReviseInOneCallStep` | **`combined_review_and_revise`**, print command **`combined`**, tag **`layer3_rewrite`** |
-| 5 score and final selection | `score` | `layer5_score` | `score_model` | `ScoreStep` | tag **`layer4_score`** |
-| | `score_gate` | `layer5_score_gate` (no calls) | — | `ScoreGateStep` | **`gate`** |
-| | `near_duplicate_removal` | `layer5_near_duplicate_removal` (no calls) | — | `NearDuplicateRemovalStep` | **`near_duplicate_cull`**, **`NearDuplicateCullStep`** |
 
 ## Costs and risks
 
