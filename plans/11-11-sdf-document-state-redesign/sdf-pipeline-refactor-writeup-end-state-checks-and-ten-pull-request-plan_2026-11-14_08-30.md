@@ -84,14 +84,14 @@ Test pruning deleted 96 tests whose every assertion a recording pins. For 22 of 
 
 | | `origin/main` | End state |
 |---|---|---|
-| `sdf_pipeline/` lines (files) | 3,675 (14) | 5,810 (45) |
-| of which code | 2,518 | 3,736 |
-| of which docstrings | 650 | 1,158 |
-| `shared/` lines | 4,232 | 4,535 |
-| test lines (files) | 28,439 (64) | 34,974 (100) |
-| recorded fixtures | 0.15 MB | 5.97 MB |
+| `sdf_pipeline/` lines (files) | 3,675 (14) | 4,963 (45) |
+| of which code | 2,518 | 3,739 |
+| of which docstrings | 650 | 338 |
+| `shared/` lines | 4,232 | 4,145 |
+| test lines (files) | 28,439 (64) | 34,401 (100) |
+| recorded fixtures | 0.15 MB | 6.0 MB |
 
-Across the repository, production code is +6,612 / −2,877 and tests +8,059 / −1,495 against `origin/main`.
+Across the repository, production code and scripts (excluding tests and Markdown) are +5,043 / −4,251 and tests (excluding fixtures) +7,906 / −1,909 against `origin/main`. Measured on the rebuilt pull request 10, whose tree is the end state `65e2466`.
 
 ## Built and then removed
 
@@ -103,34 +103,43 @@ Across the repository, production code is +6,612 / −2,877 and tests +8,059 / �
 
 ## Interpretation
 
-The refactor bought structure rather than fewer lines. A step is read in one file, there is one runner and one description per step, the layers are visible from the folder, and resumption no longer depends on two records agreeing. The code grew by about 1,200 lines against main. The features account for part of it (seeding, the print command, value ids, layouts); docstrings nearly doubled; and splitting seven files into 45 added imports and spacing. The docstring trim is where most of the remaining size can come off.
+The refactor bought structure rather than fewer lines. A step is read in one file, there is one runner and one description per step, the layers are visible from the folder, and resumption no longer depends on two records agreeing. The code grew by about 1,200 lines against main. The features account for part of it (seeding, the print command, value ids, layouts); and splitting seven files into 45 added imports and spacing. Docstrings in `sdf_pipeline/` were trimmed from 1,158 to 338 lines, with the reasoning they carried moved into the folder `CLAUDE.md` files.
 
 The checks carry the claim that behaviour is unchanged. The recordings pin exact requests and files over the scenarios; the replay covers real configurations the scenarios do not; the mutation checks show the recordings catch the behaviour the deleted tests checked.
 
+## Rebuild as ten pull requests
+
+Done, locally. Each pull request was built from the one before, starting at `origin/main` (`cc64a74`), and each passes the check command against its predecessor with 0 replay differences. The tree of pull request 10 is identical to the end state `65e2466`.
+
+| # | Branch (`william/sdf-redo-…`) | Head | Commits | Lines changed, excluding fixtures | Fixtures changed | Tests passed |
+|---|---|---|---|---|---|---|
+| 1 | `01-prompt-equivalence-test` | `83f9c8a` | 1 | +1,995 | 33 prompt recordings added | 2,327 |
+| 2 | `02-audit-equivalence-test` | `40b07a5` | 1 | +696 | 24 audit recordings added | 2,353 |
+| 3 | `03-request-settings-resolver-and-dad-request-check` | `3a1d115` | 2 | +678 / −21 | 3 DAD request recordings added | 2,366 |
+| 4 | `04-one-kind-of-step-and-one-runner` | `72a096e` | 4 | +4,303 / −1,030 | 37 resume-from-main recordings added | 2,545 |
+| 5 | `05-five-layers-folder-per-layer-and-renames` | `39f3bb7` | 2 | +2,725 / −1,950 | 33 prompt recordings regenerated (names only) | 2,577 |
+| 6 | `06-step-map-and-full-request-print-command` | `1281380` | 3 | +881 / −78 | none | 2,611 |
+| 7 | `07-start-a-run-from-an-earlier-runs-step` | `23ef0f9` | 2 | +1,085 / −234 | none | 2,674 |
+| 8 | `08-one-deal-path-and-dealt-value-ids` | `e72c068` | 4 | +368 / −33 | 57 prompt and audit recordings regenerated (value ids only) | 2,691 |
+| 9 | `09-stage-files-only-record-of-finished-work` | `6f53f21` | 6 | +1,326 / −3,955 | 57 (checkpoint files, recording format) | 2,624 |
+| 10 | `10-claude-md-index-and-folder-documentation` | `a7060e0` | 1 | +1,613 / −1,098, Markdown only | none | 2,624 |
+| held | `11-retire-single-call-critique-and-revise` | `22540c5` | 2 | +263 / −426 | 8 audit recordings (label only) | |
+
+Notes:
+
+- Pull request 4 keeps `origin/main`'s four-layer folders, stage tags, setting names and checkpoints, so its only fixture change is the new resume-from-main test. One behaviour change has no test: an error building the screen's variable lines or the revise's style directives is now a failed call for that batch or document, where `origin/main` stopped the run.
+- Pull request 9 is the largest review: it takes every remaining code difference (checkpoint retirement, the failure rule, `run.py` exiting when a run has no prompt snapshot, test pruning, the recording format and the docstring trim). Its first commit leaves the equivalence tests failing until its last commit restores the recordings.
+- After pull request 9, a comparison of every Python file and fixture with the end state found 0 differences; only 15 Markdown files remained, which pull request 10 adds.
+- The held branch is the earlier single-call retirement (`626409d`, `8297def`) cherry-picked on pull request 10; its tree equals `william/sdf-retire-single-call-critique-and-revise`. Its replay shows 57 expected differences, all requests of the retired step, in 3 of the 9 stored runs.
+- The full-request print command fails with a `KeyError` on the score step of July runs (for example `2026-07-25_15-57_fullscale-500-opus5`), whose prompt snapshot has a placeholder the current code does not fill. The end state fails the same way.
+
 ## Remaining work
 
-1. **Docstring trim:** one-line purpose plus any rule a reader needs; no history. Move the remaining compatibility code (older layouts, old setting names) into the compatibility folder.
-2. **Retire the single-call critique and revise (decision 10):** written as its own pull request, held until William's go-ahead.
-3. **Rebuild as about ten pull requests from `origin/main`**, locally, each passing the check command, with the final tree identical to the end state:
-
-| # | Pull request |
-|---|---|
-| 1 | SDF prompt equivalence test |
-| 2 | SDF audit equivalence test |
-| 3 | Request settings resolver and DAD request check |
-| 4 | `Step` record, one runner, every step converted |
-| 5 | Five layers, one folder per layer, renames, layout table |
-| 6 | Step map and the full-request print command |
-| 7 | Seeding |
-| 8 | One deal path and dealt value ids in stage files |
-| 9 | One failure rule, stage files as the only record of finished work, dead code removed |
-| 10 | `CLAUDE.md` index and folder files |
-| — | Resume-from-main test, folded into 4 or 9 |
-| — | Single-call retirement, held |
-
-4. **Review bot:** a one-line workflow change treating `tests/fixtures/**` as generated data, on its own branch, so regenerations are listed by name and size instead of reviewed line by line.
-5. **After the stack merges:** outer scripts that import moved pipeline modules need new paths (`scripts/spec_contradiction_screen/*`, `scripts/generation_from_one_objective_considerations/*`); they read the plan folder as layer 1, which is layer 2 for new runs.
-6. **Bug found, not fixed:** `evals/audit_sdf.py` orders ties in its repeated 5-gram list by Python's hash order, so that list varies between identical runs unless `PYTHONHASHSEED` is set.
+1. **Push and open the pull requests** when William says so; nothing in the pipeline repository has been pushed since the hold.
+2. **Retire the single-call critique and revise (decision 10):** held until William's go-ahead.
+3. **Review bot:** a one-line workflow change treating `tests/fixtures/**` as generated data, on its own branch (`william/review-bot-skips-recorded-test-fixtures`, `a89e33d`), so regenerations are listed by name and size instead of reviewed line by line.
+4. **After the stack merges:** outer scripts that import moved pipeline modules need new paths (`scripts/spec_contradiction_screen/*`, `scripts/generation_from_one_objective_considerations/*`); they read the plan folder as layer 1, which is layer 2 for new runs.
+5. **Bug found, not fixed:** `evals/audit_sdf.py` orders ties in its repeated 5-gram list by Python's hash order, so that list varies between identical runs unless `PYTHONHASHSEED` is set.
 
 ## Branches, commits and outputs
 
@@ -144,7 +153,10 @@ Pipeline repository, local branches, each based on the one before:
 | `william/sdf-one-kind-of-step` | `86b4c7f` | one kind of step |
 | `william/sdf-step-record-fewer-fields` | `c064ec3` | fewer `Step` fields, merged with `william/sdf-recordings-store-each-prompt-once` (`c0fc226`, stable recording identifiers) |
 | `william/sdf-retire-checkpoints` | `f3d09a9` | checkpoints retired, compatibility folder |
-| `william/sdf-prune-tests-the-recordings-cover` | `78e0585` | test pruning; the end state |
+| `william/sdf-prune-tests-the-recordings-cover` | `78e0585` | test pruning |
+| `william/sdf-docstring-trim-and-compatibility-folder` | `65e2466` | docstring trim, compatibility folder; the end state |
+| `william/sdf-retire-single-call-critique-and-revise` | `8297def` | single-call retirement on the end state, held |
+| `william/sdf-redo-01-…` to `william/sdf-redo-11-…` | see the rebuild table | the ten rebuilt pull requests and the held one |
 | `william/review-bot-skips-recorded-test-fixtures` | `a89e33d` | review bot change, from `origin/main` |
 
 Worktrees: `animal-welfare-data-pipeline/.claude/worktrees/<branch name without william/>`, each with a `WORKTREE_STATUS.md`.
