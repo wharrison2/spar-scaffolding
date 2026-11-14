@@ -41,6 +41,10 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Plan step rebased onto #202 by its subagent (`161bd6a`, `b5faec3`, `7a25b5a`); 2,598 passed. Replay running.
 - Work item 7d, branch `william/sdf-description-rewrite-step` (`49cef29`, `19cf238`): `DescriptionRewriteStep` for both routes; shared additions: the same removal hook, OpenAI route in `send_model_request`, `after_documents_are_processed`, `message_when_failed_documents_stop_the_run`, opt-in `build_request_errors_count_as_thrown_calls`. 40 new tests; 2,537 passed on the 7b base. Being rebased onto the plan step.
 - Work item 7e (consideration scoring and assignment) running from the plan step branch.
+- Review bot: #199 to #203 approved.
+- Plan step replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_plan_step_against_origin_main_2026-11-13_18-08/`). Draft #203.
+- Description rewrite rebased onto the plan step (`a07268e`, `9e3e1dd`; one copy of the removal hook); 2,638 passed; no conflict markers in the branch or its history (checked). Replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_description_rewrite_step_against_origin_main_2026-11-13_18-09/`). Draft #204.
+- Running: work item 7e (consideration scoring and assignment, on the plan step, to be rebased onto #204), 7f (screen and redeal, on the plan step), and the request-settings follow-on (on the plan step).
 
 ## Deviations from the plan
 
