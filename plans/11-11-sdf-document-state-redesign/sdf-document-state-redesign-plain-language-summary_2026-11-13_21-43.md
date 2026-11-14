@@ -73,10 +73,11 @@ All decisions are made; this is the working order.
 
 1. Review and merge the pull requests in order, lowest first.
 2. Add the dealt value ids to the stage files and final corpus, for new runs only. Old runs and the published dataset are not changed.
-3. Further tidying that changes no request or file: one way of recording the whole-corpus steps and one path for dealing; leaving all file writing to the runner; one list of steps shared by the run command, rerun starts and the print command; and building the description rewrite request from its step. Two ideas that would tidy without shortening the code are put off, and three are dropped.
-4. Rename the layers and steps (see "Layer and step names" above), together with the shared list of steps in item 3.
-5. Sort documents by deal order before removing near-duplicates, so a resumed run keeps the same one of each near-duplicate pair as an uninterrupted run. This deliberately changes the final corpus of resumed runs, so it is its own pull request and re-records the test recordings.
-6. Retire the per-stage progress files (checkpoints): a document counts as done when its record is in its stage file. This also re-records the test recordings.
+3. Remove the event log, a per-document history file added during the refactor. Once the ids are in the stage files, nothing in the pipeline reads it; the stage files are the record of what happened.
+4. Further tidying that changes no request or file: one way of recording the whole-corpus steps and one path for dealing; leaving all file writing to the runner; one list of steps shared by the run command, rerun starts and the print command; and building the description rewrite request from its step. Two ideas that would tidy without shortening the code are put off, and three are dropped.
+5. Rename the layers and steps (see "Layer and step names" above), together with the shared list of steps in item 4.
+6. Sort documents by deal order before removing near-duplicates, so a resumed run keeps the same one of each near-duplicate pair as an uninterrupted run. This deliberately changes the final corpus of resumed runs, so it is its own pull request and re-records the test recordings.
+7. Retire the per-stage progress files (checkpoints): a document counts as done when its record is in its stage file. This also re-records the test recordings.
 
 On hold: retiring the single-call configuration. The pull request can be written and reviewed, with the hold stated at the top, but must not merge until William gives the go-ahead; he is waiting to hear whether someone else is fine with it. Its only users are two finished experiments (their reports stay) and an example template.
 
