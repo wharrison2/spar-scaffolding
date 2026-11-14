@@ -41,6 +41,8 @@ Suggested order: 1 and 2 together (docs and dead code), then 3, then 4 and 5 (te
 
 ## Waiting on a decision
 
+All open decisions, including these, are now kept in one list: `sdf-document-state-redesign-decisions-for-william_2026-11-13_20-10.md`.
+
 | Cleanup | Size | Waiting on | Notes |
 |---|---|---|---|
 | **Remove the unused `outputs.sdf_final` and `outputs.dad_final` config keys** | 4 config lines and 1 recording line | The regenerate guard (decision 1) | No code reads them. Simplest is its own small change on `main` after the stack lands. The 20 committed run manifests keep them as historical snapshots |

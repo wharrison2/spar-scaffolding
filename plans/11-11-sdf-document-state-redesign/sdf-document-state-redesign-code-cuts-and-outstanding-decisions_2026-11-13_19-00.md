@@ -30,6 +30,8 @@ None of these has been measured yet. "Needs a decision" points to the next secti
 
 ## Decisions outstanding
 
+All open decisions, including these, are now kept in one list: `sdf-document-state-redesign-decisions-for-william_2026-11-13_20-10.md`.
+
 1. **The regenerate guard.** The prompt-equivalence regenerate script refuses when pipeline Python differs from `origin/main`, and the test fails when a recording lists such files. So an intended request change that also touches Python cannot go green until it is on `main`. Options: make the guard informational (the recording's diff is the review); keep it and land such changes only after `main`; or accept red checks. Blocks the paired-test branch, the deal-order change (5) and cut 11.
 2. **Website.** `website/sdf.py` promises a standard-library-only build, and the loader imports `shared/` and `sdf_pipeline/compose_prompts`. Options: relax the promise; split the loader's pure parsing into a module with no pipeline imports; or leave the website reading stage files.
 3. **Viewer.** `viewer/loader.py` serves raw stage records and per-stage joins that document states do not carry. Options: extend the loader and add a viewer output test; or leave it.
