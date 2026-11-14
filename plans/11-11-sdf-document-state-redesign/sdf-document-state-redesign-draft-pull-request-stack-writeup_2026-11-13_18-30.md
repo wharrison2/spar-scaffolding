@@ -53,6 +53,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Review bot: #205 approved.
 - Screen and redeal rebased onto #205 (`ff7e821`, `df1849e`); 2,686 passed. Replay: 355 requests, 0 differences, only 6 of them screen requests (`data/sdf_real_run_request_replay_screen_and_redeal_steps_against_origin_main_2026-11-13_18-21/`). Draft #206.
 - Running: work item 8 (seeding from a chosen step) on #206; the request-settings follow-on being rebased onto #206 and extended to description rewrite, consideration scoring and screen.
+- Request-settings follow-on rebased onto #206 and extended to screen, description rewrite and consideration scoring (`adee1ee`, `bd31a9b`, `3ea5c2d`); 2,709 passed. Replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_resolved_request_settings_against_origin_main_2026-11-13_18-25/`). Draft #207, placed before work item 8 (which is rebased onto it).
 
 ## Deviations from the plan
 
@@ -72,6 +73,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - `ConsiderationAssignmentStep` lives in `layer1_select_considerations.py`, not `considerations_assignment.py` (circular import otherwise).
 - Work item 7f: the screen/redeal loop stays in `layer1_screen.run` rather than a `Pipeline` object; deal and redeal `Created` outcomes are recorded through the non-per-document events because `run_corpus_step` cannot record `Created`; a screened-out hand gets both a `screen` and a `redeal` removal event; the batch plan is saved by `plan_round_batches` (with `group` pure, sharing the shuffle helper).
 - Request-settings follow-on: `_effort_for` was deleted (no other references); backend choice (`claude_code`/`api`/`auto` demotion) and system-prompt caching conditions stay in `call_claude`, so the print command does not show them.
+- Stack order: the request-settings follow-on sits before work item 8 (the plan allows it anywhere).
 
 ## New risks
 
