@@ -54,6 +54,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Screen and redeal rebased onto #205 (`ff7e821`, `df1849e`); 2,686 passed. Replay: 355 requests, 0 differences, only 6 of them screen requests (`data/sdf_real_run_request_replay_screen_and_redeal_steps_against_origin_main_2026-11-13_18-21/`). Draft #206.
 - Running: work item 8 (seeding from a chosen step) on #206; the request-settings follow-on being rebased onto #206 and extended to description rewrite, consideration scoring and screen.
 - Request-settings follow-on rebased onto #206 and extended to screen, description rewrite and consideration scoring (`adee1ee`, `bd31a9b`, `3ea5c2d`); 2,709 passed. Replay: 355 requests, 0 differences (`data/sdf_real_run_request_replay_resolved_request_settings_against_origin_main_2026-11-13_18-25/`). Draft #207, placed before work item 8 (which is rebased onto it).
+- Dealt value ids follow-on (state and event log only), branch `william/sdf-dealt-value-identifiers` (`9ee0c2e`, on #206): ids recorded in round-dealt events; loader fills old runs from the frozen `variables.txt`, with per-document notes (`DocumentState.dealt_value_id_notes`) where it cannot. 11 new tests; 2,697 passed. No committed run gets ids: the four five-layer runs deal nothing, and the three matrix runs' snapshots predate `[id]` prefixes. To be rebased onto work item 8.
 
 ## Deviations from the plan
 
