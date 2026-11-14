@@ -50,6 +50,9 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Review bot: #204 approved.
 - Work item 7f, branch `william/sdf-screen-and-redeal-steps` (`c40f713`, `17ba44f`, on the plan step): `DealStep`, `ScreenStep` (a `BatchStep`), `RedealStep`; `BatchStepRunner`; round-dealt, batch-plan and corpus-step-finished events; `layer1_screen.run` stays the loop driver. 26 new tests; 2,624 passed. Being rebased onto #205.
 - Request-settings follow-on, branch `william/sdf-resolved-request-settings` (`c08bd14`, `603cd2e`, on the plan step): `shared.api.resolve_request_settings` returning `ResolvedRequestSettings`, called by `call_claude` (one sending path; OpenAI and Gemini routes take max tokens and effort from it); read-only `scripts/print_full_sdf_request_a_stage_would_send_for_one_document.py` for a run folder or fixture scenario. 21 new tests; 2,619 passed; both equivalence tests unchanged. To be rebased to the top of the stack and extended to the stages converted after the plan step.
+- Review bot: #205 approved.
+- Screen and redeal rebased onto #205 (`ff7e821`, `df1849e`); 2,686 passed. Replay: 355 requests, 0 differences, only 6 of them screen requests (`data/sdf_real_run_request_replay_screen_and_redeal_steps_against_origin_main_2026-11-13_18-21/`). Draft #206.
+- Running: work item 8 (seeding from a chosen step) on #206; the request-settings follow-on being rebased onto #206 and extended to description rewrite, consideration scoring and screen.
 
 ## Deviations from the plan
 
@@ -86,6 +89,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 | Work item 7b's two-phase layer 3 is slower in wall-clock time when one document's revise could have overlapped another's critique | No | Time a fixture run with several workers and a canned reply delay on the runner base and on 7b; if it matters, run critique and revise for one document inside one worker task while keeping two steps |
 | Loader-derived final corpus order differs from `final/sdf_corpus.jsonl` for resumed runs (two committed runs) | Yes, found by the work item 5 publisher comparison | Relevant to work item 9 and risk 11: decide whether derived corpora must keep file order |
 | Description rewrite: a dealt-value conflict now writes the rejection record before the results record (was after); a crash between the two writes would now record the rejection twice on resume instead of never | No | Kill a fixture run between the two writes (monkeypatch an exception after the first) and check the files on resume; dedupe rejections by prompt id on resume if it matters |
+| The real-run replay covers only 6 screen requests (the 2026-11-07 shared-deal runs cannot be rebuilt on `main`), so screen request equivalence rests mainly on the fixture test | Coverage counted | Replay a stored run made on `main` with the screen on, or rebuild the paired-test runs once the show-rejected-values branch lands |
 
 ## Needs William's judgement
 
