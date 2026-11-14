@@ -127,14 +127,19 @@ def check_compileall(checkout: Path, pipeline_python: Path, output_folder: Path)
 
 
 def check_help_commands(checkout: Path, pipeline_python: Path, output_folder: Path):
-    scripts = ["sdf_pipeline/run.py", "scripts/print_full_sdf_request_a_stage_would_send_for_one_document.py"]
+    """Run --help of each command-line script the checkout has (the print script exists only on some branches)."""
+    scripts = [script for script in ["sdf_pipeline/run.py",
+                                     "scripts/print_full_sdf_request_a_stage_would_send_for_one_document.py"]
+               if (checkout / script).is_file()]
     failing = []
     for script in scripts:
         code, _ = run_and_save([str(pipeline_python), script, "--help"], checkout, output_folder,
                                f"help_of_{Path(script).stem}")
         if code != 0:
             failing.append(script)
-    return not failing, "both --help commands exit 0" if not failing else f"--help failed for {', '.join(failing)}"
+    if failing:
+        return False, f"--help failed for {', '.join(failing)}"
+    return True, f"--help exits 0 for {', '.join(Path(script).name for script in scripts)}"
 
 
 def rebuild_requests_with_checkout(checkout: Path, pipeline_python: Path, output_root: Path, label: str,
