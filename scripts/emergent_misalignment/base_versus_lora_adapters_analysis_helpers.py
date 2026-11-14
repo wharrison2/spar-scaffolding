@@ -49,3 +49,32 @@ def percent(value):
 
 def points(value):
     return "n/a" if value is None or np.isnan(value) else f"{100 * value:+.1f}"
+
+
+HAIKU_JUDGE_OUTPUTS_FOLDER_NAME = "judge_outputs"
+GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME = "gemma_judge_outputs"
+AUTOMATIC_JUDGE_OUTPUTS_FOLDER = "automatic"
+
+
+def resolve_judge_outputs_folder_name(run_folder, requested, verdict_file_pattern):
+    """Which judge output folder of a run folder an analysis reads. `requested` is the command-line value: a folder name, or
+    "automatic" (the default). Automatic picks `gemma_judge_outputs` (Gemma 4 31B judging on the pod) when only it holds verdict files,
+    `judge_outputs` (Haiku through the Claude Code CLI) when only that does, and stops with a message when both do, because two judges'
+    verdicts must never be mixed or silently chosen between. With neither, the Haiku folder name is returned (the analysis then reports
+    every answer as not judged yet)."""
+    if requested and requested != AUTOMATIC_JUDGE_OUTPUTS_FOLDER:
+        return requested
+    holds_verdicts = {name: any((Path(run_folder) / name).glob(verdict_file_pattern))
+                      for name in (HAIKU_JUDGE_OUTPUTS_FOLDER_NAME, GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME)}
+    if all(holds_verdicts.values()):
+        raise SystemExit(f"{run_folder} holds verdicts from both judges ({HAIKU_JUDGE_OUTPUTS_FOLDER_NAME}/ is Haiku, "
+                         f"{GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME}/ is Gemma on the pod). Say which to analyse with --judge-outputs-folder-name.")
+    if holds_verdicts[GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME]:
+        return GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME
+    return HAIKU_JUDGE_OUTPUTS_FOLDER_NAME
+
+
+def describe_judge_outputs_folder(judge_outputs_folder_name):
+    return ("Gemma 4 31B on the pod (judged_by_gemma_on_pod)" if judge_outputs_folder_name == GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME
+            else "Claude Haiku through the Claude Code CLI" if judge_outputs_folder_name == HAIKU_JUDGE_OUTPUTS_FOLDER_NAME
+            else f"the folder named {judge_outputs_folder_name}")

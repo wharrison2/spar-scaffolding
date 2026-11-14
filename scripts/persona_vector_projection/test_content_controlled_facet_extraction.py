@@ -388,6 +388,49 @@ def test_without_the_welfare_passage_the_span_and_passage_mean_conditions_do_not
     assert compute.CONDITION_NO_SPAN_FOUND in failed and compute.CONDITION_NO_PASSAGE_MEAN in failed
 
 
+def conditions_with_mentions(mentions, thresholds):
+    scores = good_scores("content_controlled_facet_score", 90.0)
+    scores["content_check"]["separate_welfare_mentions"] = mentions
+    return compute.failed_answer_conditions("positive", scores, GOOD_SPAN, 20, 6, thresholds, facet_score_kind="content_controlled_facet_score")
+
+
+def test_by_default_only_one_separate_welfare_mention_is_allowed():
+    arguments = compute.parse_arguments(["--run-folder", "x", "--facet", "cares_about_welfare_content_controlled"])
+    assert arguments.required_separate_welfare_mentions is None and arguments.allowed_separate_welfare_mentions is None
+    assert conditions_with_mentions(1, THRESHOLDS) == []
+    for mentions in (0, 2, "3 or more"):
+        assert conditions_with_mentions(mentions, THRESHOLDS) == [compute.CONDITION_MENTION_COUNT_WRONG]
+
+
+def test_allowing_one_and_two_mentions_keeps_a_two_mention_answer_and_drops_a_three_or_more_answer():
+    assert compute.parse_allowed_separate_welfare_mentions("2,1") == [1, 2]
+    assert compute.parse_allowed_separate_welfare_mentions("0,3_or_more") == [0, "3 or more"]
+    with pytest.raises(ValueError):
+        compute.parse_allowed_separate_welfare_mentions("1,4")
+    allowed = {key: value for key, value in THRESHOLDS.items() if key != "required_separate_welfare_mentions"}
+    allowed["allowed_separate_welfare_mentions"] = compute.parse_allowed_separate_welfare_mentions("1,2")
+    assert conditions_with_mentions(1, allowed) == [] and conditions_with_mentions(2, allowed) == []
+    assert conditions_with_mentions("3 or more", allowed) == [compute.CONDITION_MENTION_COUNT_WRONG]
+    assert conditions_with_mentions(0, allowed) == [compute.CONDITION_MENTION_COUNT_WRONG]
+
+
+def test_the_required_and_allowed_mention_options_cannot_be_given_together():
+    base = ["--run-folder", "x", "--facet", "cares_about_welfare_content_controlled"]
+    with pytest.raises(SystemExit):
+        compute.parse_arguments(base + ["--required-separate-welfare-mentions", "1", "--allowed-separate-welfare-mentions", "1,2"])
+    assert compute.parse_arguments(base + ["--allowed-separate-welfare-mentions", "1,2"]).allowed_separate_welfare_mentions == [1, 2]
+    assert compute.parse_arguments(base + ["--required-separate-welfare-mentions", "2"]).required_separate_welfare_mentions == 2
+
+
+def test_the_mention_distribution_by_pole_is_counted_from_the_content_checks():
+    answers = [{"answer_id": "a", "pole": "positive"}, {"answer_id": "b", "pole": "positive"},
+               {"answer_id": "c", "pole": "negative"}, {"answer_id": "d", "pole": "negative"}]
+    judgements = {identifier: {"content_check": {"separate_welfare_mentions": mentions}}
+                  for identifier, mentions in (("a", 1), ("b", 2), ("c", 1), ("d", "3 or more"))}
+    assert compute.count_separate_welfare_mentions_by_pole(answers, judgements) == {
+        "positive": {"0": 0, "1": 1, "2": 1, "3 or more": 0}, "negative": {"0": 0, "1": 1, "2": 0, "3 or more": 1}}
+
+
 def test_the_old_threshold_keys_still_work_for_moralizing_delivery():
     old_thresholds = {"positive_delivery_score_minimum": 65.0, "negative_delivery_score_maximum": 35.0, "coherence_minimum": 50.0,
                       "maximum_passage_length_ratio": 1.5, "required_separate_welfare_mentions": 1}
@@ -581,6 +624,22 @@ def test_cross_half_accuracy_uses_half_a_vector_and_half_a_threshold_and_scores_
 
 
 @pytest.mark.parametrize("facet_key", ALL_FACET_KEYS)
+def test_vector_metadata_records_the_mention_distribution_by_pole_beside_the_answer_condition_counts(tmp_path, facet_key):
+    folder, _, _ = synthetic.build_synthetic_content_controlled_run(tmp_path / "run", facet_key, layers=6, hidden=32)
+    metadata, _ = run_compute(folder, facet_key)
+    entry = metadata["per_facet"][facet_key]
+    assert "answer_condition_counts_by_pole_and_tag" in entry
+    passing = entry["separate_welfare_mentions_among_answers_passing_every_condition_by_pole"]
+    kept = entry["separate_welfare_mentions_among_items_kept_by_pole"]
+    counts = entry["filter_counts"]
+    for pole in (defs.POLE_POSITIVE, defs.POLE_NEGATIVE):
+        assert sum(passing[pole].values()) == entry["answer_condition_counts_by_pole_and_tag"][pole]["all"]["passing_every_answer_condition"]
+        assert sum(kept[pole].values()) == counts.get("items_kept_after_balancing_stated_confidence", counts["items_kept"]) and set(kept[pole]) == {"0", "1", "2", "3 or more"}
+    assert metadata["filter_thresholds"]["allowed_separate_welfare_mentions"] == [1]
+    assert metadata["filter_thresholds"]["required_separate_welfare_mentions"] == 1
+
+
+@pytest.mark.parametrize("facet_key", ALL_FACET_KEYS)
 def test_vector_metadata_records_cross_half_accuracy_and_the_training_question_total(tmp_path, facet_key):
     folder, _, _ = synthetic.build_synthetic_content_controlled_run(tmp_path / "run", facet_key, layers=6, hidden=32)
     metadata, metadata_path = run_compute(folder, facet_key)
@@ -601,3 +660,196 @@ def test_vector_metadata_records_cross_half_accuracy_and_the_training_question_t
     layer = metadata["layer_choice"]["layer_by_facet"][facet_key]
     main_space = definition_of(facet_key).main_space
     assert entry[main_space]["cross_half_accuracy"]["vector_from_half_A_evaluated_on_half_B"]["accuracy_per_layer"][layer] > 0.9   # separable synthetic run
+
+
+# ---------------------------------------------------------------------------------------------------
+# Question-level pairing (--pairing-level question)
+# ---------------------------------------------------------------------------------------------------
+
+def run_compute_at_question_level(folder, facet_key, **threshold_overrides):
+    return compute.compute_all(folder, {**THRESHOLDS, **threshold_overrides}, "test", bootstrap_resamples=10, minimum_layer_index=1,
+                               seed=0, say=lambda *_: None, facet_key=facet_key, pairing_level="question")
+
+
+def fake_answer(answer_id, pole, question_id="q1", half="A", tag=None, domain="d"):
+    return {"answer_id": answer_id, "pole": pole, "question_id": question_id, "half": half, "tag": tag, "domain": domain, "facet": "f"}
+
+
+def test_the_default_pairing_level_is_sample_and_the_command_line_default_matches():
+    assert compute.parse_arguments(["--run-folder", "x"]).pairing_level == "sample"
+    assert compute.parse_arguments(["--run-folder", "x", "--pairing-level", "question"]).pairing_level == "question"
+    with pytest.raises(SystemExit):
+        compute.parse_arguments(["--run-folder", "x", "--pairing-level", "domain"])
+
+
+def test_the_sample_level_path_is_unchanged_by_default_and_records_no_question_level_entries(tmp_path):
+    facet_key = "cares_about_welfare_content_controlled"
+    folder, _, _ = synthetic.build_synthetic_content_controlled_run(tmp_path / "run", facet_key, layers=6, hidden=32)
+    metadata, _ = run_compute(folder, facet_key)
+    entry = metadata["per_facet"][facet_key]
+    assert metadata["pairing_level"] == "sample" and "question_level_pairing" not in entry
+    assert "items_kept" in entry["filter_counts"] and "separate_welfare_mentions_among_items_kept_by_pole" in entry
+    assert "negatives_classified_correctly_per_layer" in next(iter(entry["passage_mean"]["variant_held_out_metrics"]["raw"]["by_negative_tag"].values()))
+
+
+def test_question_level_pairing_keeps_a_question_whose_samples_do_not_line_up_between_the_poles():
+    answers = [fake_answer("p1", "positive"), fake_answer("p2", "positive"), fake_answer("n3", "negative"),   # no sample of the two poles pairs
+               fake_answer("p4", "positive", question_id="q2"), fake_answer("n4", "negative", question_id="q2"),
+               fake_answer("p5", "positive", question_id="q3"), fake_answer("n5", "negative", question_id="q3")]
+    conditions = {"p1": ["coherence_below_minimum"], "p2": [], "n3": [], "p4": [], "n4": ["adds_welfare_facts"], "p5": [], "n5": []}
+    spans = {answer_id: {"character_start": 0, "character_end": length}
+             for answer_id, length in {"p2": 100, "n3": 120, "p5": 100, "n5": 300}.items()}
+    kept, counts = compute.classify_questions(answers, conditions, spans, THRESHOLDS)
+    assert [question_id for question_id, _, _ in kept] == ["q1"]
+    assert [a["answer_id"] for a in kept[0][1]] == ["p2"] and [a["answer_id"] for a in kept[0][2]] == ["n3"]
+    assert counts["questions_total"] == 3 and counts["questions_kept"] == 1
+    assert counts["questions_lacking_a_passing_answer_in_a_pole"] == 1      # q2: its only negative fails
+    assert counts["questions_failing_passage_length_ratio"] == 1            # q3: 300 / 100 is above 1.5
+    assert counts["per_question"]["q3"]["status"] == compute.QUESTION_STATUS_PASSAGE_LENGTH_RATIO
+    # the same ratio check compares MEAN passage lengths of the passing answers of the two poles
+    assert compute.mean_passage_lengths_are_within_ratio(100.0, 150.0, 1.5) and not compute.mean_passage_lengths_are_within_ratio(100.0, 151.0, 1.5)
+    assert not compute.mean_passage_lengths_are_within_ratio(0.0, 10.0, 1.5)
+
+
+def test_the_question_level_vector_is_the_mean_over_questions_of_the_per_question_mean_difference():
+    rows = {"p1": [[4.0, 0.0]], "p2": [[2.0, 0.0]], "n1": [[0.0, 2.0]],                    # question q1: positives mean (3, 0), negative (0, 2)
+            "p3": [[0.0, 6.0]], "n2": [[0.0, 0.0]], "n3": [[0.0, 2.0]]}                    # question q2: positive (0, 6), negatives mean (0, 1)
+    store = FakeActivationStore({key: np.array(value, dtype=np.float32) for key, value in rows.items()})
+    pole = lambda answer_id: "positive" if answer_id.startswith("p") else "negative"        # noqa: E731
+    kept = [("q1", [fake_answer("p1", "positive"), fake_answer("p2", "positive")], [fake_answer("n1", "negative")]),
+            ("q2", [fake_answer("p3", "positive", question_id="q2")], [fake_answer("n2", "negative", question_id="q2"), fake_answer("n3", "negative", question_id="q2")])]
+    differences = compute.differences_for_questions(kept, store)
+    assert differences["question_keys"] == ["q1", "q2"]
+    np.testing.assert_allclose(differences["vectors"], [[[3.0, -2.0]], [[0.0, 5.0]]])
+    vector = compute.shared_compute.domain_weighted_vector(differences)
+    np.testing.assert_allclose(vector, [[1.5, 1.5]])                                       # both questions in one domain: their plain mean
+    assert pole("p1") == "positive"
+
+
+def test_question_level_held_out_accuracy_compares_every_positive_with_every_negative_and_weights_questions_equally():
+    # one layer. q1: positives 3, 1 against negatives 2, 0 -> pairs (3>2, 3>0, 1>2 no, 1>0) = 3 of 4. q2: positive 5 against negative 5 and 1
+    # -> a tie and a win: accuracy 1 of 2, area under the curve 0.75. q2 has one pair fewer than q1 times two, so equal weight differs from pooling.
+    projections = {"p1": np.array([3.0]), "p2": np.array([1.0]), "n1": np.array([2.0]), "n2": np.array([0.0]),
+                   "p3": np.array([5.0]), "n3": np.array([5.0]), "n4": np.array([1.0])}
+    groups = [(["p1", "p2"], ["n1", "n2"]), (["p3"], ["n3", "n4"])]
+    metrics = compute.question_level_pairwise_metrics(projections, groups)
+    assert metrics["accuracy_per_layer"].tolist() == [pytest.approx((0.75 + 0.5) / 2)]
+    assert metrics["area_under_curve_per_layer"].tolist() == [pytest.approx((0.75 + 0.75) / 2)]
+    assert metrics["questions"] == 2
+    assert compute.question_level_pairwise_metrics(projections, []) is None
+    # only questions with a passing answer in each pole are evaluated, and a tag restricts the negatives
+    passing = {"q1": {"positive": [fake_answer("p1", "positive")], "negative": [fake_answer("n1", "negative", tag="a"), fake_answer("n2", "negative", tag="b")]},
+               "q2": {"positive": [], "negative": [fake_answer("n3", "negative", tag="a")]},
+               "q3": {"positive": [fake_answer("p3", "positive")], "negative": [fake_answer("n4", "negative", tag="a")]}}
+    assert compute.evaluation_question_groups(passing) == [(["p1"], ["n1", "n2"]), (["p3"], ["n4"])]
+    assert compute.evaluation_question_groups(passing, "b") == [(["p1"], ["n2"])]
+
+
+def test_question_level_cross_half_accuracy_scores_half_b_questions_with_the_half_a_vector_only():
+    rows = {"b_pos": [[+0.5, 0.0]], "b_neg": [[+0.2, 0.0]], "b_pos_other": [[-1.0, 0.0]], "b_neg_other": [[+1.0, 0.0]]}
+    store = FakeActivationStore({key: np.array(value, dtype=np.float32) for key, value in rows.items()})
+    passing = {"A": {}, "B": {"q1": {"positive": [fake_answer("b_pos", "positive", half="B")], "negative": [fake_answer("b_neg", "negative", half="B")]},
+                              "q2": {"positive": [fake_answer("b_pos_other", "positive", half="B")], "negative": [fake_answer("b_neg_other", "negative", half="B")]}}}
+    result = compute.cross_half_accuracy_by_question(store, np.array([[2.0, 0.0]], dtype=np.float32), passing, "A", "B")
+    assert result["accuracy_per_layer"] == [0.5] and result["questions_in_evaluation_half"] == 2
+    assert result["fit_half"] == "A" and result["evaluation_half"] == "B" and result["answers_in_evaluation_half"] == {"positive": 2, "negative": 2}
+    assert compute.cross_half_accuracy_by_question(store, None, passing, "A", "B") is None
+    assert compute.cross_half_accuracy_by_question(store, np.array([[2.0, 0.0]], dtype=np.float32), passing, "B", "A") is None
+
+
+@pytest.mark.parametrize("facet_key", ALL_FACET_KEYS)
+def test_a_question_level_run_writes_the_metadata_the_downstream_readers_use(tmp_path, facet_key):
+    from persona_vector_projection import build_content_controlled_facet_scoring_run_folder as scoring_builder
+    from persona_vector_projection import build_content_controlled_facet_steering_run_folder as steering_builder
+    definition = definition_of(facet_key)
+    folder, _, _ = synthetic.build_synthetic_content_controlled_run(tmp_path / "run", facet_key, layers=6, hidden=32)
+    metadata, metadata_path = run_compute_at_question_level(folder, facet_key)
+    entry = metadata["per_facet"][facet_key]
+    assert metadata["pairing_level"] == "question" and entry["pairing_level"] == "question"
+    pairing = entry["question_level_pairing"]
+    assert sum(pairing["questions_kept_by_half"].values()) == entry["questions_kept"] == entry["filter_counts"]["questions_kept"] or definition.has_confidence_control
+    assert pairing["passing_answers_used_per_pole"]["positive"] >= entry["questions_kept"] and "per_question_counts" in pairing
+    assert sum(sum(counts.values()) for counts in entry["separate_welfare_mentions_among_answers_used_by_pole"].values()) == sum(pairing["passing_answers_used_per_pole"].values())
+    layer = metadata["layer_choice"]["layer_by_facet"][facet_key]
+    for space in definition.vector_spaces:
+        raw = entry[space]["variant_held_out_metrics"]["raw"]
+        assert len(raw["held_out_accuracy_per_layer"]) == 6 and raw["held_out_accuracy_per_layer"][layer] > 0.9    # separable synthetic run
+        assert entry[space]["cross_half_accuracy"]["vector_from_half_A_evaluated_on_half_B"]["accuracy_per_layer"][layer] > 0.9
+        assert all("accuracy_per_layer" in cell and "held_out_negative_answers" in cell for cell in raw["by_negative_tag"].values())
+        assert len(entry[space]["split_half_cosine_half_A_against_half_B_per_layer"]) == 6
+        assert "top_4_largest_mean_dimensions_zeroed" in " ".join(entry[space]["variant_names"])
+    assert entry["training_questions_total"] >= entry["questions_kept"]
+    # the steering and scoring run-folder builders read this vector set
+    steering_layer, steering_paths, _, _ = steering_builder.read_vector_set(metadata_path.parent, definition.main_space, 4, definition)
+    scoring_layer, scoring_paths, _, _ = scoring_builder.read_vector_set(metadata_path.parent, definition)
+    assert steering_layer == scoring_layer == layer and all(path.exists() for path in [*steering_paths.values(), *scoring_paths.values()])
+    if definition.has_confidence_control:
+        control = entry["confidence_control"]
+        assert "held_out_pole_classification_calibration_confidence_direction_projected_out" in control
+        assert control["two_by_two_held_out_check"]["by_layer_and_vector"][str(layer)]["calibration"] is not None
+        assert "stated_confidence_balancing" in entry
+
+
+def test_question_level_balancing_of_stated_confidence_drops_whole_questions_and_reports_before_and_after():
+    from persona_vector_projection import calibrated_consideration_confidence_controls as controls
+    def question(question_id, positive_confidence, negative_confidence):
+        return (question_id, [fake_answer(f"{question_id}_p{i}", "positive", question_id=question_id) for i, _ in enumerate(positive_confidence)],
+                [fake_answer(f"{question_id}_n{i}", "negative", question_id=question_id) for i, _ in enumerate(negative_confidence)])
+    stated = {"q1_p0": 90.0, "q1_p1": 70.0, "q1_n0": 20.0, "q2_p0": 80.0, "q2_n0": 40.0, "q3_p0": 50.0, "q3_n0": 80.0}
+    kept_questions = [question("q1", [90, 70], [20]), question("q2", [80], [40]), question("q3", [50], [80])]
+    bands = {"q1": "established", "q2": "established", "q3": "established"}
+    kept, report = controls.balance_questions_on_stated_confidence(kept_questions, stated, bands, maximum_difference=5.0)
+    assert 0 < len(kept) < 3 and all(len(item) == 3 for item in kept)
+    assert abs(report["after_balancing"]["overall"]["difference_positive_minus_negative"]) <= 5.0
+    assert report["before_balancing"]["overall"]["items"] == 3 and report["unit"].startswith("questions")
+
+
+# ---------------------------------------------------------------------------------------------------
+# --ignore-added-welfare-facts
+# ---------------------------------------------------------------------------------------------------
+
+def conditions_with_added_welfare_facts(thresholds):
+    scores = good_scores("content_controlled_facet_score", 90.0)
+    scores["content_check"]["adds_welfare_facts"] = True
+    return compute.failed_answer_conditions("positive", scores, GOOD_SPAN, 20, 6, thresholds, facet_score_kind="content_controlled_facet_score")
+
+
+def test_an_answer_reporting_added_welfare_facts_fails_by_default_and_is_kept_with_the_ignore_option():
+    assert compute.parse_arguments(["--run-folder", "x"]).ignore_added_welfare_facts is False
+    assert compute.parse_arguments(["--run-folder", "x", "--ignore-added-welfare-facts"]).ignore_added_welfare_facts is True
+    assert conditions_with_added_welfare_facts(THRESHOLDS) == [compute.CONDITION_ADDS_WELFARE_FACTS]
+    assert conditions_with_added_welfare_facts({**THRESHOLDS, "added_welfare_facts_condition_applied": True}) == [compute.CONDITION_ADDS_WELFARE_FACTS]
+    assert conditions_with_added_welfare_facts({**THRESHOLDS, "added_welfare_facts_condition_applied": False}) == []
+
+
+@pytest.mark.parametrize("pairing_level", ["sample", "question"])
+def test_ignoring_added_welfare_facts_keeps_flagged_answers_and_the_metadata_records_the_setting_and_the_flagged_count(tmp_path, pairing_level):
+    facet_key = "cares_about_welfare_content_controlled"
+    flagged = lambda answer_id, pole: "rewording_01" in answer_id and pole == "positive"  # noqa: E731
+    folder, _, _ = synthetic.build_synthetic_content_controlled_run(
+        tmp_path / "run", facet_key, layers=6, hidden=32, adds_welfare_facts_function=flagged)
+    results = {}
+    for applied in (True, False):
+        metadata, _ = compute.compute_all(folder, {**THRESHOLDS, "added_welfare_facts_condition_applied": applied}, f"test_{applied}",
+                                          bootstrap_resamples=5, minimum_layer_index=1, seed=0, say=lambda *_: None,
+                                          facet_key=facet_key, pairing_level=pairing_level)
+        results[applied] = metadata
+    for applied, metadata in results.items():
+        assert metadata["filter_thresholds"]["added_welfare_facts_condition_applied"] is applied
+    flagged_key = "added_welfare_facts_reported_among_answers_used_by_pole_and_tag"
+    applied_cells = results[True]["per_facet"][facet_key][flagged_key]
+    ignored_cells = results[False]["per_facet"][facet_key][flagged_key]
+    assert applied_cells["positive"]["all"]["answers_reporting_added_welfare_facts"] == 0
+    assert ignored_cells["positive"]["all"]["answers_reporting_added_welfare_facts"] > 0
+    assert ignored_cells["negative"]["all"]["answers_reporting_added_welfare_facts"] == 0
+    assert ignored_cells["positive"]["all"]["answers_with_a_content_check"] > applied_cells["positive"]["all"]["answers_with_a_content_check"]
+    failing = results[False]["per_facet"][facet_key]["answer_condition_counts_by_pole_and_tag"]["positive"]["all"]["failing"]
+    assert compute.CONDITION_ADDS_WELFARE_FACTS not in failing
+    assert compute.CONDITION_ADDS_WELFARE_FACTS in results[True]["per_facet"][facet_key]["answer_condition_counts_by_pole_and_tag"]["positive"]["all"]["failing"]
+
+
+def test_the_default_threshold_setting_is_recorded_as_applied(tmp_path):
+    facet_key = "cares_about_welfare_content_controlled"
+    folder, _, _ = synthetic.build_synthetic_content_controlled_run(tmp_path / "run", facet_key, layers=6, hidden=32)
+    metadata, _ = run_compute(folder, facet_key)
+    assert metadata["filter_thresholds"]["added_welfare_facts_condition_applied"] is True

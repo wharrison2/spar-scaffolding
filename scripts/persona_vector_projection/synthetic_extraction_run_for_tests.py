@@ -236,7 +236,7 @@ def default_stated_confidence(answer_id, pole, slot, sample, question_number):
 
 def build_synthetic_content_controlled_run(run_folder, facet_key, layers=30, hidden=48, seed=0, passage_signal_scale=5.0,
                                            whole_answer_signal_scale=5.0, offset_scale=2.0, store_passage_means_anyway=False,
-                                           score_function=None, completes_the_task_function=None, stated_confidence_function=None,
+                                           score_function=None, completes_the_task_function=None, adds_welfare_facts_function=None, stated_confidence_function=None,
                                            confidence_signal_scale=3.0, band_function=None):
     """As build_synthetic_moralizing_delivery_run, for any content-controlled facet (content_controlled_facet_definitions).
     The passage means carry the pole signal along PASSAGE_DIRECTION and the whole-answer means along a DIFFERENT direction
@@ -314,6 +314,7 @@ def build_synthetic_content_controlled_run(run_folder, facet_key, layers=30, hid
                             score = (score_function(answer_id, pole) if score_function
                                      else (85.0 if pole == defs.POLE_POSITIVE else 10.0))
                             completes = completes_the_task_function(answer_id, pole) if completes_the_task_function else True
+                            adds_facts = adds_welfare_facts_function(answer_id, pole) if adds_welfare_facts_function else False
                             base = {"answer_id": answer_id, "discarded": False, "yes_or_no": None, "usage": {}}
                             judge_records.append({**base, "request_id": f"{answer_id}__{definition.facet_score_kind}",
                                                   "kind": definition.facet_score_kind, "score": score})
@@ -323,7 +324,7 @@ def build_synthetic_content_controlled_run(run_folder, facet_key, layers=30, hid
                                                       "score": stated_confidence})
                             judge_records.append({**base, "request_id": answer_id + "__content_check", "kind": "content_check", "score": None,
                                                   "content_check": {"makes_the_point": True, "separate_welfare_mentions": 1,
-                                                                    "adds_welfare_facts": False, "completes_the_task": completes,
+                                                                    "adds_welfare_facts": adds_facts, "completes_the_task": completes,
                                                                     "welfare_passage": passage}})
                             span_records.append({"answer_id": answer_id, "facet": facet_key, "pole": pole, "tag": tag,
                                                  "question_id": question_id, "status": "found_exact", "character_start": start,

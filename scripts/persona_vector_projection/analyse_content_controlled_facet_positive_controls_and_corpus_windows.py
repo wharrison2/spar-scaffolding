@@ -125,13 +125,14 @@ def extraction_lines_for_vector(metadata, vector_name, chosen_layer, definition=
     legacy = definition.legacy_moralizing_names
     if legacy:
         evaluate = lambda *numbers: statistics_module.evaluate_extraction_criteria(*numbers)  # noqa: E731
-    if metadata is None:
+    vector_set_key = definition.vector_set_key_by_vector_name().get(vector_name)   # None: a vector not in the facet's own set (a local rescoring variant)
+    if metadata is None or vector_set_key is None:
         if legacy:
             return evaluate(None, None, None, None)
         return (statistics_module.evaluate_extraction_criteria_from_file(criteria or {}, None, None, None, None, None, None, None)
                 + statistics_module.evaluate_calibrated_consideration_criteria_from_file(criteria or {}, None, None))
     entry = metadata["per_facet"][definition.facet_key]
-    key = definition.vector_set_key_by_vector_name()[vector_name]
+    key = vector_set_key
     space = "passage_mean" if key.startswith("passage_mean") else "whole_answer_mean"
     variant = "raw" if key.endswith("_raw") else key[len(space) + 1:]
     variant_metrics = entry[space].get("variant_held_out_metrics", {}).get(variant)
@@ -381,13 +382,14 @@ def build_summary_markdown(configuration, verdicts, summary_rows, windows, windo
                 f"{item['required']})" for item in facet_verdict["reported_not_counted"]]
         out += [""]
     out += ["## Every arm, vector and format", "",
-            "| Vector | Format | Arm | Expected sign | Rewrites | Changed-span mean | Negative / positive | Wilcoxon p | Standardised effect (negative-pole direction) | "
+            "| Vector | Format | Arm | Expected sign | Rewrites | Changed-span mean | Negative / positive | Wilcoxon p (two-sided) | Wilcoxon p (one-sided, expected direction) | Standardised effect (negative-pole direction) | "
             "Circular significant (negative pole / positive / either, two-sided) | Whole-document shift mean | Corpus between-document standard deviation | "
             "Shift in between-document standard deviations | Whole document negative / positive | "
-            "Whole-document bootstrap significant (negative / positive) |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            "Whole-document bootstrap significant (negative / positive) |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for row in summary_rows:
         out.append(f"| {row['vector']} | {row['document_format']} | {row['arm']} | {row['expected_sign']} | {row['n_rewrites']} | {format_number(row['changed_span_mean'])} | "
                    f"{row['changed_span_n_negative']} / {row['changed_span_n_positive']} | {format_number(row['changed_span_wilcoxon_p'])} | "
+                   f"{format_number(row['changed_span_wilcoxon_p_expected_direction'])} | "
                    f"{format_number(row['standardised_effect_in_negative_pole_direction'])} | "
                    f"{row['circular_n_significant_negative_pole_direction']} / {row['circular_n_significant_positive_direction']} / "
                    f"{row['circular_n_significant_either_direction_two_sided']} | "

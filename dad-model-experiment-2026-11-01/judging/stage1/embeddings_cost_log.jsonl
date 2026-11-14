@@ -1,0 +1,4 @@
+{"timestamp": "2026-10-31T17:44:53.424822+00:00", "model": "text-embedding-3-small", "input_tokens": 13804, "output_tokens": 0, "cost_usd": 0.000276}
+{"timestamp": "2026-10-31T17:44:53.940527+00:00", "model": "text-embedding-3-small", "input_tokens": 12282, "output_tokens": 0, "cost_usd": 0.000246}
+{"timestamp": "2026-10-31T17:44:54.618023+00:00", "model": "text-embedding-3-small", "input_tokens": 12659, "output_tokens": 0, "cost_usd": 0.000253}
+{"timestamp": "2026-10-31T17:44:55.173804+00:00", "model": "text-embedding-3-small", "input_tokens": 12705, "output_tokens": 0, "cost_usd": 0.000254}

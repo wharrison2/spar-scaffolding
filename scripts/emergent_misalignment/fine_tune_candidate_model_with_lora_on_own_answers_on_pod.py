@@ -1,4 +1,4 @@
-"""Runs on the GPU pod (or on CPU with a tiny model for the local rehearsal): LoRA or 4-bit QLoRA fine-tuning of a candidate model
+"""Runs on the GPU pod (or on CPU with a tiny model for the local rehearsal): bf16 LoRA (default) or 4-bit QLoRA fine-tuning of a candidate model
 on its own answers, with loss on the assistant tokens only.
 
     python3 scripts/emergent_misalignment/fine_tune_candidate_model_with_lora_on_own_answers_on_pod.py --run-folder <run folder>
@@ -7,7 +7,7 @@ Everything comes from <run folder>/run_configuration_*.json (built by build_lora
 Steps: (1) load the tokenizer and check its chat template against the saved fixture; (2) render and tokenize every example
 (thinking off, no system prompt, see render_self_distillation_training_examples_with_assistant_only_loss_mask.py), check the
 rendered prompt and the loss mask on the first example, refuse examples longer than the maximum sequence length; (3) load the model
-(4-bit NF4 or bfloat16) and attach LoRA to the language model's attention and feed-forward projections; (4) train, with a
+(bfloat16 by default, or 4-bit NF4) and attach LoRA to the language model's attention and feed-forward projections; (4) train, with a
 checkpoint every N optimizer steps and at each epoch end; (5) save the final adapter and a training summary.
 
 Outputs in <run folder>/training_outputs/: training_progress_log_*.txt (a line about every 3 minutes: step, loss, tokens a second,

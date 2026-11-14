@@ -35,6 +35,7 @@ from pathlib import Path
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent.parent
 KIT_TEMPLATE_FOLDER = SCRIPT_DIRECTORY / "contributor_kit"
+SAGE_EVAL_GUARD_SCRIPT = Path(__file__).resolve().parents[1] / "shared" / "check_that_no_tracked_or_staged_file_contains_sage_eval_dataset_text.py"
 PIPELINE_FOLDER_NAME = "strictly_implicit_difficult_advice_pipeline_copy"
 PIPELINE_FOLDER = REPOSITORY_ROOT / PIPELINE_FOLDER_NAME
 DEFAULT_KIT_FOLDER = Path.home() / "Desktop" / "emergent_misalignment_prompt_corpus_contributor_kit"
@@ -98,7 +99,20 @@ def sha256_of_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def refuse_sage_source_path(source: Path) -> None:
+    """SAGE-Eval's prompts and data must never be posted online (the kit repository is public): any source whose file name contains 'sage' (case-insensitive) is refused."""
+    if "sage" in Path(source).name.casefold():
+        raise ValueError(f"Refusing to copy {source} into the public contributor kit: its path contains 'sage' (SAGE-Eval material must stay offline)")
+
+
+def copy_file_refusing_sage_sources(source: Path, destination: Path):
+    refuse_sage_source_path(source)
+    return shutil.copy2(source, destination)
+
+
 def copy_tree_without_caches(source: Path, destination: Path) -> None:
+    for path in Path(source).rglob("*"):
+        refuse_sage_source_path(path)
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
 
 
@@ -131,8 +145,8 @@ def copy_share_files_and_manifest(shares_folder: Path, kit_folder: Path, destina
         source = Path(shares_folder) / share["share_file"]
         if sha256_of_file(source) != share["share_file_sha256"]:
             raise SystemExit(f"{source} does not match the checksum in the manifest")
-        shutil.copy2(source, destination / share["share_file"])
-    shutil.copy2(manifest_path, destination / manifest_path.name)
+        copy_file_refusing_sage_sources(source, destination / share["share_file"])
+    copy_file_refusing_sage_sources(manifest_path, destination / manifest_path.name)
     return manifest
 
 
@@ -142,20 +156,20 @@ def build_kit_contents(shares_folder: Path, kit_folder: Path, control_rewrite_sh
     "control_rewrite_manifest" of the result."""
     for template_name, kit_name in TEMPLATE_FILES_AND_KIT_NAMES.items():
         (kit_folder / kit_name).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(KIT_TEMPLATE_FOLDER / template_name, kit_folder / kit_name)
+        copy_file_refusing_sage_sources(KIT_TEMPLATE_FOLDER / template_name, kit_folder / kit_name)
     scripts_destination = kit_folder / "scripts" / "emergent_misalignment"
     (scripts_destination / "prompts").mkdir(parents=True)
     for name in SCRIPT_FILE_NAMES:
-        shutil.copy2(SCRIPT_DIRECTORY / name, scripts_destination / name)
+        copy_file_refusing_sage_sources(SCRIPT_DIRECTORY / name, scripts_destination / name)
     for name in JUDGE_PROMPT_TEMPLATE_NAMES + CONTROL_REWRITE_PROMPT_TEMPLATE_NAMES:
-        shutil.copy2(SCRIPT_DIRECTORY / "prompts" / name, scripts_destination / "prompts" / name)
+        copy_file_refusing_sage_sources(SCRIPT_DIRECTORY / "prompts" / name, scripts_destination / "prompts" / name)
     pipeline_destination = kit_folder / PIPELINE_FOLDER_NAME
     (pipeline_destination / "prompts" / "dad").mkdir(parents=True)
     for folder_name in PIPELINE_CODE_FOLDER_NAMES:
         copy_tree_without_caches(PIPELINE_FOLDER / folder_name, pipeline_destination / folder_name)
     for name in PIPELINE_PROMPT_FILE_NAMES:
-        shutil.copy2(PIPELINE_FOLDER / "prompts" / "dad" / name, pipeline_destination / "prompts" / "dad" / name)
-    shutil.copy2(PIPELINE_FOLDER / "LICENSE", pipeline_destination / "LICENSE")
+        copy_file_refusing_sage_sources(PIPELINE_FOLDER / "prompts" / "dad" / name, pipeline_destination / "prompts" / "dad" / name)
+    copy_file_refusing_sage_sources(PIPELINE_FOLDER / "LICENSE", pipeline_destination / "LICENSE")
     (pipeline_destination / "constitution").mkdir()
     (pipeline_destination / "constitution" / "README.md").write_text(EMPTY_CONSTITUTION_NOTE, encoding="utf-8")
     manifest = copy_share_files_and_manifest(shares_folder, kit_folder)
@@ -234,6 +248,10 @@ def main(argv=None) -> int:
     control_note = (f" and {manifest['control_rewrite_manifest']['number_of_shares']} control rewrite shares"
                     if "control_rewrite_manifest" in manifest else "")
     print(f"Built the kit in {arguments.kit_folder}: {manifest['number_of_shares']} shares{control_note}, clean.")
+    guard_result = subprocess.run([sys.executable, str(SAGE_EVAL_GUARD_SCRIPT), "--kit-folder", str(arguments.kit_folder)])
+    if guard_result.returncode != 0:
+        print("KIT NOT COMMITTED: the SAGE-Eval check found dataset text; see above.", file=sys.stderr)
+        return 1
     if arguments.make_commit:
         commit_kit(arguments.kit_folder, f"Add the emergent misalignment prompt corpus contributor kit ({stamp})")
         print("Committed locally (the builder never pushes; push to the kit repository's remote yourself).")

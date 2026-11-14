@@ -20,7 +20,9 @@ Scored in `--document-formats` (default: assistant_turn_with_real_user_message, 
   assistant_turn_with_real_user_message   user turn = the record's own user message; only the answer's tokens are scored
   assistant_turn                          user turn = the neutral "Write a document." message; only the answer's tokens are scored
 Both score the same answer tokens, aligned the same way. Scoring stage only: no baseline generation and no steering.
-`--save-full-activations-for-formats` (default none; the answers are long, so one format is several gigabytes) asks the pod to
+`--save-per-document-mean-activations-for-formats` (default none) asks the pod to also save, per document, the mean hidden states of
+all 49 stored layers over the overall, opening, after-opening and position-band token ranges (float16, about 2.1 GB for 714
+documents in one format): any new vector can later be scored locally. `--save-full-activations-for-formats` (default none; the answers are long, so one format is several gigabytes) asks the pod to
 also save hidden states at the chosen layer.
 
 Writes <run folder>/scoring_pod_inputs/documents.jsonl (content = answer text; user_message; the other fields of the answer record
@@ -147,6 +149,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--document-formats", nargs="+", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=DEFAULT_DOCUMENT_FORMATS)
     parser.add_argument("--save-full-activations-for-formats", nargs="*", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=[],
                         help="Formats whose hidden states at the chosen layer the pod also saves (float16; several gigabytes)")
+    parser.add_argument("--save-per-document-mean-activations-for-formats", nargs="*", choices=defs.SELECTABLE_DOCUMENT_FORMATS, default=[],
+                        help="Formats whose per-document mean hidden states at every layer (overall, opening, after opening and each "
+                             "position band, float16) the pod also saves, under scoring_pod_outputs/per_document_mean_activations/")
     parser.add_argument("--expected-document-count", type=int, default=None, help="Safety check on the number of documents scored")
     parser.add_argument("--number-of-position-bands", type=int, default=defs.DEFAULT_NUMBER_OF_POSITION_BANDS)
     parser.add_argument("--run-name", default=RUN_NAME)
@@ -166,6 +171,9 @@ def parse_arguments(argv=None):
     unknown = [f for f in arguments.save_full_activations_for_formats if f not in arguments.document_formats]
     if unknown:
         parser.error(f"Cannot save activations for formats {unknown} that are not scored: {arguments.document_formats}")
+    unknown = [f for f in arguments.save_per_document_mean_activations_for_formats if f not in arguments.document_formats]
+    if unknown:
+        parser.error(f"Cannot save mean activations for formats {unknown} that are not scored: {arguments.document_formats}")
     return arguments
 
 
@@ -187,6 +195,9 @@ def build_run_folder(arguments):
     estimate = estimator.estimate_from_records(
         [{"answer_text": d["content"], "user_message": d["user_message"]} for d in documents], arguments.document_formats,
         hidden_size=hidden_size, number_of_formats_saving_activations=len(arguments.save_full_activations_for_formats))
+    mean_activation_gigabytes = round(
+        len(documents) * len(arguments.save_per_document_mean_activations_for_formats) * (3 + arguments.number_of_position_bands)
+        * number_of_stored_layers * hidden_size * 2 / 1e9, 2)
     configuration = {
         "run_kind": "persona_vector_scoring_pod", "mode": "difficult_advice_dataset_scoring", "run_name": arguments.run_name,
         "stages": [defs.STAGE_SCORING], "model_name": model_name, "model_revision": model_revision,
@@ -208,6 +219,8 @@ def build_run_folder(arguments):
         "projection_onto": "unit vector of each layer",
         "save_full_activations_for_formats": arguments.save_full_activations_for_formats,
         "chosen_layer_for_saved_activations": chosen_layer,
+        "save_per_document_mean_activations_for_formats": arguments.save_per_document_mean_activations_for_formats,
+        "per_document_mean_activations_estimated_gigabytes": mean_activation_gigabytes,
         "answers_jsonl": str(arguments.answers_jsonl), "answers_jsonl_sha256": sha256_of_file(arguments.answers_jsonl),
         "answer_field_names": {"document_id": arguments.document_id_field, "user_message": arguments.user_message_field,
                                "answer_text": arguments.answer_text_field},
@@ -216,7 +229,8 @@ def build_run_folder(arguments):
     if arguments.dry_run:
         print(json.dumps({key: configuration[key] for key in (
             "number_of_documents_to_score", "documents_by_dataset_group", "documents_by_stage", "document_formats", "vector_names",
-            "chosen_layer", "recorded_layers", "save_full_activations_for_formats", "model_name")}, indent=2))
+            "chosen_layer", "recorded_layers", "save_full_activations_for_formats", "save_per_document_mean_activations_for_formats",
+            "per_document_mean_activations_estimated_gigabytes", "model_name")}, indent=2))
         print("DRY RUN (nothing written, nothing launched). GPU time and cost ceiling:\n" + estimator.describe(estimate))
         return None, configuration, estimate
 

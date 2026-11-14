@@ -533,7 +533,7 @@ def test_phase_5_and_6_write_the_frameworks_layout_with_gemma_as_judge_and_leave
     assert all(record["comparison_answer_id"].startswith(f"gemma_4_31b_it__{REFERENCE_CONDITION}__") and record["judged_by_gemma_on_pod"]
                and record["judge_model"] == "google/gemma-4-31B-it" and record["parse_status"] == "ok" for record in completeness_records)
     lean_records = read_jsonl(next(lean_folder.glob("verdicts_*.jsonl")))
-    assert Counter(record["condition"] for record in lean_records) == Counter({SYSTEM_CONDITION: 5, REFERENCE_CONDITION: 6})
+    assert Counter(record["condition"] for record in lean_records) == Counter({SYSTEM_CONDITION: 5, REFERENCE_CONDITION: 5})
     phase_5_marker = json.loads(next((outputs / "phase_completion_markers").glob("phase_5_*.json")).read_text())
     assert phase_5_marker["counts"]["kept_answers_file_sha256"] == sha256_of_file(kept_file_of(run_folder))
     assert phase_5_marker["counts"]["verdict_counts"]["left_out_part_of_the_request"] == {"yes": 2, "no": 3}
@@ -712,7 +712,7 @@ def test_sampled_phases_judge_the_sample_with_both_conditions_on_the_same_prompt
     parent = folder / "generation_outputs" / pod.GEMMA_FRAMEWORK_JUDGE_OUTPUTS_FOLDER_NAME
     completeness = [r for p in next(x for x in parent.iterdir() if x.name.startswith("judge_whether")).glob("verdicts_*.jsonl") for r in read_jsonl(p)]
     lean = [r for p in next(x for x in parent.iterdir() if x.name.startswith("judge_user_lean")).glob("verdicts_*.jsonl") for r in read_jsonl(p)]
-    assert len(completeness) == 3 and len({r["answer_id"] for r in completeness}) == 3
+    assert len(completeness) == 2 and len({r["answer_id"] for r in completeness}) == 2  # the 3 requested are drawn only from the 2 sampled prompts: all of them
     kept_ids = {r["answer_id"] for r in read_jsonl(kept_file_of(folder))}
     assert {r["answer_id"] for r in completeness} <= kept_ids
     by_prompt = {}
@@ -721,7 +721,11 @@ def test_sampled_phases_judge_the_sample_with_both_conditions_on_the_same_prompt
     assert len(by_prompt) == 2 and all(conditions == {SYSTEM_CONDITION, REFERENCE_CONDITION} for conditions in by_prompt.values())
     assert len(lean) == 4
     marker = json.loads(next((folder / "generation_outputs" / "phase_completion_markers").glob("phase_5_*.json")).read_text())
-    assert marker["counts"]["judge_run"]["population_kept_answers_with_a_pair"] == 8
+    assert marker["counts"]["judge_run"]["population_kept_answers_with_a_pair"] == 2  # only the 2 sampled prompts have a no-system-prompt answer
+    assert len(read_jsonl(session.answers_paths[REFERENCE_CONDITION])) == 2  # no-system-prompt answers were generated for the sample only
+    assert len(read_jsonl(session.answers_paths[SYSTEM_CONDITION])) >= 8  # the system-prompted condition covers every prompt
+    sample = json.loads((folder / session.section["no_system_prompt_reference_answer_sample"]["path_inside_run_folder"]).read_text())
+    assert len(sample["prompt_gids"]) == 2 and {r["prompt_gid"] for r in read_jsonl(session.answers_paths[REFERENCE_CONDITION])} == set(sample["prompt_gids"])
 
 
 def test_the_sample_is_deterministic_in_the_seed_and_kept_file_and_a_resume_picks_the_same_answers(tmp_path):
@@ -759,7 +763,7 @@ def test_downstream_scripts_work_on_sampled_output_and_reweight_with_the_judged_
     lean_folder = next(x for x in parent.iterdir() if x.name.startswith("judge_user_lean"))
     assert spot_check.main(["--judge-folder", str(completeness_folder), "--answers", str(kept_file_of(folder)), "--comparison-answers", str(folder),
                             "--flagged-sample-size", "1", "--unflagged-sample-size", "1", "--output-folder", str(tmp_path / "sheets")]) == 0
-    assert json.loads(next((tmp_path / "sheets").glob("flag_rates_*.json")).read_text())["judged_answers"] == 6
+    assert json.loads(next((tmp_path / "sheets").glob("flag_rates_*.json")).read_text())["judged_answers"] == 4
     pool = tmp_path / "pool.jsonl"
     pool.write_text("".join(json.dumps({"merged_corpus_prompt_id": f"B777-P-{n:04d}", "surface_form": "plain", "user_goal": ["g"]}) + "\n" for n in range(1, 9)))
     assert lean_analysis.main(["--judge-folder", str(lean_folder), "--kept-answers", str(kept_file_of(folder)), "--prompt-pool", str(pool),
@@ -768,7 +772,7 @@ def test_downstream_scripts_work_on_sampled_output_and_reweight_with_the_judged_
     manifest = json.loads(next((folder / "haiku_sample_check_inputs").glob("haiku_sample_check_manifest_*.json")).read_text())
     assert manifest["gemma_judge_sampling_in_the_run_configuration"]["completeness_sample_size"] == 6
     # populations are the Gemma-judged counts (6 answers and 8 answers), not the 8 kept answers or 16 answers of the whole run
-    assert sum(manifest["completeness_and_competence"]["population_count_by_stratum"].values()) == 6
+    assert sum(manifest["completeness_and_competence"]["population_count_by_stratum"].values()) == 4
     assert sum(manifest["user_lean_and_agreement"]["population_count_by_stratum"].values()) == 8
     write_fake_haiku_verdicts(folder, manifest, disagree_on=set())
     assert agreement.main(["--run-folder", str(folder)]) == 0
@@ -783,3 +787,38 @@ def test_the_estimate_shrinks_with_the_samples():
     minutes_sampled, _, calls_sampled = builder.estimate_self_judging_session(6018, True, 750, 2000, 8000, 0.2, 1000, 1500)
     assert sum(minutes_sampled.values()) < sum(minutes_all.values()) and calls_sampled < calls_all
     assert "a sample of 1,000 kept answers" in sampled[0] and "every kept answer" in everything[0]
+
+
+def test_phases_0_to_4_then_5_and_6_in_separate_sessions_match_one_session(tmp_path):
+    """The overnight chain runs phases 0 to 4 early and 5 and 6 last, each in its own session (own model load)."""
+    folder, engine = run_sampled(tmp_path, "split_sessions")
+    first = make_session(folder, engine, phases_to_run=(0, 1, 2, 3, 4))
+    assert pod.run_all_phases(first) == 0
+    outputs = folder / "generation_outputs"
+    assert len(list((outputs / "phase_completion_markers").glob("phase_4_*.json"))) == 1
+    assert not list((outputs / "phase_completion_markers").glob("phase_5_*.json")) and not list((outputs / "phase_completion_markers").glob("phase_6_*.json"))
+    second_engine = ScriptedEngine({}, flagged={"B777-P-0001", "B777-P-0002"})
+    second = make_session(folder, second_engine, phases_to_run=(5, 6))
+    assert pod.run_all_phases(second) == 0
+    assert len(list((outputs / "phase_completion_markers").glob("phase_5_*.json"))) == 1 and len(list((outputs / "phase_completion_markers").glob("phase_6_*.json"))) == 1
+    assert not list((outputs / "phase_completion_markers").glob("phase_4_*.json"))[1:]  # phase 4 was not run again
+    parser_defaults = pod.parse_arguments(["--run-folder", str(folder)])
+    assert parser_defaults.only_phases == list(range(7))
+    assert pod.parse_arguments(["--run-folder", str(folder), "--only-phases", "5", "6"]).only_phases == [5, 6]
+
+
+def test_builder_draws_the_no_system_prompt_sample_up_front_from_the_pool_and_records_it(tmp_path):
+    prompts = [{"prompt_gid": f"B1-P-{n:04d}"} for n in range(40)]
+    first = builder.draw_no_system_prompt_reference_sample(prompts, 10, 11)
+    assert first == builder.draw_no_system_prompt_reference_sample(list(reversed(prompts)), 10, 11)  # independent of the order the pool is read in
+    assert first != builder.draw_no_system_prompt_reference_sample(prompts, 10, 12) and len(set(first)) == 10 and first == sorted(first)
+    assert builder.draw_no_system_prompt_reference_sample(prompts, None, 11) == sorted(p["prompt_gid"] for p in prompts)
+    assert len(builder.draw_no_system_prompt_reference_sample(prompts, 100, 11)) == 40
+    folder = build_run_folder(tmp_path, number_of_prompts=8, name="recorded_sample", user_lean_judge_sample_prompts=3, judge_sample_seed=5)
+    configuration = json.loads(next(folder.glob("run_configuration_*.json")).read_text())
+    section = configuration["gemma_self_judging_and_regeneration"]["no_system_prompt_reference_answer_sample"]
+    recorded = json.loads((folder / section["path_inside_run_folder"]).read_text())
+    assert section["number_of_prompts"] == len(recorded["prompt_gids"]) == 3 and recorded["seed"] == 5
+    assert configuration["expected_number_of_answers"] == 8 + 3  # every prompt system-prompted, three with no system prompt
+    from scripts.shared.run_folder_management import sha256_of_file as sha
+    assert section["sha256"] == sha(folder / section["path_inside_run_folder"])

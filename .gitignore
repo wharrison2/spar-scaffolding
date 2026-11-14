@@ -7,3 +7,4 @@ __pycache__/
 
 # Run data stays local
 data/
+/animal-welfare-data-pipeline-show-rejected-variable-values/

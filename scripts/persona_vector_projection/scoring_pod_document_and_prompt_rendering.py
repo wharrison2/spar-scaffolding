@@ -134,6 +134,17 @@ def position_band_indices(number_of_tokens, number_of_bands):
     return (np.arange(number_of_tokens) * number_of_bands) // max(1, number_of_tokens)
 
 
+def range_membership_matrix(number_of_tokens, number_of_bands=defs.DEFAULT_NUMBER_OF_POSITION_BANDS,
+                            opening_token_count=defs.OPENING_TOKEN_COUNT):
+    """(document tokens, 3 + bands) bool: column 0 all tokens, 1 the opening, 2 after the opening, then one column per position
+    band. The same ranges, in the same order, as summarize_per_token_values uses."""
+    positions = np.arange(number_of_tokens)
+    bands = position_band_indices(number_of_tokens, number_of_bands)
+    columns = [positions >= 0, positions < opening_token_count, positions >= opening_token_count]
+    columns += [bands == band for band in range(number_of_bands)]
+    return np.stack(columns, axis=1)
+
+
 def summarize_per_token_values(per_token_values, number_of_bands=defs.DEFAULT_NUMBER_OF_POSITION_BANDS,
                                opening_token_count=defs.OPENING_TOKEN_COUNT):
     """per_token_values: (document tokens, ...) array. Returns means over all tokens, tokens [0, opening_token_count),

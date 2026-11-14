@@ -74,11 +74,11 @@ def load_answers_table(run_folder):
     return table
 
 
-def latest_ok_verdicts(run_folder):
+def latest_ok_verdicts(run_folder, judge_outputs_folder_name="judge_outputs"):
     """One verdict per answer_id: the latest parse_status ok record (by judged_at, then file and line order). Answers whose only
     records are unparseable get verdict_status 'unparseable'; answers with no record get 'missing' later."""
     records = []
-    for path in sorted((run_folder / "judge_outputs").glob("judge_verdicts_*.jsonl")):
+    for path in sorted((Path(run_folder) / judge_outputs_folder_name).glob("judge_verdicts_*.jsonl")):
         records.extend(read_jsonl(path))
     ordered = sorted(enumerate(records), key=lambda pair: (pair[1].get("judged_at") or "", pair[0]))
     chosen_ok, seen_unparseable = {}, set()

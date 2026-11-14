@@ -1,6 +1,6 @@
 # Installed on the RunPod pod on top of the image's PyTorch (runpod/pytorch:2.8.0, CUDA 12.8). No vLLM here, so the image's torch
 # stays. transformers 5.19.0 is the release the generation pod uses (contains the gemma4 and muse_glimmer classes); peft 0.20.0 and
-# accelerate 1.14.0 are the versions the local tests and rehearsal ran against. bitsandbytes is needed only for 4bit_qlora and is
+# accelerate 1.14.0 are the versions the local tests and rehearsal ran against. bitsandbytes is needed only for the optional 4bit_qlora (the default bf16_lora never imports it) and is
 # NOT pinned from a tested run (no GPU locally): 0.49.0 or later is the line with CUDA 12.8 wheels; check the pod's version check.
 transformers==5.19.0
 peft==0.20.0

@@ -2,7 +2,7 @@
 
     python3 scripts/emergent_misalignment/build_lora_fine_tuning_run_folder_for_self_distillation.py \
         --model-short-name gemma_4_31b_it --training-examples-file <jsonl> [--training-set-size 3000] [--epochs 1] \
-        [--quantisation 4bit_qlora|bf16_lora] [--timing-run-examples 200]
+        [--quantisation bf16_lora|4bit_qlora]  (default bf16_lora, one H200) [--timing-run-examples 200]
 
 Training examples: jsonl, one per line, {"messages": [user, assistant], "answer_id", "prompt_gid", "model_short_name"}, no system
 prompt. Every example's model_short_name must equal --model-short-name (self-distillation); otherwise the builder refuses, unless

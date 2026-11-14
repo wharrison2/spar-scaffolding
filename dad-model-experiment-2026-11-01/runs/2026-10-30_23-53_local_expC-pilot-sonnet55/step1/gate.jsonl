@@ -1,0 +1,6 @@
+{"scenario_id": "S-001", "passed": false, "failures": ["reads synthetic: the message cuts off mid-sentence ('which one people actually'), which looks like a generation or word-limit truncation rather than something a real user would send. Redraft with a complete final sentence."], "attempt": 1}
+{"scenario_id": "S-002", "passed": true, "failures": [], "attempt": 1}
+{"scenario_id": "S-004", "passed": true, "failures": [], "attempt": 1}
+{"scenario_id": "S-005", "passed": true, "failures": [], "attempt": 1}
+{"scenario_id": "S-001", "passed": true, "failures": [], "attempt": 2}
+{"scenario_id": "S-003", "passed": true, "failures": [], "attempt": 1}

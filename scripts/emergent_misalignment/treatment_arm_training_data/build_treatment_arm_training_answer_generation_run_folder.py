@@ -249,9 +249,9 @@ def build_run_configuration(run_folder, timestamp, arguments_record, prompts_des
                          "prompt_pool_size": pool_size,
                          "prompt_identifier": "prompt_gid is the merged_corpus_prompt_id; batch_local_prompt_gid is the batch-local id"},
         "samples_per_prompt": answers_per_prompt,
-        "expected_number_of_answers": number_of_prompts * (answers_per_prompt + (1 if has_reference_condition else 0)),
+        "expected_number_of_answers": number_of_prompts * answers_per_prompt + (arguments_record["number_of_reference_answer_prompts"] if has_reference_condition else 0),
         "expected_number_of_answers_note": ("initial answers only: samples_per_prompt for the system-prompted condition"
-                                            + (" plus one reference answer per prompt without a system prompt" if has_reference_condition else "")
+                                            + (" plus one reference answer without a system prompt for each prompt of the reference sample" if has_reference_condition else "")
                                             + "; regenerated answers come on top"),
         "prompt_selection": {"number_of_prompts_requested": arguments_record["number_of_prompts"],
                              "subsample_seed": arguments_record["subsample_seed"],
@@ -320,6 +320,16 @@ DEFAULT_COMPLETENESS_JUDGE_SAMPLE_SIZE = 1000
 DEFAULT_USER_LEAN_JUDGE_SAMPLE_PROMPTS = 1500
 
 
+def draw_no_system_prompt_reference_sample(prompts, sample_prompts, judge_sample_seed):
+    """The prompts that get a no-system-prompt answer: a seeded random sample of `sample_prompts` prompts (None: every prompt), drawn up front from
+    the prompt pool alone (the kept answers do not exist yet). Sorted prompt ids, random.Random(f"{seed}:no_system_prompt_reference_answers").
+    Returns the sorted prompt_gid list."""
+    prompt_gids = sorted(prompt["prompt_gid"] for prompt in prompts)
+    if sample_prompts is None or sample_prompts >= len(prompt_gids):
+        return prompt_gids
+    return sorted(random.Random(f"{judge_sample_seed}:no_system_prompt_reference_answers").sample(prompt_gids, sample_prompts))
+
+
 def parse_sample_size(value):
     """0 or 'all' (any case) means every answer or prompt; otherwise a positive integer. Returns None for all."""
     if isinstance(value, str) and value.strip().lower() == "all":
@@ -333,7 +343,8 @@ def parse_sample_size(value):
 def build_self_judging_section(inputs_folder, timestamp, reference_records, reference_notes, held_out_answers_run_folder,
                                held_out_records, held_out_set_file, answers_per_prompt, has_reference_condition,
                                completeness_judge_sample_size=DEFAULT_COMPLETENESS_JUDGE_SAMPLE_SIZE,
-                               user_lean_judge_sample_prompts=DEFAULT_USER_LEAN_JUDGE_SAMPLE_PROMPTS, judge_sample_seed=DEFAULT_SUBSAMPLE_SEED):
+                               user_lean_judge_sample_prompts=DEFAULT_USER_LEAN_JUDGE_SAMPLE_PROMPTS, judge_sample_seed=DEFAULT_SUBSAMPLE_SEED,
+                               reference_sample_prompt_gids=None):
     template_records = copy_judge_prompt_templates_unchanged(inputs_folder)
     framework_judge_records = copy_framework_judge_files_unchanged(inputs_folder, has_reference_condition)
     reference_destination = inputs_folder / f"held_out_thinking_off_answers_with_haiku_reference_verdicts_{timestamp}.jsonl"
@@ -343,6 +354,20 @@ def build_self_judging_section(inputs_folder, timestamp, reference_records, refe
         "corpus_prompt_ids": sorted(record["corpus_prompt_id"] for record in held_out_records),
         "user_messages": sorted({record["user_message"] for record in held_out_records}),
         "source_file": str(held_out_set_file), "source_file_sha256": sha256_of_file(held_out_set_file)}, indent=2), encoding="utf-8")
+    sample_section = None
+    if has_reference_condition and reference_sample_prompt_gids is not None:
+        sample_destination = inputs_folder / f"no_system_prompt_reference_answer_sample_prompt_ids_{timestamp}.json"
+        sample_destination.write_text(json.dumps({
+            "prompt_gids": reference_sample_prompt_gids, "seed": judge_sample_seed,
+            "method": ("random.Random(f'{seed}:no_system_prompt_reference_answers').sample over the run's prompt_gids sorted ascending, result sorted; "
+                       "drawn up front from the prompt pool alone"),
+            "size_requested": user_lean_judge_sample_prompts, "number_of_prompts": len(reference_sample_prompt_gids)}, indent=2), encoding="utf-8")
+        sample_section = {"path_inside_run_folder": f"{defs.INPUTS_FOLDER_NAME}/{sample_destination.name}",
+                          "sha256": sha256_of_file(sample_destination), "number_of_prompts": len(reference_sample_prompt_gids),
+                          "note": ("No-system-prompt answers are generated only for these prompts (one each); the system-prompted condition covers every "
+                                   "prompt. Phase 6 judges the kept answer and the no-system-prompt answer of each of these prompts that has a kept "
+                                   "answer; phase 5 draws its sample of kept answers only from these prompts, all of them if fewer than the sample "
+                                   "size have kept answers.")}
     answers_per_condition = {}
     for record in reference_records:
         answers_per_condition[record["condition"]] = answers_per_condition.get(record["condition"], 0) + 1
@@ -353,6 +378,7 @@ def build_self_judging_section(inputs_folder, timestamp, reference_records, refe
         "no_system_prompt_condition": defs.CONDITION_THINKING_OFF if has_reference_condition else None,
         "initial_samples_per_prompt": answers_per_prompt,
         "no_system_prompt_samples_per_prompt": 1 if has_reference_condition else 0,
+        "no_system_prompt_reference_answer_sample": sample_section,
         "maximum_attempts_per_prompt": judging_rules.DEFAULT_MAXIMUM_ATTEMPTS_PER_PROMPT,
         "maximum_attempts_note": "attempts are generated answers per prompt, counting the first; no-system-prompt answers are never regenerated",
         "pass_rule": ("refusal complied, raised_welfare_cost no, and chose_option_better_for_animal_welfare no or no_welfare_difference; "
@@ -369,10 +395,11 @@ def build_self_judging_section(inputs_folder, timestamp, reference_records, refe
         "framework_judge_sampling": {
             "completeness_sample_size": completeness_judge_sample_size, "user_lean_sample_prompts": user_lean_judge_sample_prompts,
             "seed": judge_sample_seed,
-            "note": ("None means every answer or prompt. Completeness: a seeded random sample of that many kept answers that have a "
-                     "no-system-prompt pair. User lean: a seeded random sample of that many prompts among those with a kept answer and a "
-                     "no-system-prompt answer, and for each sampled prompt the kept answer and every no-system-prompt answer are judged. "
-                     "The draw is deterministic in the seed and the kept answers file, so a resumed session picks the same answers.")},
+            "note": ("None means every answer or prompt. User lean: the prompts are drawn up front (no_system_prompt_reference_answer_sample), only they "
+                     "get a no-system-prompt answer, and for each of them that has a kept answer the kept answer and the no-system-prompt answer are "
+                     "judged. Completeness: a seeded random sample of that many kept answers among those with a no-system-prompt pair, which are "
+                     "the kept answers of the sampled prompts (all of them when fewer). Both draws are deterministic, so a resumed session picks "
+                     "the same answers.")},
         "framework_judges_note": ("completeness_and_competence (phase 5, paired with the no-system-prompt answer) and user_lean_and_agreement "
                                   "(phase 6, kept answers and no-system-prompt answers) are flags and labels, never filters; rendering and "
                                   "reply checking are the Claude Code CLI framework's own functions"),
@@ -396,14 +423,14 @@ ESTIMATE_PREFILL_TOKENS_PER_SECOND = {"central": 8000, "conservative": 5000}
 
 def estimate_self_judging_session(number_of_prompts, has_reference_condition, mean_answer_tokens, generation_tokens_per_second,
                                   prefill_tokens_per_second, first_judge_failure_share, completeness_sample_size=None,
-                                  user_lean_sample_prompts=None):
+                                  user_lean_sample_prompts=None, reference_prompts=None):
     """Minutes for each part of the session. Regenerated answers: most failing prompts pass within 2 or 3 attempts (x1.5)."""
     prompts = number_of_prompts
     regenerated = prompts * first_judge_failure_share * 1.5
     kept = prompts * 0.98
     completeness_answers = kept if completeness_sample_size is None else min(kept, completeness_sample_size)
     lean_prompts = kept if user_lean_sample_prompts is None else min(kept, user_lean_sample_prompts)
-    references = prompts if has_reference_condition else 0
+    references = (prompts if reference_prompts is None else min(prompts, reference_prompts)) if has_reference_condition else 0
     judged = prompts + regenerated
     answer = mean_answer_tokens
     prefill_tokens = {
@@ -422,17 +449,18 @@ def estimate_self_judging_session(number_of_prompts, has_reference_condition, me
 
 
 def format_self_judging_estimate_lines(number_of_prompts, has_reference_condition, completeness_sample_size=None,
-                                       user_lean_sample_prompts=None):
+                                       user_lean_sample_prompts=None, reference_prompts=None):
     """Pod time and cost for the whole session: setup, judge validation, generation, judging, regeneration, phases 5 and 6."""
     lines = [f"Estimate for the whole self-judging session on one H200 at ${ESTIMATE_POD_DOLLARS_PER_HOUR}/hour (phases 0 to 6; phase 5 judges "
              f"{'every kept answer' if completeness_sample_size is None else f'a sample of {completeness_sample_size:,} kept answers'}, phase 6 "
-             f"{'every prompt' if user_lean_sample_prompts is None else f'a sample of {user_lean_sample_prompts:,} prompts'} with both conditions' answers):"]
+             f"{'every prompt' if user_lean_sample_prompts is None else f'a sample of {user_lean_sample_prompts:,} prompts'} with both conditions' answers; "
+             f"no-system-prompt answers are generated only for {'every prompt' if reference_prompts is None else f'{reference_prompts:,} sampled prompts'}):"]
     for label, tokens, rate, failure_share in (("central", ESTIMATE_MEAN_ANSWER_TOKENS, ESTIMATE_BATCHED_TOKENS_PER_SECOND, 0.20),
                                                ("conservative", ESTIMATE_CONSERVATIVE_MEAN_ANSWER_TOKENS,
                                                 ESTIMATE_CONSERVATIVE_TOKENS_PER_SECOND, 0.35)):
         minutes, regenerated, judge_calls = estimate_self_judging_session(
             number_of_prompts, has_reference_condition, tokens, rate, ESTIMATE_PREFILL_TOKENS_PER_SECOND[label], failure_share,
-            completeness_sample_size, user_lean_sample_prompts)
+            completeness_sample_size, user_lean_sample_prompts, reference_prompts)
         total = sum(minutes.values())
         judging = sum(value for name, value in minutes.items() if name.startswith("phase"))
         lines.append(f"  {label:12s}: about {total:.0f} minutes ({total / 60:.1f} hours), about ${total / 60 * ESTIMATE_POD_DOLLARS_PER_HOUR:.2f}; "
@@ -489,11 +517,15 @@ def build_run_folder(runs_root, model_short_name, prompt_pool_file, held_out_set
     conditions = [system_prompted_condition]
     if include_no_system_prompt_reference_condition:
         conditions.append(build_condition_without_system_prompt(system_prompted_condition))
+    reference_sample_prompt_gids = (draw_no_system_prompt_reference_sample(prompts, user_lean_judge_sample_prompts, judge_sample_seed)
+                                    if include_no_system_prompt_reference_condition else None)
     self_judging_section = build_self_judging_section(inputs_folder, timestamp, reference_records, reference_notes,
                                                       held_out_answers_run_folder, held_out_records, held_out_set_file,
                                                       answers_per_prompt, include_no_system_prompt_reference_condition,
-                                                      completeness_judge_sample_size, user_lean_judge_sample_prompts, judge_sample_seed)
+                                                      completeness_judge_sample_size, user_lean_judge_sample_prompts, judge_sample_seed,
+                                                      reference_sample_prompt_gids)
     arguments_record = {"answers_per_prompt": answers_per_prompt, "number_of_prompts": number_of_prompts,
+                        "number_of_reference_answer_prompts": len(reference_sample_prompt_gids or []),
                         "subsample_seed": subsample_seed, "held_out_set_file": str(held_out_set_file)}
     configuration = build_run_configuration(run_folder, timestamp, arguments_record, prompts_destination, prompt_pool_file,
                                             len(pool_prompts), len(prompts), model_short_name, facts, conditions, fixture_sha256,
@@ -504,7 +536,8 @@ def build_run_folder(runs_root, model_short_name, prompt_pool_file, held_out_set
           f"{len(prompts) * answers_per_prompt:,} answers", flush=True)
     print("\n".join(format_estimate_lines(model_short_name, len(prompts), answers_per_prompt)), flush=True)
     print("\n".join(format_self_judging_estimate_lines(len(prompts), include_no_system_prompt_reference_condition,
-                                                                          completeness_judge_sample_size, user_lean_judge_sample_prompts)), flush=True)
+                                                                          completeness_judge_sample_size, user_lean_judge_sample_prompts,
+                                                                          len(reference_sample_prompt_gids) if reference_sample_prompt_gids is not None else None)), flush=True)
     if reference_notes["non_raising_answers_without_a_choice_verdict"]:
         print(f"Note: {len(reference_notes['non_raising_answers_without_a_choice_verdict'])} held-out answers with raised_welfare_cost no "
               f"have no Haiku choice verdict; the agreement analysis leaves them out.", flush=True)

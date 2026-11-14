@@ -7,8 +7,9 @@ animal welfare cost. Free and local apart from reading small public files from H
 
 Output: data/emergent_misalignment_runs/held_out_set_welfare_raising_base_versus_lora_adapters_<gemma|muse>_<timestamp>/ (shape described in
 adapter_evaluation_run_folder_common.py). Reuses the held-out set builder's prompt mapping, the held-out set file and the 3 November
-builder's Hugging Face fetching. Then: pod generation (launch_and_stop_runpod_baseline_answer_generation_pod.py), the welfare judge
-(judge_refusal_and_welfare_cost_with_haiku_through_claude_code_cli.py) and analyse_held_out_set_welfare_raising_base_versus_lora_adapters.py.
+builder's Hugging Face fetching. Then: pod generation (launch_and_stop_runpod_baseline_answer_generation_pod.py), the welfare judge (Gemma on the
+pod: judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py, with a Haiku sample check; or all answers with
+judge_refusal_and_welfare_cost_with_haiku_through_claude_code_cli.py) and analyse_held_out_set_welfare_raising_base_versus_lora_adapters.py.
 """
 
 import argparse

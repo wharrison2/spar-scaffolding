@@ -1,0 +1,133 @@
+  pilot-opus55                 $   2.56  prompts 5  answers 5  rewrites 5
+      baseline_response      claude-opus-5-5             5 calls  in    404  out   2975  $0.061/call
+      constitution_rewrite   claude-opus-5-5             5 calls  in   8183  out   3695  $0.107/call
+      prompt_draft           claude-opus-5-5             7 calls  in   1385  out    783  $0.021/call
+      prompt_gate            claude-opus-5-5             7 calls  in   2851  out    396  $0.019/call
+      prompt_refine          claude-opus-5-5             5 calls  in   2457  out   1511  $0.040/call
+      response_draft         claude-opus-5-5             5 calls  in   8884  out   2805  $0.092/call
+      response_scope         claude-opus-5-5             5 calls  in   1237  out   2215  $0.049/call
+      response_select        claude-opus-5-5             5 calls  in   7527  out   1032  $0.051/call
+      scenario_plan          claude-opus-5-5             5 calls  in   1276  out   2570  $0.057/call
+  pilot-sonnet55               $   1.25  prompts 5  answers 5  rewrites 5
+      baseline_response      claude-opus-5-5             5 calls  in    324  out   2705  $0.055/call
+      constitution_rewrite   claude-sonnet-5-5           5 calls  in   7679  out   2512  $0.040/call
+      prompt_draft           claude-sonnet-5-5           7 calls  in   1275  out    414  $0.007/call
+      prompt_gate            claude-sonnet-5-5           6 calls  in   2614  out    472  $0.010/call
+      prompt_refine          claude-sonnet-5-5           5 calls  in   2320  out   1627  $0.021/call
+      response_draft         claude-sonnet-5-5           5 calls  in   9008  out   2253  $0.041/call
+      response_scope         claude-sonnet-5-5           5 calls  in   1157  out   1372  $0.016/call
+      response_select        claude-sonnet-5-5           5 calls  in   7616  out    985  $0.025/call
+      scenario_plan          claude-sonnet-5-5           5 calls  in   1276  out   2686  $0.029/call
+  pilot-gpt-sol                $   1.15  prompts 5  answers 5  rewrites 5
+      baseline_response      claude-opus-5-5             5 calls  in    399  out   2414  $0.050/call
+      constitution_rewrite   gpt-6.1-sol                 5 calls  in   5132  out   2041  $0.025/call
+      prompt_draft           gpt-6.1-sol                 6 calls  in    836  out    842  $0.010/call
+      prompt_gate            gpt-6.1-sol                 6 calls  in   1792  out    247  $0.006/call
+      prompt_refine          gpt-6.1-sol                 5 calls  in   1547  out   1181  $0.015/call
+      response_draft         gpt-6.1-sol                 5 calls  in   5719  out   2208  $0.034/call
+      response_scope         gpt-6.1-sol                 5 calls  in    795  out   1681  $0.018/call
+      response_select        gpt-6.1-sol                 5 calls  in   4582  out   3793  $0.042/call
+      scenario_plan          gpt-6.1-sol                 5 calls  in    839  out   2497  $0.027/call
+  pilot-argon                  $   2.26  prompts 5  answers 5  rewrites 5
+      baseline_response      claude-opus-5-5             5 calls  in    427  out   2250  $0.047/call
+      constitution_rewrite   gemini-4-argon              5 calls  in   5775  out   3684  $0.048/call
+      prompt_draft           gemini-4-argon             10 calls  in    951  out   4620  $0.048/call
+      prompt_gate            gemini-4-argon             10 calls  in   1841  out   1422  $0.018/call
+      prompt_refine          gemini-4-argon              5 calls  in   1672  out   4015  $0.044/call
+      response_draft         gemini-4-argon              5 calls  in   5392  out   4646  $0.057/call
+      response_scope         gemini-4-argon              5 calls  in    878  out   2533  $0.027/call
+      response_select        gemini-4-argon              5 calls  in   4686  out   3995  $0.049/call
+      scenario_plan          gemini-4-argon              5 calls  in    905  out   4608  $0.048/call
+  pilot-gem31pro               $   2.10  prompts 5  answers 5  rewrites 5
+      baseline_response      claude-opus-5-5             5 calls  in    317  out   2114  $0.044/call
+      constitution_rewrite   gemini-3.1-pro-preview      5 calls  in   4968  out   3712  $0.054/call
+      prompt_draft           gemini-3.1-pro-preview     13 calls  in    883  out   1634  $0.021/call
+      prompt_gate            gemini-3.1-pro-preview     13 calls  in   1758  out   1035  $0.016/call
+      prompt_refine          gemini-3.1-pro-preview      5 calls  in   1565  out   1778  $0.024/call
+      response_draft         gemini-3.1-pro-preview      5 calls  in   5043  out   4371  $0.063/call
+      response_scope         gemini-3.1-pro-preview      5 calls  in    766  out   2250  $0.029/call
+      response_select        gemini-3.1-pro-preview      5 calls  in   4498  out   3912  $0.056/call
+      scenario_plan          gemini-3.1-pro-preview      5 calls  in    871  out   4287  $0.053/call
+  pool-opus55                  $   1.67  prompts 20
+      prompt_draft           claude-opus-5-5            20 calls  in   1327  out    878  $0.023/call
+      scenario_plan          claude-opus-5-5            20 calls  in   1356  out   2757  $0.061/call
+  pool-sonnet55                $   0.82  prompts 19
+      prompt_draft           claude-sonnet-5-5          23 calls  in   1265  out    370  $0.006/call
+      scenario_plan          claude-sonnet-5-5          20 calls  in   1356  out   3104  $0.034/call
+  pool-gpt-sol                 $   0.77  prompts 20
+      prompt_draft           gpt-6.1-sol                21 calls  in    852  out    932  $0.011/call
+      scenario_plan          gpt-6.1-sol                20 calls  in    888  out   2504  $0.027/call
+  pool-argon                   $   2.26  prompts 20
+      prompt_draft           gemini-4-argon             20 calls  in    958  out   3599  $0.038/call
+      scenario_plan          gemini-4-argon             21 calls  in    961  out   6977  $0.072/call
+  pool-gem31pro                $   1.58  prompts 20
+      prompt_draft           gemini-3.1-pro-preview     20 calls  in    834  out   1713  $0.022/call
+      scenario_plan          gemini-3.1-pro-preview     20 calls  in    920  out   4591  $0.057/call
+  s1-opus55                    $   6.67  prompts 50
+      prompt_draft           claude-opus-5-5            53 calls  in   1342  out    798  $0.021/call
+      prompt_gate            claude-sonnet-5-5          52 calls  in   2765  out    455  $0.010/call
+      prompt_refine          claude-opus-5-5            50 calls  in   2434  out   1386  $0.037/call
+      scenario_plan          claude-opus-5-5            50 calls  in   1349  out   2875  $0.063/call
+  s2-argon                     $   7.74  prompts 50  answers 50
+      response_draft         gemini-4-argon             50 calls  in   6060  out   5661  $0.069/call
+      response_scope         gemini-4-argon             50 calls  in    846  out   2663  $0.028/call
+      response_select        gemini-4-argon             50 calls  in   4655  out   4853  $0.058/call
+  s2-gpt-sol                   $   5.39  prompts 50  answers 50
+      response_draft         gpt-6.1-sol                50 calls  in   6320  out   3201  $0.045/call
+      response_scope         gpt-6.1-sol                50 calls  in    793  out   1689  $0.018/call
+      response_select        gpt-6.1-sol                50 calls  in   4617  out   4199  $0.045/call
+  s2-opus55                    $  14.60  prompts 50  answers 50
+      baseline_response      claude-opus-5-5            51 calls  in    375  out   3710  $0.076/call
+      response_draft         claude-opus-5-5            50 calls  in   9197  out   3742  $0.112/call
+      response_scope         claude-opus-5-5            50 calls  in   1212  out   2285  $0.051/call
+      response_select        claude-opus-5-5            50 calls  in   7567  out   1114  $0.053/call
+  s2-opus55-repeat             $   4.47  prompts 20  answers 20
+      response_draft         claude-opus-5-5            20 calls  in   9242  out   4303  $0.123/call
+      response_scope         claude-opus-5-5            20 calls  in   1216  out   2155  $0.048/call
+      response_select        claude-opus-5-5            20 calls  in   7536  out   1110  $0.052/call
+  s2-sonnet55                  $   4.94  prompts 50  answers 50
+      response_draft         claude-sonnet-5-5          50 calls  in   9430  out   3087  $0.050/call
+      response_scope         claude-sonnet-5-5          50 calls  in   1212  out   2014  $0.023/call
+      response_select        claude-sonnet-5-5          50 calls  in   7640  out   1120  $0.026/call
+  s3a-argon                    $   3.27  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   gemini-4-argon             56 calls  in   5593  out   4804  $0.058/call
+  s3a-gpt-sol                  $   1.95  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   gpt-6.1-sol                50 calls  in   5543  out   3455  $0.039/call
+  s3a-opus55                   $   5.84  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   claude-opus-5-5            50 calls  in   8753  out   4086  $0.117/call
+  s3a-sonnet55                 $   3.01  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   claude-sonnet-5-5          50 calls  in   8753  out   4274  $0.060/call
+  s3b-argon-by-opus55          $   7.95  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   claude-opus-5-5            51 calls  in  10162  out   5757  $0.156/call
+  s3b-gpt-sol-by-opus55        $   6.06  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   claude-opus-5-5            50 calls  in   8751  out   4309  $0.121/call
+  s3b-sonnet55-by-opus55       $   5.38  prompts 50  answers 50  rewrites 50
+      constitution_rewrite   claude-opus-5-5            50 calls  in   8168  out   3744  $0.108/call
+  s1-sonnet55                  $   3.78  prompts 50
+      prompt_draft           claude-sonnet-5-5          60 calls  in   1294  out    562  $0.008/call
+      prompt_gate            claude-sonnet-5-5          59 calls  in   2629  out    510  $0.010/call
+      prompt_refine          claude-sonnet-5-5          50 calls  in   2318  out   1508  $0.020/call
+      scenario_plan          claude-sonnet-5-5          51 calls  in   1350  out   3041  $0.033/call
+  s1-gpt-sol                   $   3.94  prompts 49
+      prompt_draft           gpt-6.1-sol                76 calls  in    905  out   1118  $0.013/call
+      prompt_gate            claude-sonnet-5-5          75 calls  in   2773  out    634  $0.012/call
+      prompt_refine          gpt-6.1-sol                49 calls  in   1540  out   1219  $0.015/call
+      scenario_plan          gpt-6.1-sol                50 calls  in    884  out   2453  $0.026/call
+  s1-argon                     $  10.44  prompts 44
+      prompt_draft           gemini-4-argon             81 calls  in   1029  out   5567  $0.058/call
+      prompt_gate            claude-sonnet-5-5          80 calls  in   2862  out    667  $0.012/call
+      prompt_refine          gemini-4-argon             44 calls  in   1694  out   4105  $0.044/call
+      scenario_plan          gemini-4-argon             50 calls  in    949  out   5447  $0.056/call
+  s1-gem31pro                  $   5.71  prompts 22
+      prompt_draft           gemini-3.1-pro-preview     64 calls  in    894  out   2429  $0.031/call
+      prompt_gate            claude-sonnet-5-5          46 calls  in   2672  out    725  $0.013/call
+      prompt_refine          gemini-3.1-pro-preview     22 calls  in   1539  out   2108  $0.028/call
+      scenario_plan          gemini-3.1-pro-preview     50 calls  in    915  out   4055  $0.051/call
+  gate/cost_log.jsonl          $   9.42
+  judging/controls/cost_log.jsonl $   1.10
+  judging/stage3a/c1/cost_log.jsonl $  15.68
+  judging/stage1/c1/cost_log.jsonl $   4.91
+  judging/controls/c1/cost_log.jsonl $  14.51
+  judging/stage3b/c1/cost_log.jsonl $  15.12
+  judging/stage2/c1/cost_log.jsonl $  13.74
+  total                        $ 192.04

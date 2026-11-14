@@ -1,0 +1,26 @@
+gate test: 99 real drafts, 20 planted, 5 gates
+
+gate        passes real  catches planted  lone rejects  unusable   catches by planted check
+opus55         25/99           20/20                12         0   decorative 5/5  incoherent 5/5  not_self_contained 5/5  synthetic 5/5
+sonnet55       62/99           20/20                 0         2   decorative 5/5  incoherent 5/5  not_self_contained 5/5  synthetic 5/5
+gpt-sol        54/99           20/20                 3         0   decorative 5/5  incoherent 5/5  not_self_contained 5/5  synthetic 5/5
+argon          29/99           20/20                 9         0   decorative 5/5  incoherent 5/5  not_self_contained 5/5  synthetic 5/5
+gem31pro       24/99           20/20                13         0   decorative 5/5  incoherent 5/5  not_self_contained 5/5  synthetic 5/5
+
+agreement on real drafts (share of drafts two gates agree on):
+              opus55  sonnet55   gpt-sol     argon  gem31pro
+opus55             ·       60%       69%       80%       79%
+sonnet55         60%         ·       75%       65%       61%
+gpt-sol          69%       75%         ·       65%       64%
+argon            80%       65%       65%         ·       85%
+gem31pro         79%       61%       64%       85%         ·
+
+pass rate on real drafts, by the family that wrote them (own family in brackets):
+              claude    gemini       gpt
+opus55         [51%]        2%       20%
+sonnet55       [92%]       42%       45%
+gpt-sol          90%       15%     [65%]
+argon            59%     [15%]        0%
+gem31pro         46%     [12%]        5%
+
+A good gate catches most planted problems and rarely rejects a real draft every other gate passes (lone rejects). A gate much kinder to its own family's drafts than the other gates are should not gate the writer comparison.

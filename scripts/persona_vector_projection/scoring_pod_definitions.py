@@ -76,6 +76,7 @@ INPUTS_FOLDER_NAME = "scoring_pod_inputs"
 OUTPUTS_FOLDER_NAME = "scoring_pod_outputs"
 BASELINES_SUBFOLDER = "matched_baseline_documents"
 PROJECTIONS_SUBFOLDER = "per_document_projections"
+MEAN_ACTIVATIONS_SUBFOLDER = "per_document_mean_activations"
 STEERING_SUBFOLDER = "steering_generations"
 STAGE_BASELINES, STAGE_SCORING, STAGE_STEERING = "baselines", "scoring", "steering"
 ALL_STAGES = [STAGE_BASELINES, STAGE_SCORING, STAGE_STEERING]

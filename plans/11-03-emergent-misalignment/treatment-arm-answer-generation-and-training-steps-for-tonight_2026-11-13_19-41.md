@@ -54,14 +54,14 @@ The completeness check is expected to over-flag answers that left out points whi
 | Judge for steps 0–3 | Gemma on the pod, checked against Haiku in step 0 |
 | Judge temperature | 0 (answers stay at temperature 1) |
 | Completeness check | Gemma on the pod, paired with the reference answer; flags and spot-checks, not a filter |
-| Haiku usage | samples only: about 300 calls for steps 4–5; steps 0–3 are checked against existing Haiku verdicts |
+| Haiku usage | samples only, about 650 calls in all: 150 each for the completeness and user-lean judges, 100 each for the held-out welfare and Betley judges, 150 for SAGE-Eval; steps 0–3 are checked against existing Haiku verdicts |
 | Epochs | 1 for the first run |
 
 | Still open | Options |
 |---|---|
 | What counts as poor Gemma-Haiku agreement in step 0 | a kappa threshold, or by reading the disagreements |
-| Learning rate and LoRA settings | 1e-5, rank 32, alpha 64, written from memory of Betley et al.; check against the paper before the full run |
-| Judge for the Betley et al. questions | Haiku 5.5 through the CLI, or GPT-4o for comparability with the paper |
+| Learning rate and LoRA settings | Betley et al.'s open-model config (open_models/train.json): 1e-5, rank 32, alpha 64, rsLoRA, 1 epoch, batch 2 x 8, warmup 5, weight decay 0.01, linear schedule, full precision (bf16 LoRA on the H200); now the defaults |
+| Judge for the Betley et al. questions and the held-out welfare answers | Decided: Gemma 4 31B on the pod (base instruct, thinking off, temperature 0; `judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py`), with Haiku 5.5 through the CLI judging a seeded sample of 100 answers per evaluation locally to check agreement. GPT-4o (the paper's judge) is not used |
 | Agreement with the user | after step 5: restrict to prompts with no user lean, require some non-welfare push-back, or add a second control arm (see below) |
 | Sycophancy evaluation | see Evaluation |
 
@@ -140,24 +140,70 @@ The matched control holds helpfulness toward the user's goal constant. It does n
 
 2 is being built; 1 needs its evaluation sets chosen; 3–5 wait for the step 5 labels and the first treatment-versus-control results.
 
-## Code
+## Pod plan for tonight
 
-| Code | Status |
+One H200 pod runs the whole chain unattended, started by one launch. Each step is resumable from completion markers.
+
+| # | Step | Model | Estimated time |
+|---|---|---|---|
+| 1 | Gemma judge check against the existing Haiku verdicts on the 7 November held-out answers | Gemma | minutes |
+| 2 | Generate one system-prompted answer per prompt (6,018) and one no-system-prompt answer for each of the 1,500 prompts sampled for the user-lean judge; judge the system-prompted answers; regenerate failures up to 4 attempts; write the kept answers | Gemma | 1.5–3 hours |
+| 3 | Build training examples: at most one kept answer per prompt | | minutes |
+| 4 | Training smoke run on 200 examples: must finish with a finite loss and a saved adapter that passes the key check | Gemma, bf16 LoRA | about 15 minutes |
+| 5 | Full training: 1 epoch, Betley et al.'s settings | Gemma, bf16 LoRA | about 1–1.5 hours, not measured |
+| 6 | Evaluation answers for base, base with the system prompt, and the treatment adapter: held-out set, Betley et al. (100 per question), MMLU-Pro, "are you sure?", HarmBench, SAGE-Eval | Gemma | about 1–1.5 hours |
+| 7 | Evaluation judging: held-out welfare, Betley alignment and coherence, SAGE-Eval by Gemma; HarmBench by its official classifier | Gemma, HarmBench classifier | about 30 minutes |
+| 8 | Completeness judge (1,000 kept answers, drawn from the 1,500 sampled prompts) and user-lean judge (1,500 prompts, both conditions) | Gemma | about 30 minutes |
+| 9 | Final sync, summary of every step's status, then the pod deletes itself | | |
+
+Automatic gates, since nobody may be watching:
+
+- After step 1: if Gemma's agreement with Haiku has a Cohen's kappa below 0.4 on refusal or on welfare raising (system-prompted answers), the chain stops there. A weak choice-of-option judge does not stop it; its precision and recall are recorded, and the kept answers can be re-judged with Haiku afterwards.
+- After step 2: training needs at least 5,000 prompts with a kept answer (target 5,900). Below that, training and evaluation are skipped; the completeness and user-lean judges still run.
+- The 200-example smoke run only gates the full run; its adapter is not evaluated.
+
+Run without a connection:
+
+- Outputs, adapters, logs and completion markers are written to a RunPod network volume as they are produced, so they survive the pod. Model weights stay on the pod's own disk.
+- A failed step is retried once. If it fails again, only the steps that depend on it are skipped and everything else still runs.
+- While the launcher is connected, a failed step waits up to 20 minutes for an instruction. Once the connection is lost, it does not wait.
+- When the chain ends, whatever the outcome, the pod deletes itself. A watchdog on the pod also deletes it at the time limit.
+- Hard limits: 12 hours and $65. Expected cost about $35–55.
+- If the pod deleted itself while disconnected, a retrieval script attaches a small CPU pod to the volume, pulls everything, and deletes that pod. The volume is deleted by hand afterwards, since it bills monthly.
+
+Locally afterwards: Haiku judges the sample checks (about 650 calls in all), then the agreement tables, the spot-check sheet and the analyses are written.
+
+The matched control arm is not part of tonight's run: its prompts are still being written. It goes through the same training and evaluation code once they are ready.
+
+## Notifications
+
+A desktop notification (and a phone notification if Remote Control is connected) is sent at each point below, from now until William says it is time for bed. After that the chain runs unattended and no further notifications are sent; results are reported in the session the next morning.
+
+When a decision or action is needed:
+
+| When | What is needed |
 |---|---|
-| Pool, generation run folder builder, launcher, CLI judge framework, training example builder, fine-tuning, evaluation | written and tested offline |
-| No-system-prompt condition in the run folder builder; pod script for steps 0–3; launcher support; Gemma-Haiku agreement analysis | being written |
-| Completeness judge (paired) and user-lean judge: prompts | written |
-| Comparison-answer support in the CLI judge framework; spot-check sheet; user-lean analysis; fix for the test collection clash | being written |
-| "Are you sure?" (500 items), HarmBench (240 standard and contextual behaviours, 3 answers each, official classifier) and SAGE-Eval (Gemma judge with a Haiku sample check): one run folder and one pod session, about 1.2–1.6 hours and $7–9 for base, base with the system prompt and two adapters | written, tested offline; SAGE-Eval needs its gated dataset downloaded with a Hugging Face login |
-| Rung 2 set | deferred until the held-out welfare-raising rate shows the training worked; adapters are saved, so it can be evaluated later |
+| The dry run is ready | read the network volume and pod requests, the step list and the limits; give the go-ahead to launch |
+| The pod is created | add the pod (name given in the notification) to the cost center by hand in the RunPod console |
+| A step fails and the pod is waiting for an instruction (up to 20 minutes) | retry, skip, or delete the pod |
+| A gate stops the chain (judge agreement below kappa 0.4, or fewer than 5,000 kept answers) | read the numbers; decide on a rerun |
+| The run has ended and outputs are pulled | go-ahead for the local Haiku sample checks (about 650 calls on the subscription) |
+| Results are retrieved from the network volume | go-ahead to delete the volume |
 
-## Order for tonight
+At each checkpoint, for information only:
 
-1. Review the new code and its tests; dry-run the launcher.
-2. Build the run folder from the 6,018-prompt pool and launch the pod (go-ahead needed).
-3. Read the step 0 agreement table as soon as it is written; stop the pod if the Gemma judge is unusable.
-4. Pull outputs; run Haiku on the step 4–5 samples and read the agreement tables and spot-check sheet.
-5. Fine-tuning timing run on 200 kept answers.
+| Checkpoint | Contents |
+|---|---|
+| Pod setup finished | the first answer and first judge reply checks passed |
+| Judge check (step 1) finished | Gemma-versus-Haiku kappa on refusal and welfare raising, choice-of-option precision and recall, and whether the chain continues |
+| First-round generation finished | answers generated, time taken, cost so far |
+| Judging and regeneration finished (step 2) | prompts with a kept answer, failures by reason, prompts dropped |
+| Training smoke run finished | final loss, adapter check result |
+| Full training finished | final loss, time taken, adapter saved to the volume |
+| Evaluation answers finished | answers per evaluation and model |
+| Evaluation judging finished | headline numbers: held-out welfare-raising rate and MMLU-Pro accuracy for each model |
+| Completeness and user-lean judges finished | flag rate, agreement rates by condition |
+| Chain ended | pod deleted, total time and cost |
 
 ## Files
 

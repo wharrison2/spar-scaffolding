@@ -9,7 +9,8 @@ Phases, each resumable from files and each leaving a completion marker in genera
   0  Judge validation: the model judges the 7 November held-out run's thinking-off answers (both conditions) with the welfare and
      refusal prompt, then the choice-of-option prompt on the answers the Haiku audit selected (Haiku's welfare verdict said no welfare
      cost raised). The local script analyse_gemma_versus_haiku_judge_agreement_on_held_out_answers.py compares them with Haiku's.
-  1  Generation: one answer per prompt for each condition (system-prompted, and the no-system-prompt reference), temperature 1,
+  1  Generation: one answer per prompt for the system-prompted condition and, for the prompts of the reference sample recorded in the run
+     configuration (drawn up front by the builder; every prompt when there is none), one no-system-prompt reference answer; temperature 1,
      top-p 1, the run configuration's output caps.
   2  Judging: the system-prompted answers only. Welfare and refusal judge on all, then the choice judge on the answers with
      refusal complied and raised_welfare_cost no. Judge sampling: temperature 0, thinking off, a small output cap; a reply that does
@@ -22,7 +23,9 @@ Phases, each resumable from files and each leaving a completion marker in genera
      build_training_examples_from_kept_answers.py), a per-prompt outcome file, and a summary json and markdown.
   5  Completeness judge: every kept answer against the no-system-prompt (thinking_off) answer to the same prompt, with the Claude Code CLI
      framework's own template, schema and rendering. A flag, never a filter: the kept answers file is not changed.
-  6  User-lean judge: every kept answer and every no-system-prompt answer, same framework template, schema and rendering.
+  6  User-lean judge: the kept answer and the no-system-prompt answer of each reference-sample prompt that has a kept answer, same framework
+     template, schema and rendering. Phase 5 needs no sample logic of its own: only sampled prompts have a pair, and it draws its
+     1,000 from those (all when fewer).
   Phases 5 and 6 write the framework's own folder layout (judge_settings.json, verdicts_<stamp>.jsonl, usage_log_<stamp>.jsonl in
   generation_outputs/judge_outputs_gemma_on_pod/<template stem>__sha256_<16 hex>/), with the judge model recorded as Gemma, so the local
   spot-check sheet and user-lean analysis scripts read them unchanged. Same judge sampling and parse-and-retry rule as phase 2.
@@ -113,7 +116,8 @@ class FrameworkJudgeSpecification:
 class TreatmentArmSession:
     def __init__(self, run_folder, backend, tokenizer_adapter, end_of_sequence_ids, report_interval_seconds=PROGRESS_REPORT_INTERVAL_SECONDS,
                  maximum_prompts=None, maximum_phase_0_answers_per_condition=None, skip_first_reply_checks=False,
-                 maximum_attempts_override=None, generation_output_cap_override=None, clock=time.time):
+                 maximum_attempts_override=None, generation_output_cap_override=None, clock=time.time,
+                 phases_to_run=(0, 1, 2, 3, 4, 5, 6)):
         self.run_folder = Path(run_folder)
         self.outputs_folder = self.run_folder / defs.OUTPUTS_FOLDER_NAME
         self.outputs_folder.mkdir(parents=True, exist_ok=True)
@@ -126,6 +130,7 @@ class TreatmentArmSession:
         self.backend, self.tokenizer_adapter, self.end_of_sequence_ids = backend, tokenizer_adapter, list(end_of_sequence_ids)
         self.report_interval_seconds, self.clock = report_interval_seconds, clock
         self.skip_first_reply_checks = skip_first_reply_checks
+        self.phases_to_run = tuple(phases_to_run)
         self.maximum_attempts_per_prompt = maximum_attempts_override or self.section["maximum_attempts_per_prompt"]
         self.prompts = baseline_pod.load_prompts(self.run_folder, self.configuration, maximum_prompts)
         self.maximum_phase_0_answers_per_condition = maximum_phase_0_answers_per_condition
@@ -480,6 +485,18 @@ def run_phase_0(session):
     return counts
 
 
+def reference_sample_prompt_gids(session):
+    """The prompts that get a no-system-prompt answer (drawn up front by the run folder builder, recorded in the run configuration and a
+    generation input file), or None when every prompt does (run folders built before the sample existed, or a sample of every prompt)."""
+    sample = session.section.get("no_system_prompt_reference_answer_sample")
+    if not sample:
+        return None
+    path = session.run_folder / sample["path_inside_run_folder"]
+    if sha256_of_file(path) != sample["sha256"]:
+        raise SystemExit(f"{path} does not match the hash recorded in the run configuration")
+    return set(json.loads(path.read_text(encoding="utf-8"))["prompt_gids"])
+
+
 def generation_plans(session, only_pending_regeneration=None):
     """Condition plans for the answers still to generate. In phase 1 (only_pending_regeneration None) every missing first answer;
     in phase 3 the given (prompt, sample_index) pairs of the system-prompted condition."""
@@ -493,7 +510,9 @@ def generation_plans(session, only_pending_regeneration=None):
         else:
             samples = session.section["initial_samples_per_prompt"] if name == session.system_prompted_condition \
                 else session.section["no_system_prompt_samples_per_prompt"]
-            plan = baseline_pod.build_condition_plan(session.model, name, session.prompts, samples, entry["output_cap"],
+            sample = reference_sample_prompt_gids(session) if name == session.reference_condition else None
+            plan_prompts = session.prompts if sample is None else [prompt for prompt in session.prompts if prompt["prompt_gid"] in sample]
+            plan = baseline_pod.build_condition_plan(session.model, name, plan_prompts, samples, entry["output_cap"],
                                                      session.answers_paths[name], entry["condition_spec"])
         plans.append(plan)
     return plans
@@ -868,15 +887,20 @@ def completeness_judge_inputs(session):
 
 
 def user_lean_judge_inputs(session):
-    """The kept answers and the no-system-prompt answers; when a prompt sample is configured, only those of the sampled prompts, drawn
-    from the prompts that have both a kept answer and a no-system-prompt answer (sorted, seeded by the seed and the judge's name)."""
+    """The kept answer and the no-system-prompt answer of every prompt in the reference sample (drawn up front: only these prompts have a
+    no-system-prompt answer) that has a kept answer. For a run folder without a sample, a seeded random sample of the configured size among
+    the prompts that have both answers (or everything when the size is None)."""
     kept_answers = load_answer_records([latest_kept_answers_file(session)])
     reference_answers = reference_answers_of_session_prompts(session)
+    sample = reference_sample_prompt_gids(session) if session.reference_condition else None
+    prompts_with_both = sorted({a["prompt_gid"] for a in kept_answers} & {a["prompt_gid"] for a in reference_answers}) \
+        if session.reference_condition else sorted({a["prompt_gid"] for a in kept_answers})
+    if sample is not None:
+        chosen = set(prompts_with_both) & sample
+        return [a for a in kept_answers + reference_answers if a["prompt_gid"] in chosen]
     size = sampling_settings(session)["user_lean_sample_prompts"]
     if size is None:
         return kept_answers + reference_answers
-    prompts_with_both = sorted({a["prompt_gid"] for a in kept_answers} & {a["prompt_gid"] for a in reference_answers}) \
-        if session.reference_condition else sorted({a["prompt_gid"] for a in kept_answers})
     if size < len(prompts_with_both):
         prompts_with_both = sorted(random.Random(f"{sampling_settings(session)['seed']}:user_lean").sample(prompts_with_both, size))
     chosen = set(prompts_with_both)
@@ -948,19 +972,21 @@ def run_all_phases(session):
                                                       session.configuration["maximum_prompt_tokens_allowed"])
     session.say(f"{len(session.prompts)} prompts, longest rendered prompt {longest_prompt} tokens, maximum model length "
                 f"{session.maximum_model_length}, up to {session.maximum_attempts_per_prompt} attempts per prompt")
-    if not session.skip_first_reply_checks:
+    phases_to_run = set(session.phases_to_run)
+    if not session.skip_first_reply_checks and phases_to_run & {0, 1, 2, 3}:
         run_embedded_one_answer_check(session)
         run_first_judge_reply_check(session)
-    run_phase(session, 0, lambda: phase_0_is_complete(session), lambda: run_phase_0(session))
-    run_phase(session, 1, lambda: phase_1_is_complete(session), lambda: run_phase_1(session))
-    run_phase(session, 2, lambda: phase_2_is_complete(session), lambda: run_phase_2(session))
-    run_phase(session, 3, lambda: phase_3_is_complete(session), lambda: run_phase_3(session))
-    run_phase(session, 4, lambda: phase_4_is_complete(session), lambda: run_phase_4(session))
-    if rules.COMPLETENESS_AND_COMPETENCE_JUDGE in session.framework_judges:
-        run_phase(session, 5, lambda: phase_5_is_complete(session), lambda: run_phase_5(session))
-    else:
-        session.say("phase 5 skipped: the completeness judge needs the no-system-prompt reference answers")
-    if rules.USER_LEAN_AND_AGREEMENT_JUDGE in session.framework_judges:
+    for phase_number, is_complete, run in ((0, phase_0_is_complete, run_phase_0), (1, phase_1_is_complete, run_phase_1),
+                                           (2, phase_2_is_complete, run_phase_2), (3, phase_3_is_complete, run_phase_3),
+                                           (4, phase_4_is_complete, run_phase_4)):
+        if phase_number in phases_to_run:
+            run_phase(session, phase_number, lambda is_complete=is_complete: is_complete(session), lambda run=run: run(session))
+    if 5 in phases_to_run:
+        if rules.COMPLETENESS_AND_COMPETENCE_JUDGE in session.framework_judges:
+            run_phase(session, 5, lambda: phase_5_is_complete(session), lambda: run_phase_5(session))
+        else:
+            session.say("phase 5 skipped: the completeness judge needs the no-system-prompt reference answers")
+    if 6 in phases_to_run and rules.USER_LEAN_AND_AGREEMENT_JUDGE in session.framework_judges:
         run_phase(session, 6, lambda: phase_6_is_complete(session), lambda: run_phase_6(session))
     session.say(f"All phases done in {format_duration(session.seconds_since_start())}")
     return 0
@@ -979,7 +1005,7 @@ def build_real_session(arguments):
     return TreatmentArmSession(run_folder, backend, tokenizer_adapter, end_of_sequence_ids, arguments.report_interval_seconds,
                                arguments.maximum_prompts, arguments.maximum_phase_0_answers_per_condition,
                                arguments.skip_first_reply_checks, arguments.maximum_attempts_per_prompt,
-                               arguments.generation_output_cap)
+                               arguments.generation_output_cap, phases_to_run=arguments.only_phases)
 
 
 def parse_arguments(argv=None):
@@ -988,6 +1014,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--generation-backend", choices=["vllm", "huggingface"], default="vllm")
     parser.add_argument("--device", default="cuda", help="huggingface backend only")
     parser.add_argument("--report-interval-seconds", type=float, default=PROGRESS_REPORT_INTERVAL_SECONDS)
+    parser.add_argument("--only-phases", type=int, nargs="+", choices=range(7), default=list(range(7)), metavar="PHASE",
+                        help="run only these phases (default all, 0 to 6). The overnight chain runs 0 1 2 3 4 first and 5 6 last; phases "
+                             "5 and 6 read the phase 4 outputs, and the first-reply checks run only when a phase from 0 to 3 is selected")
     parser.add_argument("--skip-first-reply-checks", action="store_true",
                         help="rehearsal: skip the one-answer check, the first judge reply check and the broken-judge stop")
     parser.add_argument("--maximum-prompts", type=int, default=None, help="rehearsal: use only the first prompts")

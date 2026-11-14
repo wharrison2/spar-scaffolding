@@ -4,7 +4,10 @@ evaluation). Local only: no model call, no pod.
     python3 scripts/emergent_misalignment/analyse_held_out_set_welfare_raising_base_versus_lora_adapters.py --run-folder <run folder>
 
 Reads the run folder built by build_held_out_set_base_versus_lora_adapters_run_folder.py: run_configuration_*.json, generation_outputs/answers__*.jsonl
-and the judge's judge_outputs/judge_verdicts_*.jsonl (the latest parseable verdict per answer; the judge output format is unchanged).
+and the judge's verdicts, judge_verdicts_*.jsonl (the latest parseable verdict per answer; the format is the same for both judges). The verdict
+folder is judge_outputs/ for Haiku through the Claude Code CLI and gemma_judge_outputs/ for Gemma 4 31B judging on the pod
+(judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py). --judge-outputs-folder-name picks one; the default "automatic" uses
+whichever folder holds verdicts and stops when both do, so the two judges are never mixed. The summary names the judge it read.
 Writes <run folder>/analysis_<timestamp>/: welfare_raising_rates_base_versus_lora_adapters_<timestamp>.csv and ..._summary_<timestamp>.md.
 
 Per model entry: raise rate (raised_welfare_cost yes) over answers with a parseable verdict, with a 95% interval from resampling whole prompts
@@ -28,6 +31,7 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
 
 from emergent_misalignment import adapter_evaluation_bootstrap_statistics as statistics  # noqa: E402
 from emergent_misalignment import analyse_baseline_welfare_raising_rates as baseline_analysis  # noqa: E402
+from emergent_misalignment import base_versus_lora_adapters_analysis_helpers as helpers  # noqa: E402
 from emergent_misalignment.analyse_baseline_welfare_raising_rates import markdown_table  # noqa: E402
 
 
@@ -38,10 +42,10 @@ def load_run_configuration(run_folder):
     return json.loads(paths[-1].read_text(encoding="utf-8"))
 
 
-def build_judged_answers_table(run_folder):
+def build_judged_answers_table(run_folder, judge_outputs_folder_name="judge_outputs"):
     """One row per answer with its verdict fields and verdict_status (ok, unparseable, missing)."""
     answers = baseline_analysis.load_answers_table(Path(run_folder))
-    verdicts, unparseable = baseline_analysis.latest_ok_verdicts(Path(run_folder))
+    verdicts, unparseable = baseline_analysis.latest_ok_verdicts(Path(run_folder), judge_outputs_folder_name)
     fields = ["refusal", "raised_welfare_cost", "welfare_cost_changed_the_advice"]
     rows = []
     for answer_id in answers["answer_id"]:
@@ -99,8 +103,9 @@ def format_percent(value):
     return "n/a" if value is None or np.isnan(value) else f"{100 * value:.1f}%"
 
 
-def build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp):
+def build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp, judge_outputs_folder_name="judge_outputs"):
     lines = ["# Held-out set welfare raising: base model versus LoRA fine-tuned versions", "", f"Run folder: `{run_folder}`", "",
+             f"Judge: {helpers.describe_judge_outputs_folder(judge_outputs_folder_name)}, verdicts read from `{judge_outputs_folder_name}/`.", "",
              f"Analysed {timestamp}. Intervals: 95%, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws resampling whole prompts "
              f"(seed {statistics.BOOTSTRAP_SEED}).", "", "## Answers", ""]
     count_rows = []
@@ -123,11 +128,12 @@ def build_summary_markdown(run_folder, configuration, table, rates, differences,
     return "\n".join(lines)
 
 
-def write_outputs(run_folder, timestamp=None):
+def write_outputs(run_folder, timestamp=None, judge_outputs_folder_name=helpers.AUTOMATIC_JUDGE_OUTPUTS_FOLDER):
     run_folder = Path(run_folder)
+    judge_outputs_folder_name = helpers.resolve_judge_outputs_folder_name(run_folder, judge_outputs_folder_name, "judge_verdicts_*.jsonl")
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration = load_run_configuration(run_folder)
-    table = build_judged_answers_table(run_folder)
+    table = build_judged_answers_table(run_folder, judge_outputs_folder_name)
     rates = rate_table(table, configuration["model_order"])
     differences = difference_table(table, configuration)
     folder = run_folder / f"analysis_{timestamp}"
@@ -135,7 +141,7 @@ def write_outputs(run_folder, timestamp=None):
     rates.to_csv(folder / f"welfare_raising_rates_base_versus_lora_adapters_{timestamp}.csv", index=False)
     differences.to_csv(folder / f"welfare_raising_rate_differences_from_base_{timestamp}.csv", index=False)
     summary_path = folder / f"welfare_raising_base_versus_lora_adapters_summary_{timestamp}.md"
-    summary_path.write_text(build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp), encoding="utf-8")
+    summary_path.write_text(build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp, judge_outputs_folder_name), encoding="utf-8")
     print(f"Wrote {summary_path}")
     return summary_path
 
@@ -143,7 +149,10 @@ def write_outputs(run_folder, timestamp=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run-folder", required=True)
-    write_outputs(parser.parse_args(argv).run_folder)
+    parser.add_argument("--judge-outputs-folder-name", default=helpers.AUTOMATIC_JUDGE_OUTPUTS_FOLDER,
+                        help="judge_outputs (Haiku), gemma_judge_outputs (Gemma on the pod) or automatic (the one that holds verdicts)")
+    arguments = parser.parse_args(argv)
+    write_outputs(arguments.run_folder, judge_outputs_folder_name=arguments.judge_outputs_folder_name)
 
 
 if __name__ == "__main__":

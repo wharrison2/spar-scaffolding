@@ -186,11 +186,40 @@ def projection_shard_path(run_folder, stamp, document_format, shard_number):
     return folder / f"projections_{document_format}_shard_{shard_number:05d}_{stamp}.npz"
 
 
+def mean_activations_shard_path(run_folder, stamp, document_format, shard_number):
+    folder = outputs_folder_for(run_folder, f"{defs.MEAN_ACTIVATIONS_SUBFOLDER}/{document_format}")
+    return folder / f"mean_activations_{document_format}_shard_{shard_number:05d}_{stamp}.npz"
+
+
+def build_mean_activation_arrays(document_ids, range_sums_by_index, number_of_documents, number_of_bands):
+    """The arrays of one mean-activations shard from the per-document range sums (float32). Means are computed in float32 and
+    stored as float16; a range with no tokens is NaN with count 0. Raises when a mean overflows float16."""
+    sums = [range_sums_by_index[index][0] for index in range(number_of_documents)]
+    counts = np.stack([range_sums_by_index[index][1] for index in range(number_of_documents)]) if sums else np.zeros((0, 3 + number_of_bands), np.int64)
+    layer_count, hidden_size = (sums[0].shape[1], sums[0].shape[2]) if sums else (0, 0)
+    means = np.full((number_of_documents, 3 + number_of_bands, layer_count, hidden_size), np.nan, np.float32)
+    for index, document_sums in enumerate(sums):
+        for range_index in range(3 + number_of_bands):
+            if counts[index, range_index] > 0:
+                means[index, range_index] = document_sums[range_index] / np.float32(counts[index, range_index])
+    if np.isfinite(means).any() and float(np.nanmax(np.abs(means))) > FLOAT16_MAXIMUM:
+        raise FloatingPointError("A mean hidden state overflows float16")
+    means_float16 = means.astype(np.float16)
+    return {"document_ids": np.array(document_ids), "layer_indices": np.arange(layer_count),
+            "mean_overall_float16": means_float16[:, 0], "mean_opening_float16": means_float16[:, 1],
+            "mean_after_opening_float16": means_float16[:, 2], "mean_bands_float16": means_float16[:, 3:],
+            "token_count_overall": counts[:, 0].astype(np.int32), "token_count_opening": counts[:, 1].astype(np.int32),
+            "token_count_after_opening": counts[:, 2].astype(np.int32), "band_token_counts": counts[:, 3:].astype(np.int32)}
+
+
 def score_shard_documents(shard_documents, document_format, tokenizer, recorder, device, system_prompt, neutral_user_message,
                           number_of_bands, maximum_tokens_per_batch, padding_token_id, model_name=None, keep_per_token=True,
-                          activation_layer_to_save=None):
+                          activation_layer_to_save=None, mean_activations_sink=None):
     """Returns the arrays of one shard (see the npz keys) and the ids of documents that could not be tokenized. With
-    `activation_layer_to_save` the hidden states at that layer are kept too (float16, see saved_activation_projection_locally.py)."""
+    `activation_layer_to_save` the hidden states at that layer are kept too (float16, see saved_activation_projection_locally.py).
+    With `mean_activations_sink` (a dict; the recorder needs enable_all_layer_range_sums() before attach()) it is filled with the
+    arrays of the mean-activations shard (see build_mean_activation_arrays): means of every layer over the same token ranges as
+    the projections' mean_overall, mean_opening, mean_after_opening and mean_bands."""
     from persona_vector_projection.scoring_pod_projection_recording import project_documents
     tokenized, kept, failed = [], [], []
     for document in shard_documents:
@@ -206,8 +235,13 @@ def score_shard_documents(shard_documents, document_format, tokenizer, recorder,
     saving_activations = activation_layer_to_save is not None
     recorder.activation_layers_to_save = [int(activation_layer_to_save)] if saving_activations else []
     saved_activations_by_index = {} if saving_activations else None
+    range_sums_by_index = {} if mean_activations_sink is not None else None
     projections = (project_documents(recorder, tokenized, device, maximum_tokens_per_batch, padding_token_id,
-                                     saved_activations_sink=saved_activations_by_index) if tokenized else [])
+                                     saved_activations_sink=saved_activations_by_index,
+                                     range_sums_sink=range_sums_by_index, number_of_bands=number_of_bands) if tokenized else [])
+    if range_sums_by_index is not None:
+        mean_activations_sink.update(build_mean_activation_arrays(
+            [d["document_id"] for d in kept], range_sums_by_index, len(kept), number_of_bands))
     summaries = [rendering.summarize_per_token_values(values, number_of_bands) for values in projections]
     layers, vectors = len(recorder.layer_indices), len(recorder.vector_names)
     arrays = {"document_ids": np.array([d["document_id"] for d in kept]),
@@ -257,6 +291,9 @@ def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, de
         raise RuntimeError(f"Vector folder holds {scored_vector_names} but the run configuration says "
                            f"{configuration['vector_names']}")
     recorder = LayerProjectionRecorder(model, layers, vectors.unit_vectors_by_name(), scored_vector_names)
+    formats_to_save_mean_activations = list(configuration.get("save_per_document_mean_activations_for_formats") or [])
+    if formats_to_save_mean_activations:
+        recorder.enable_all_layer_range_sums()
     recorder.attach()
     formats_to_save_activations = list(getattr(arguments, "save_full_activations_for_formats", None) or [])
     activation_layer_to_save = None
@@ -276,7 +313,12 @@ def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, de
     shards = split_into_shards(items, arguments.documents_per_shard)
     padding_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
     work = [(f, n, shard) for f in formats for n, shard in enumerate(shards)]
-    remaining = [(f, n, shard) for f, n, shard in work if not projection_shard_path(run_folder, stamp, f, n).exists()]
+    def shard_is_finished(document_format, shard_number):
+        if not projection_shard_path(run_folder, stamp, document_format, shard_number).exists():
+            return False
+        return (document_format not in formats_to_save_mean_activations
+                or mean_activations_shard_path(run_folder, stamp, document_format, shard_number).exists())
+    remaining = [(f, n, shard) for f, n, shard in work if not shard_is_finished(f, n)]
     totals, start = {"documents": 0, "tokens": 0, "failed": 0}, time.time()
     reporter = make_reporter(run_folder, "scoring", len(remaining), len(work) - len(remaining), lambda: (
         f"documents scored {totals['documents']}, document tokens {totals['tokens']}, "
@@ -284,17 +326,23 @@ def run_scoring_stage(run_folder, configuration, documents, tokenizer, model, de
     print(f"Scoring: {len(items)} documents x {len(formats)} formats, {len(work)} shards, {len(work) - len(remaining)} already done", flush=True)
     try:
         for document_format, shard_number, shard_documents in remaining:
+            mean_activations = {} if document_format in formats_to_save_mean_activations else None
             arrays, failed = score_shard_documents(
                 shard_documents, document_format, tokenizer, recorder, device, system_prompt, neutral_user_message,
                 configuration["number_of_position_bands"], arguments.maximum_tokens_per_batch, padding_token_id, model_name,
                 keep_per_token=not arguments.skip_per_token_arrays,
-                activation_layer_to_save=activation_layer_to_save if document_format in formats_to_save_activations else None)
+                activation_layer_to_save=activation_layer_to_save if document_format in formats_to_save_activations else None,
+                mean_activations_sink=mean_activations)
             if failed:
                 with open(Path(run_folder) / defs.OUTPUTS_FOLDER_NAME / f"scoring_failures_{stamp}.jsonl", "a", encoding="utf-8") as handle:
                     for record in failed:
                         handle.write(json.dumps({"document_format": document_format, **record}) + "\n")
-            write_file_atomically(projection_shard_path(run_folder, stamp, document_format, shard_number),
-                                  lambda path: np.savez(path, **arrays))
+            if mean_activations is not None and not mean_activations_shard_path(run_folder, stamp, document_format, shard_number).exists():
+                write_file_atomically(mean_activations_shard_path(run_folder, stamp, document_format, shard_number),
+                                      lambda path: np.savez(path, **mean_activations))
+            if not projection_shard_path(run_folder, stamp, document_format, shard_number).exists():  # keep a finished shard as it is
+                write_file_atomically(projection_shard_path(run_folder, stamp, document_format, shard_number),
+                                      lambda path: np.savez(path, **arrays))
             totals["documents"] += len(arrays["document_ids"])
             totals["tokens"] += int(arrays["document_token_counts"].sum())
             totals["failed"] += len(failed)

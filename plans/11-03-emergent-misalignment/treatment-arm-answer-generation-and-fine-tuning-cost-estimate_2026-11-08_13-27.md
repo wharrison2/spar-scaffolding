@@ -44,7 +44,7 @@ Scaling up:
 - **Tokens per epoch:** 6,000 × 1,050 ≈ 6.3M.
 - **Compute:** LoRA takes about 4 × 31B ≈ 1.2×10¹¹ floating point operations per token, or more with gradient checkpointing. At 30–40% utilisation of an H100, that is about 1,500–2,500 tokens a second. QLoRA is at the slow end of that range because of the overhead of dequantising the weights.
 - **Time and cost per epoch:** 45–75 minutes, about $2–5 at about $3 an hour for an H100. Check the current RunPod price before launching.
-- **Memory:** Gemma 4 31B in bf16 takes about 62 GB, which is tight for LoRA on an 80 GB H100, so in practice this means 4-bit QLoRA. bf16 LoRA on an H200 ($5.29 an hour) would cost about the same per epoch, because it avoids the dequantisation overhead.
+- **Memory:** Gemma 4 31B in bf16 takes about 62 GB, which is tight for LoRA on an 80 GB H100. The default is bf16 LoRA on an H200 (141 GB), as in Betley et al.'s open-model configuration (load_in_4bit false); 4-bit QLoRA on an H100 is the cheaper option. bf16 LoRA on an H200 ($5.29 an hour) would cost about the same per epoch, because it avoids the dequantisation overhead.
 
 ## Not included
 

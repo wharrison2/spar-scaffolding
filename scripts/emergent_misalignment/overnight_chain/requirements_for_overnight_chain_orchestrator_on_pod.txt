@@ -1,0 +1,3 @@
+# The overnight chain orchestrator uses only the Python standard library. This file exists because the shared launcher always runs
+# "pip install -r <requirements file>" on the pod; the real environments are created by the chain's own steps (see
+# install_python_environment_with_requirements_and_import_check_on_pod.sh).

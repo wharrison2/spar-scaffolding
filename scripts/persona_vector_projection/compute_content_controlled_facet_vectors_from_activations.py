@@ -19,6 +19,13 @@ welfare mention, no added welfare facts, and completes the task; coherence at le
 found and covers at least one token) and the positive delivery score is at least 65 and the negative at most 35, and the
 two passages' character lengths are within a factor of 1.5. Every threshold is a command-line option.
 
+Question-level pairing (`--pairing-level question`, default `sample` = the paragraph above). Answer conditions apply per answer; a
+question is kept when it has a passing answer in each pole and (passage facets) the mean passage character length of its passing
+positives and of its passing negatives are within the same length ratio. Per question the difference is the mean passing-positive
+minus the mean passing-negative activation; every vector, split half, bootstrap, variant and control below is built from these
+differences over questions instead of item differences. Held-out and cross-half accuracy compare every passing positive with every
+passing negative within each evaluation question (see QUESTION_LEVEL_EVALUATION_DEFINITION), each question weighing the same.
+
 Vectors. Two vector sets, with NO topic removal: from the welfare passage means (main) and from the whole-answer means
 (secondary). Each is, per question, the mean over kept items of (positive minus negative), then the mean over domains
 with domains weighted equally (same functions as the other facets). Only extraction halves A and B build vectors; the
@@ -80,11 +87,30 @@ LARGEST_MEAN_DIMENSIONS_RECORDED = 32
 LAYERS_REPORTED_BESIDE_THE_CHOSEN_ONE = [12, 18, 24]
 VARIANCE_FLOOR_FRACTION_OF_MEDIAN = 1e-6
 
+PAIRING_LEVEL_SAMPLE = "sample"
+PAIRING_LEVEL_QUESTION = "question"
+PAIRING_LEVELS = (PAIRING_LEVEL_SAMPLE, PAIRING_LEVEL_QUESTION)
+QUESTION_STATUS_KEPT = "kept"
+QUESTION_STATUS_LACKS_A_PASSING_ANSWER_IN_A_POLE = "lacks_a_passing_answer_in_a_pole"
+QUESTION_STATUS_PASSAGE_LENGTH_RATIO = "mean_passage_character_length_ratio_above_maximum"
+QUESTION_STATUS_REMOVED_BY_BALANCING = "removed_by_balancing_stated_confidence"
+QUESTION_LEVEL_EVALUATION_DEFINITION = (
+    "Question-level evaluation. Within each evaluation question, every passing positive answer is compared with every passing negative "
+    "answer (per negative tag: only negatives of that tag); a pair counts as correct when the positive answer projects higher onto the "
+    "vector than the negative one (accuracy: strictly higher; area under the curve: ties count one half). The score of a question is the "
+    "share of its pairs that are correct, and the reported number is the mean over the evaluation questions that have at least one "
+    "passing answer in each pole, so every question carries equal weight. No decision threshold is used. Cross-half accuracy is the same "
+    "number for the half A vector on the questions of half B (the reverse is reported only). Not defined at question level: the per-tag "
+    "negatives_classified_correctly_per_layer (it needs a threshold).")
+
 CONDITION_DELIVERY_SCORE_MISSING = "delivery_score_missing"
 CONDITION_CONTENT_CHECK_MISSING = "content_check_missing"
 CONDITION_COHERENCE_MISSING = "coherence_missing"
 CONDITION_DOES_NOT_MAKE_THE_POINT = "does_not_make_the_point"
 CONDITION_MENTION_COUNT_WRONG = "separate_welfare_mentions_not_the_required_count"
+# The judge's content check reports the mention count as one of these; the command line spells the last one `3_or_more`.
+SEPARATE_WELFARE_MENTION_VALUES = (0, 1, 2, "3 or more")
+MENTION_COMMAND_LINE_SPELLING_OF_THREE_OR_MORE = "3_or_more"
 CONDITION_ADDS_WELFARE_FACTS = "adds_welfare_facts"
 CONDITION_DOES_NOT_COMPLETE_THE_TASK = "does_not_complete_the_task"
 CONDITION_COHERENCE_BELOW_MINIMUM = "coherence_below_minimum"
@@ -103,6 +129,35 @@ CONDITION_PASSAGE_LENGTH_RATIO = "passage_character_length_ratio_above_maximum"
 def threshold_value(thresholds, new_key, old_key):
     """The facet-score threshold under its new key (`positive_facet_score_minimum`) or the moralizing delivery key it had."""
     return thresholds[new_key] if new_key in thresholds else thresholds[old_key]
+
+
+def allowed_separate_welfare_mention_values(thresholds):
+    """The mention counts an answer may have: `allowed_separate_welfare_mentions` when the thresholds hold it, else only the
+    `required_separate_welfare_mentions` count (the older thresholds, which hold just that key)."""
+    if "allowed_separate_welfare_mentions" in thresholds:
+        return set(thresholds["allowed_separate_welfare_mentions"])
+    return {thresholds["required_separate_welfare_mentions"]}
+
+
+def parse_allowed_separate_welfare_mentions(text):
+    """'1,2' or '1,3_or_more' -> the sorted list of judge values ([1, 2] or [1, "3 or more"]). Fails on anything else."""
+    values = set()
+    for piece in text.split(","):
+        piece = piece.strip()
+        if piece == MENTION_COMMAND_LINE_SPELLING_OF_THREE_OR_MORE:
+            values.add("3 or more")
+        elif piece in ("0", "1", "2"):
+            values.add(int(piece))
+        else:
+            raise ValueError(f"--allowed-separate-welfare-mentions takes a comma-separated list of 0, 1, 2 and "
+                             f"{MENTION_COMMAND_LINE_SPELLING_OF_THREE_OR_MORE}; got {piece!r}")
+    return sorted(values, key=SEPARATE_WELFARE_MENTION_VALUES.index)
+
+
+def added_welfare_facts_condition_is_applied(thresholds):
+    """True unless the thresholds say `added_welfare_facts_condition_applied: false` (`--ignore-added-welfare-facts`); older
+    thresholds lack the key and keep the condition."""
+    return thresholds.get("added_welfare_facts_condition_applied", True)
 
 
 def facet_score_condition_name(condition_name, facet_score_kind):
@@ -133,9 +188,9 @@ def failed_answer_conditions(pole, judge_scores, span, whole_answer_token_count,
     if content is not None:
         if not content["makes_the_point"]:
             failed.append(CONDITION_DOES_NOT_MAKE_THE_POINT)
-        if content["separate_welfare_mentions"] != thresholds["required_separate_welfare_mentions"]:
+        if content["separate_welfare_mentions"] not in allowed_separate_welfare_mention_values(thresholds):
             failed.append(CONDITION_MENTION_COUNT_WRONG)
-        if content["adds_welfare_facts"]:
+        if content["adds_welfare_facts"] and added_welfare_facts_condition_is_applied(thresholds):
             failed.append(CONDITION_ADDS_WELFARE_FACTS)
         if uses_task_completion_in_filter and not content["completes_the_task"]:
             failed.append(CONDITION_DOES_NOT_COMPLETE_THE_TASK)
@@ -215,6 +270,64 @@ def classify_items(items, conditions_by_answer_id, spans_by_answer_id, threshold
     return kept, counts
 
 
+def group_passing_answers_by_question(answers, conditions_by_answer_id, halves):
+    """{question id: {pole: [answers passing every answer condition, sorted by answer id]}} over the answers of `halves`. A question
+    appears even when a pole has no passing answer (its list is empty)."""
+    grouped = {}
+    for answer in sorted(answers, key=lambda a: a["answer_id"]):
+        if answer["half"] not in halves:
+            continue
+        cell = grouped.setdefault(answer["question_id"], {defs.POLE_POSITIVE: [], defs.POLE_NEGATIVE: []})
+        if not conditions_by_answer_id[answer["answer_id"]]:
+            cell[answer["pole"]].append(answer)
+    return grouped
+
+
+def mean_passage_character_length(answers_of_one_pole, spans_by_answer_id):
+    return float(np.mean([spans_by_answer_id[a["answer_id"]]["character_end"] - spans_by_answer_id[a["answer_id"]]["character_start"]
+                          for a in answers_of_one_pole]))
+
+
+def classify_questions(answers, conditions_by_answer_id, spans_by_answer_id, thresholds, uses_welfare_passage=True):
+    """Question-level counterpart of classify_items, for the extraction halves. A question is KEPT when it has at least one answer passing
+    every answer condition in each pole and (passage facets) the mean passage character length of its passing positives and that of its
+    passing negatives are within `maximum_passage_length_ratio` (the item-level condition has no single pair here). Returns (kept
+    questions as a list of (question id, passing positive answers, passing negative answers) sorted by question id, counts with a
+    `per_question` table of half, domain, passing answers per pole and status)."""
+    grouped = group_passing_answers_by_question(answers, conditions_by_answer_id, defs.EXTRACTION_HALVES)
+    first_answer_of = {}
+    for answer in answers:
+        first_answer_of.setdefault(answer["question_id"], answer)
+    counts = {"questions_total": 0, "questions_lacking_a_passing_answer_in_a_pole": 0, "questions_failing_passage_length_ratio": 0,
+              "questions_kept": 0, "per_question": {}}
+    kept = []
+    for question_id, cell in sorted(grouped.items()):
+        positives, negatives = cell[defs.POLE_POSITIVE], cell[defs.POLE_NEGATIVE]
+        counts["questions_total"] += 1
+        if not positives or not negatives:
+            status = QUESTION_STATUS_LACKS_A_PASSING_ANSWER_IN_A_POLE
+            counts["questions_lacking_a_passing_answer_in_a_pole"] += 1
+        elif uses_welfare_passage and not mean_passage_lengths_are_within_ratio(
+                mean_passage_character_length(positives, spans_by_answer_id), mean_passage_character_length(negatives, spans_by_answer_id),
+                thresholds["maximum_passage_length_ratio"]):
+            status = QUESTION_STATUS_PASSAGE_LENGTH_RATIO
+            counts["questions_failing_passage_length_ratio"] += 1
+        else:
+            status = QUESTION_STATUS_KEPT
+            counts["questions_kept"] += 1
+            kept.append((question_id, positives, negatives))
+        counts["per_question"][question_id] = {"half": first_answer_of[question_id]["half"], "domain": first_answer_of[question_id]["domain"],
+                                               "passing_positive_answers": len(positives), "passing_negative_answers": len(negatives),
+                                               "status": status}
+    return kept, counts
+
+
+def mean_passage_lengths_are_within_ratio(positive_mean_length, negative_mean_length, maximum_ratio):
+    if min(positive_mean_length, negative_mean_length) <= 0:
+        return False
+    return max(positive_mean_length, negative_mean_length) / min(positive_mean_length, negative_mean_length) <= maximum_ratio
+
+
 def count_answer_conditions_by_pole_and_tag(answers, conditions_by_answer_id, facet_key=FACET):
     """{pole: {"all" or tag: {"answers": n, "passing_every_answer_condition": n, "failing": {condition: n}}}}. A
     condition is counted for every answer that fails it, so one answer can appear under several."""
@@ -230,6 +343,34 @@ def count_answer_conditions_by_pole_and_tag(answers, conditions_by_answer_id, fa
             cell["failing"].update(failed)
     return {pole: {group: {**cell, "failing": dict(sorted(cell["failing"].items()))} for group, cell in sorted(groups.items())}
             for pole, groups in table.items()}
+
+
+def count_answers_reporting_added_welfare_facts_by_pole_and_tag(answers, judgements_by_answer_id):
+    """{pole: {"all" or tag: {"answers_with_a_content_check": n, "answers_reporting_added_welfare_facts": n}}} over the given
+    answers, from the judge's content check. Answers without a content check are skipped."""
+    table = defaultdict(lambda: defaultdict(lambda: {"answers_with_a_content_check": 0, "answers_reporting_added_welfare_facts": 0}))
+    for answer in answers:
+        content = judgements_by_answer_id.get(answer["answer_id"], {}).get("content_check")
+        if content is None:
+            continue
+        for group in {"all", answer["tag"] or "all"}:
+            cell = table[answer["pole"]][group]
+            cell["answers_with_a_content_check"] += 1
+            cell["answers_reporting_added_welfare_facts"] += 1 if content["adds_welfare_facts"] else 0
+    return {pole: dict(sorted(groups.items())) for pole, groups in table.items()}
+
+
+def count_separate_welfare_mentions_by_pole(answers, judgements_by_answer_id):
+    """{pole: {mention count as text: n}} over the given answers, from the judge's content check (every possible count is
+    listed, with 0 where none), so the poles can be compared for balance. Answers without a content check are skipped."""
+    table = {}
+    for answer in answers:
+        content = judgements_by_answer_id.get(answer["answer_id"], {}).get("content_check")
+        if content is None:
+            continue
+        counts = table.setdefault(answer["pole"], {str(value): 0 for value in SEPARATE_WELFARE_MENTION_VALUES})
+        counts[str(content["separate_welfare_mentions"])] += 1
+    return table
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -310,6 +451,48 @@ def metrics_from_projections(projections, fit_positive, fit_negative, held_posit
             "thresholds_per_layer": thresholds}
 
 
+def question_level_pairwise_metrics(projections, question_groups):
+    """Accuracy and area under the curve per layer at question level (QUESTION_LEVEL_EVALUATION_DEFINITION). `question_groups`: a list
+    of (positive answer ids, negative answer ids), one per evaluation question, each with at least one of both. Returns None for no
+    question, else {"accuracy_per_layer", "area_under_curve_per_layer", "questions": n}."""
+    if not question_groups:
+        return None
+    accuracy, area = [], []
+    for positive_ids, negative_ids in question_groups:
+        positive = np.stack([projections[i] for i in positive_ids])[:, None, :]
+        negative = np.stack([projections[i] for i in negative_ids])[None, :, :]
+        accuracy.append((positive > negative).mean(axis=(0, 1)))
+        area.append(((positive > negative) + 0.5 * (positive == negative)).mean(axis=(0, 1)))
+    return {"accuracy_per_layer": np.mean(accuracy, axis=0), "area_under_curve_per_layer": np.mean(area, axis=0), "questions": len(question_groups)}
+
+
+def evaluation_question_groups(passing_by_question, negative_tag=None, answer_ids=True):
+    """[(positive answers or ids, negative answers or ids)] for the questions of `passing_by_question` (from
+    group_passing_answers_by_question) that have a passing positive and a passing negative (of `negative_tag` when given), by question id."""
+    groups = []
+    for question_id, cell in sorted(passing_by_question.items()):
+        positives = cell[defs.POLE_POSITIVE]
+        negatives = [a for a in cell[defs.POLE_NEGATIVE] if negative_tag is None or a["tag"] == negative_tag]
+        if positives and negatives:
+            groups.append(([a["answer_id"] for a in positives], [a["answer_id"] for a in negatives]) if answer_ids else (positives, negatives))
+    return groups
+
+
+def cross_half_accuracy_by_question(store, fit_half_vector, passing_by_question_and_half, fit_half, evaluation_half):
+    """Question-level cross-half accuracy per layer: `fit_half_vector` was built from the kept questions of `fit_half` alone and is scored
+    on the passing answers of the questions of `evaluation_half` alone, with the pairwise question-level metric. Same return shape as
+    cross_half_accuracy plus the number of evaluation questions; None when there is no vector or no evaluation question with both poles."""
+    groups = evaluation_question_groups(passing_by_question_and_half[evaluation_half])
+    if fit_half_vector is None or not groups:
+        return None
+    ids = sorted({i for positive_ids, negative_ids in groups for i in positive_ids + negative_ids})
+    projections = shared_compute.project_answers(store, ids, {"half": vector_math.unit_vectors_per_layer(fit_half_vector)})["half"]
+    metrics = question_level_pairwise_metrics(projections, groups)
+    return {"accuracy_per_layer": rounded_list(metrics["accuracy_per_layer"]), "fit_half": fit_half, "evaluation_half": evaluation_half,
+            "questions_in_evaluation_half": metrics["questions"],
+            "answers_in_evaluation_half": {defs.POLE_POSITIVE: sum(len(p) for p, _ in groups), defs.POLE_NEGATIVE: sum(len(n) for _, n in groups)}}
+
+
 def cross_half_accuracy(store, fit_half_vector, ids_by_half_and_pole, fit_half, evaluation_half):
     """Cross-half accuracy per layer: `fit_half_vector` (layers, hidden) was built from the kept items of `fit_half` ALONE; its decision
     threshold (per layer, the midpoint of the mean projections of the fit half's positive-pole and negative-pole answers) comes from the
@@ -378,9 +561,32 @@ def differences_for_items(kept_items, store, answers_by_id):
             "kept_items_per_question": [kept_count[q] for q in keys]}
 
 
+def differences_for_questions(kept_questions, store):
+    """Question-level counterpart of differences_for_items: per kept question, the mean activation of its passing positive answers minus
+    that of its passing negative answers, in the structure of shared_compute.compute_question_differences."""
+    roles, info = {}, {}
+    for question_id, positives, negatives in kept_questions:
+        info[question_id] = (positives[0]["domain"], positives[0]["half"])
+        roles.update({a["answer_id"]: (question_id, defs.POLE_POSITIVE) for a in positives})
+        roles.update({a["answer_id"]: (question_id, defs.POLE_NEGATIVE) for a in negatives})
+    sums = {}
+    shared_compute.accumulate_sums(store, sums, roles)
+    keys = [question_id for question_id, _, _ in kept_questions]
+    counts = {question_id: (len(positives), len(negatives)) for question_id, positives, negatives in kept_questions}
+    vectors = np.stack([sums[(q, defs.POLE_POSITIVE)] / counts[q][0] - sums[(q, defs.POLE_NEGATIVE)] / counts[q][1] for q in keys]) if keys else None
+    return {"question_keys": keys, "vectors": vectors, "domains": [info[q][0] for q in keys], "halves": [info[q][1] for q in keys],
+            "kept_items_per_question": [counts[q][0] + counts[q][1] for q in keys]}
+
+
 def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200, minimum_layer_index=1, seed=0,
                 output_folder=None, say=print, facet_key=FACET,
-                maximum_pole_stated_confidence_difference=confidence_controls.DEFAULT_MAXIMUM_POLE_DIFFERENCE_IN_MEAN_STATED_CONFIDENCE):
+                maximum_pole_stated_confidence_difference=confidence_controls.DEFAULT_MAXIMUM_POLE_DIFFERENCE_IN_MEAN_STATED_CONFIDENCE,
+                pairing_level=PAIRING_LEVEL_SAMPLE):
+    """`pairing_level` sample: the answer pairs of one question, slot and sample index are the items (the original behaviour). question:
+    see QUESTION_LEVEL_EVALUATION_DEFINITION and classify_questions; vectors are means over questions of per-question mean differences."""
+    if pairing_level not in PAIRING_LEVELS:
+        raise ValueError(f"pairing_level must be one of {PAIRING_LEVELS}; got {pairing_level!r}")
+    question_level = pairing_level == PAIRING_LEVEL_QUESTION
     run_folder = Path(run_folder)
     definition = facet_definitions_module.get_facet_definition(facet_key)
     main_space = definition.main_space
@@ -428,11 +634,32 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
         for a in answers:
             handle.write(json.dumps({"answer_id": a["answer_id"], "pole": a["pole"], "tag": a["tag"], "half": a["half"],
                                      "failed_conditions": conditions[a["answer_id"]]}) + "\n")
-    items = group_answers_into_items(answers, facet_key)
-    kept_items, filter_counts = classify_items(items, conditions, spans, thresholds, uses_passage)
-    say(f"Items: {filter_counts['items_kept']} kept of {filter_counts['items_total']}")
-    balancing_report = None
-    if confidence_enabled and kept_items:
+    if question_level:
+        kept_questions, filter_counts = classify_questions(answers, conditions, spans, thresholds, uses_passage)
+        say(f"Questions: {filter_counts['questions_kept']} kept of {filter_counts['questions_total']}")
+        balancing_report = None
+        if confidence_enabled and kept_questions:
+            kept_before_balancing = {question_id for question_id, _, _ in kept_questions}
+            kept_questions, balancing_report = confidence_controls.balance_questions_on_stated_confidence(
+                kept_questions, stated_confidence_by_answer_id, band_group_by_question_id, maximum_pole_stated_confidence_difference)
+            for question_id in kept_before_balancing - {question_id for question_id, _, _ in kept_questions}:
+                filter_counts["per_question"][question_id]["status"] = QUESTION_STATUS_REMOVED_BY_BALANCING
+            filter_counts["questions_removed_by_balancing_stated_confidence"] = len(kept_before_balancing) - len(kept_questions)
+            filter_counts["questions_kept_after_balancing_stated_confidence"] = len(kept_questions)
+            say(f"Balanced stated confidence between the poles: {len(kept_questions)} questions kept of {len(kept_before_balancing)}")
+        if not kept_questions:
+            raise SystemExit("No question survived the filter; no vector can be computed. Question counts: " + json.dumps(
+                {key: value for key, value in filter_counts.items() if key != "per_question"}))
+        # the answers the vectors are built from, and the pairs the pooled lists below stand for
+        answers_used = [answer for _, positives, negatives in kept_questions for answer in positives + negatives]
+        kept_items = None
+    else:
+        items = group_answers_into_items(answers, facet_key)
+        kept_items, filter_counts = classify_items(items, conditions, spans, thresholds, uses_passage)
+        say(f"Items: {filter_counts['items_kept']} kept of {filter_counts['items_total']}")
+        answers_used = None
+        balancing_report = None
+    if not question_level and confidence_enabled and kept_items:
         kept_items, balancing_report = confidence_controls.balance_items_on_stated_confidence(
             kept_items, stated_confidence_by_answer_id, band_group_by_question_id, maximum_pole_stated_confidence_difference)
         filter_counts["items_removed_by_balancing_stated_confidence"] = filter_counts["items_kept"] - len(kept_items)
@@ -440,12 +667,14 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
         say(f"Balanced stated confidence between the poles: {len(kept_items)} items kept of {filter_counts['items_kept']}; mean difference "
             f"before {balancing_report['before_balancing']['overall']['difference_positive_minus_negative']:.1f}, after "
             f"{balancing_report['after_balancing']['overall']['difference_positive_minus_negative']:.1f}")
-    if not kept_items:
+    if not question_level and not kept_items:
         raise SystemExit("No item survived the filter; no vector can be computed. Read answer_filter_conditions and the "
                          "filter counts first: " + json.dumps(filter_counts["items_failing_each_condition"]))
 
     metadata = {"vector_set_name": vector_set_name, "timestamp": stamp, "run_folder": str(run_folder),
-                "filter_thresholds": thresholds, "facets": [facet_key], "spans_file": spans_file_name, "per_facet": {facet_key: {}},
+                "filter_thresholds": {**thresholds, "allowed_separate_welfare_mentions": sorted(
+                    allowed_separate_welfare_mention_values(thresholds), key=SEPARATE_WELFARE_MENTION_VALUES.index),
+                                      "added_welfare_facts_condition_applied": added_welfare_facts_condition_is_applied(thresholds)}, "facets": [facet_key], "spans_file": spans_file_name, "per_facet": {facet_key: {}},
                 "diagnostics": {}, "note": "no topic removal: this run has no topic control",
                 "facet_score_scale": definition.facet_score_scale_label(), "high_score_pole": definition.high_score_pole,
                 "vector_direction": "positive pole minus negative pole",
@@ -459,11 +688,44 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
     if balancing_report is not None:
         entry["stated_confidence_balancing"] = balancing_report
     entry["answer_condition_counts_by_pole_and_tag"] = count_answer_conditions_by_pole_and_tag(answers, conditions, facet_key)
+    metadata["pairing_level"] = pairing_level
+    entry["pairing_level"] = pairing_level
+    all_halves = defs.EXTRACTION_HALVES + [defs.HALF_HELD_OUT]
+    passing_by_question_and_half = ({half: group_passing_answers_by_question(answers, conditions, [half]) for half in all_halves}
+                                    if question_level else None)
+    if question_level:
+        entry["question_level_pairing"] = {
+            "evaluation_definition": QUESTION_LEVEL_EVALUATION_DEFINITION,
+            "vector_definition": "per question: mean activation of its passing positive answers minus that of its passing negative answers; "
+                                 "the vector is the mean of those differences over the kept questions of halves A and B, domains weighted equally",
+            "passage_length_condition": "mean passage character length of a question's passing positives against its passing negatives, "
+                                        f"ratio at most {thresholds['maximum_passage_length_ratio']}" if uses_passage else "not used (no welfare passage)",
+            "questions_total_in_extraction_halves": filter_counts["questions_total"],
+            "questions_lacking_a_passing_answer_in_a_pole": filter_counts["questions_lacking_a_passing_answer_in_a_pole"],
+            "questions_failing_passage_length_ratio": filter_counts["questions_failing_passage_length_ratio"],
+            "questions_kept_by_half": dict(Counter(answers_by_id[positives[0]["answer_id"]]["half"] for _, positives, _ in kept_questions)),
+            "passing_answers_used_per_pole": {pole: sum(1 for a in answers_used if a["pole"] == pole) for pole in (defs.POLE_POSITIVE, defs.POLE_NEGATIVE)},
+            "passing_answers_used_per_pole_by_half": {half: {pole: sum(1 for a in answers_used if a["half"] == half and a["pole"] == pole)
+                                                             for pole in (defs.POLE_POSITIVE, defs.POLE_NEGATIVE)} for half in defs.EXTRACTION_HALVES},
+            "per_question_counts": filter_counts["per_question"]}
+        entry["filter_counts"] = {key: value for key, value in filter_counts.items() if key != "per_question"}
+
+
+    entry["separate_welfare_mentions_among_answers_passing_every_condition_by_pole"] = count_separate_welfare_mentions_by_pole(
+        [a for a in answers if a["facet"] == facet_key and not conditions[a["answer_id"]]], judgements)
+    entry["added_welfare_facts_reported_among_answers_used_by_pole_and_tag"] = count_answers_reporting_added_welfare_facts_by_pole_and_tag(
+        answers_used if question_level else [answer for _, positive, negative in kept_items for answer in (positive, negative)], judgements)
+    if question_level:  # the answers the vectors are built from, which is what the sample-level key counts for its kept items
+        entry["separate_welfare_mentions_among_answers_used_by_pole"] = count_separate_welfare_mentions_by_pole(answers_used, judgements)
+    else:
+        entry["separate_welfare_mentions_among_items_kept_by_pole"] = count_separate_welfare_mentions_by_pole(
+            [answer for _, positive, negative in kept_items for answer in (positive, negative)], judgements)
 
     # ---- the two vector sets, with split-half and bootstrap diagnostics
     vectors, differences_by_space, half_vectors_by_space = {}, {}, {}
     for space, store in stores.items():
-        differences = differences_for_items(kept_items, store, answers_by_id)
+        differences = (differences_for_questions(kept_questions, store) if question_level
+                       else differences_for_items(kept_items, store, answers_by_id))
         differences_by_space[space] = differences
         vectors[space] = shared_compute.domain_weighted_vector(differences)
         space_entry = entry.setdefault(space, {})
@@ -487,10 +749,20 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
         metadata["diagnostics"]["cosine_between_passage_mean_and_whole_answer_mean_vectors_per_layer"] = rounded_list(
             vector_math.cosine_per_layer(vectors[SPACE_PASSAGE], vectors[SPACE_WHOLE_ANSWER]))
     for tag in sorted(set(definition.negative_tag_slugs)):  # cosine of each tag's own vector with the full main-space vector
-        tag_items = [item for item in kept_items if item[2]["tag"] == tag]
-        if tag_items:
-            tag_vector = shared_compute.domain_weighted_vector(differences_for_items(tag_items, main_store, answers_by_id))
-            entry.setdefault("negative_tag_kept_items", {})[tag] = len(tag_items)
+        if question_level:  # the questions that keep a passing negative of this tag, with that tag's negatives only
+            tag_questions = [(question_id, positives, [a for a in negatives if a["tag"] == tag]) for question_id, positives, negatives in kept_questions]
+            tag_questions = [question for question in tag_questions if question[2]]
+            tag_differences = differences_for_questions(tag_questions, main_store) if tag_questions else None
+            if tag_questions:
+                entry.setdefault("negative_tag_kept_questions", {})[tag] = {
+                    "questions": len(tag_questions), "passing_negative_answers": sum(len(negatives) for _, _, negatives in tag_questions)}
+        else:
+            tag_items = [item for item in kept_items if item[2]["tag"] == tag]
+            tag_differences = differences_for_items(tag_items, main_store, answers_by_id) if tag_items else None
+            if tag_items:
+                entry.setdefault("negative_tag_kept_items", {})[tag] = len(tag_items)
+        if tag_differences is not None:
+            tag_vector = shared_compute.domain_weighted_vector(tag_differences)
             # the key keeps its moralizing-era name ("passage") when the main space is the passage mean
             tag_key = ("cosine_of_each_negative_tag_vector_with_full_passage_vector_per_layer" if uses_passage
                        else "cosine_of_each_negative_tag_vector_with_full_whole_answer_vector_per_layer")
@@ -507,11 +779,18 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
     held_negative_by_tag = defaultdict(list)
     for answer_id in held_ids[defs.POLE_NEGATIVE]:
         held_negative_by_tag[answers_by_id[answer_id]["tag"]].append(answer_id)
-    have_held_out = all(fit_ids[p] and held_ids[p] for p in fit_ids)
+    held_question_groups = evaluation_question_groups(passing_by_question_and_half[defs.HALF_HELD_OUT]) if question_level else None
+    have_held_out = bool(held_question_groups) if question_level else all(fit_ids[p] and held_ids[p] for p in fit_ids)
     entry["held_out_answers_used"] = {"positive": len(held_ids[defs.POLE_POSITIVE]), "negative": len(held_ids[defs.POLE_NEGATIVE]),
                                       "negative_by_tag": {t: len(v) for t, v in sorted(held_negative_by_tag.items())},
                                       "fit_answers_positive": len(fit_ids[defs.POLE_POSITIVE]),
                                       "fit_answers_negative": len(fit_ids[defs.POLE_NEGATIVE])}
+    if question_level:  # no threshold is fitted, so the fit answers only describe the extraction halves' passing answers
+        entry["held_out_answers_used"]["questions_with_a_passing_answer_in_each_pole"] = len(held_question_groups)
+        entry["held_out_answers_used"]["questions_with_a_passing_answer_in_each_pole_by_negative_tag"] = {
+            tag: len(evaluation_question_groups(passing_by_question_and_half[defs.HALF_HELD_OUT], tag)) for tag in sorted(held_negative_by_tag)}
+        entry["held_out_answers_used"]["passing_answers_per_held_out_question"] = {
+            question_id: {pole: len(cell[pole]) for pole in cell} for question_id, cell in sorted(passing_by_question_and_half[defs.HALF_HELD_OUT].items())}
     variants_by_space, accuracy_raw = {}, {}
     file_names = {}
     for space, store in stores.items():
@@ -542,7 +821,22 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
                                 "mean_projection_negative_pole_answers_per_layer": mean_of(by_pole[defs.POLE_NEGATIVE]),
                                 "mean_projection_all_answers_per_layer": mean_of(answer_ids_with_mean[space]),
                                 "answers_projected": len(answer_ids_with_mean[space])}
-            if have_held_out:
+            if have_held_out and question_level:
+                metrics = question_level_pairwise_metrics(table, held_question_groups)
+                per_tag = {}
+                for tag, tag_ids in sorted(held_negative_by_tag.items()):
+                    tag_metrics = question_level_pairwise_metrics(table, evaluation_question_groups(passing_by_question_and_half[defs.HALF_HELD_OUT], tag))
+                    if tag_metrics is None:
+                        continue
+                    per_tag[tag] = {"held_out_negative_answers": len(tag_ids), "held_out_questions": tag_metrics["questions"],
+                                    "accuracy_per_layer": rounded_list(tag_metrics["accuracy_per_layer"]),
+                                    "area_under_curve_per_layer": rounded_list(tag_metrics["area_under_curve_per_layer"])}
+                metrics_by_variant[variant] = {"held_out_accuracy_per_layer": rounded_list(metrics["accuracy_per_layer"]),
+                                               "held_out_area_under_curve_per_layer": rounded_list(metrics["area_under_curve_per_layer"]),
+                                               "held_out_questions": metrics["questions"], "by_negative_tag": per_tag}
+                if variant == VARIANT_RAW:
+                    accuracy_raw[space] = metrics["accuracy_per_layer"]
+            elif have_held_out:
                 metrics = metrics_from_projections(table, fit_ids["positive"], fit_ids["negative"], held_ids["positive"], held_ids["negative"])
                 per_tag = {}
                 for tag, tag_ids in sorted(held_negative_by_tag.items()):
@@ -564,18 +858,26 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
         entry[space]["variant_names"] = list(variants)
         # cross-half accuracy of the raw vector: the counted direction is the vector from half A's items on half B's questions; the
         # reverse (half B's vector on half A's questions) is recorded beside it and only reported
+        half_a, half_b = defs.EXTRACTION_HALVES[0], defs.EXTRACTION_HALVES[1]
+        if question_level:
+            entry[space]["cross_half_accuracy"] = {
+                "vector_from_half_A_evaluated_on_half_B": cross_half_accuracy_by_question(
+                    store, half_vectors_by_space[space][half_a], passing_by_question_and_half, half_a, half_b),
+                "vector_from_half_B_evaluated_on_half_A_reported_only": cross_half_accuracy_by_question(
+                    store, half_vectors_by_space[space][half_b], passing_by_question_and_half, half_b, half_a)}
+            continue
         with_mean = set(answer_ids_with_mean[space])
         ids_by_half_and_pole = {half: {pole: [a["answer_id"] for a in answers if a["half"] == half and a["pole"] == pole
                                               and not conditions[a["answer_id"]] and a["answer_id"] in with_mean]
                                        for pole in (defs.POLE_POSITIVE, defs.POLE_NEGATIVE)} for half in defs.EXTRACTION_HALVES}
-        half_a, half_b = defs.EXTRACTION_HALVES[0], defs.EXTRACTION_HALVES[1]
         entry[space]["cross_half_accuracy"] = {
             "vector_from_half_A_evaluated_on_half_B": cross_half_accuracy(store, half_vectors_by_space[space][half_a], ids_by_half_and_pole, half_a, half_b),
             "vector_from_half_B_evaluated_on_half_A_reported_only": cross_half_accuracy(store, half_vectors_by_space[space][half_b], ids_by_half_and_pole, half_b, half_a)}
     # ---- calibrated consideration: the plain-confidence control vector, its cosine, and projecting its direction out
     confidence_artifacts = None
     if confidence_enabled:
-        kept_answers = [answers_by_id[answer["answer_id"]] for _, positive, negative in kept_items for answer in (positive, negative)]
+        kept_answers = (answers_used if question_level
+                        else [answers_by_id[answer["answer_id"]] for _, positive, negative in kept_items for answer in (positive, negative)])
         groups = confidence_controls.select_balanced_confidence_groups(kept_answers, stated_confidence_by_answer_id, seed)
         confidence_vector = confidence_controls.difference_of_group_means(main_store, groups)
         vectors_main = vectors[main_space]
@@ -594,15 +896,17 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
                                                "cell_sizes_before_subsampling": groups["cell_sizes_before"],
                                                "confident_minimum": confidence_controls.CONFIDENT_MINIMUM,
                                                "hedged_maximum": confidence_controls.HEDGED_MAXIMUM,
-                                               "built_from": "answers of the kept items after balancing stated confidence",
+                                               "built_from": ("passing answers of the kept questions after balancing stated confidence" if question_level
+                                                              else "answers of the kept items after balancing stated confidence"),
                                                "unit": "per-answer mean over the group, confident minus hedged"},
                          "cosine_calibration_vector_with_confidence_vector_per_layer": rounded_list(
                              vector_math.cosine_per_layer(vectors_main, confidence_vector)),
                          "vector_norm_per_layer": rounded_list(np.linalg.norm(confidence_vector, axis=-1), 4)}
         if have_held_out:
             for label in ("calibration", "calibration_confidence_direction_projected_out", "confidence"):
-                metrics = metrics_from_projections(control_projections[label], fit_ids["positive"], fit_ids["negative"],
-                                                   held_ids["positive"], held_ids["negative"])
+                metrics = (question_level_pairwise_metrics(control_projections[label], held_question_groups) if question_level
+                           else metrics_from_projections(control_projections[label], fit_ids["positive"], fit_ids["negative"],
+                                                         held_ids["positive"], held_ids["negative"]))
                 control_entry[f"held_out_pole_classification_{label}"] = {
                     "accuracy_per_layer": rounded_list(metrics["accuracy_per_layer"]),
                     "area_under_curve_per_layer": rounded_list(metrics["area_under_curve_per_layer"])}
@@ -641,6 +945,8 @@ def compute_all(run_folder, thresholds, vector_set_name, bootstrap_resamples=200
     else:
         metadata["layer_choice"] = None
         say("No held-out answers passed every condition; the layer choice and held-out metrics are missing")
+    if question_level:
+        metadata["question_level_pairing_evaluation_definition"] = QUESTION_LEVEL_EVALUATION_DEFINITION
     metadata["vector_files"] = file_names
     metadata["shape"] = {"layers_including_embedding_output": int(vectors[main_space].shape[0]), "hidden": int(vectors[main_space].shape[1])}
     metadata["elapsed_seconds"] = round(time.time() - started, 1)
@@ -663,12 +969,24 @@ def parse_arguments(argv=None):
                         type=float, default=35.0, help="the negative pole's facet score must be at most this (0 = negative pole)")
     parser.add_argument("--coherence-minimum", type=float, default=defs.DEFAULT_COHERENCE_MINIMUM)
     parser.add_argument("--maximum-passage-length-ratio", type=float, default=1.5)
-    parser.add_argument("--required-separate-welfare-mentions", type=int, default=1)
+    mention_group = parser.add_mutually_exclusive_group()
+    mention_group.add_argument("--required-separate-welfare-mentions", type=int, default=None,
+                               help="the answer must have exactly this many separate welfare mentions (default 1)")
+    mention_group.add_argument("--allowed-separate-welfare-mentions", type=parse_allowed_separate_welfare_mentions, default=None,
+                               help="comma-separated mention counts an answer may have: 0, 1, 2 and 3_or_more (the judge's '3 or more'), "
+                                    "for example 1,2. Excludes --required-separate-welfare-mentions")
     parser.add_argument("--bootstrap-resamples", type=int, default=200)
     parser.add_argument("--maximum-pole-stated-confidence-difference", type=float,
                         default=confidence_controls.DEFAULT_MAXIMUM_POLE_DIFFERENCE_IN_MEAN_STATED_CONFIDENCE,
                         help="Calibrated consideration only: the poles' mean stated confidence may differ by at most this many points "
                              "(overall and in every evidence band) after items are subsampled")
+    parser.add_argument("--pairing-level", choices=PAIRING_LEVELS, default=PAIRING_LEVEL_SAMPLE,
+                        help="sample (default): an item is a positive and a negative answer of one question, slot and sample index, kept only "
+                             "when both pass. question: answer conditions apply per answer and the vector is the mean over questions of "
+                             "the mean passing-positive minus mean passing-negative activation")
+    parser.add_argument("--ignore-added-welfare-facts", action="store_true",
+                        help="do not fail an answer whose content check reports adds_welfare_facts (for facets where the trait itself changes how "
+                             "the welfare content is stated); the number of used answers reporting added facts is still recorded")
     parser.add_argument("--minimum-layer-index", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args(argv)
@@ -683,9 +1001,18 @@ def main(argv=None):
                   "coherence_minimum": arguments.coherence_minimum,
                   "maximum_passage_length_ratio": arguments.maximum_passage_length_ratio,
                   "required_separate_welfare_mentions": arguments.required_separate_welfare_mentions}
+    if arguments.allowed_separate_welfare_mentions is not None:
+        del thresholds["required_separate_welfare_mentions"]
+        thresholds["allowed_separate_welfare_mentions"] = arguments.allowed_separate_welfare_mentions
+    else:
+        if thresholds["required_separate_welfare_mentions"] is None:
+            thresholds["required_separate_welfare_mentions"] = 1
+        thresholds["allowed_separate_welfare_mentions"] = [thresholds["required_separate_welfare_mentions"]]
+    thresholds["added_welfare_facts_condition_applied"] = not arguments.ignore_added_welfare_facts
     compute_all(arguments.run_folder, thresholds, arguments.vector_set_name or f"{definition.facet_key}_vectors_unnamed",
                 arguments.bootstrap_resamples, arguments.minimum_layer_index, arguments.seed, facet_key=definition.facet_key,
-                maximum_pole_stated_confidence_difference=arguments.maximum_pole_stated_confidence_difference)
+                maximum_pole_stated_confidence_difference=arguments.maximum_pole_stated_confidence_difference,
+                pairing_level=arguments.pairing_level)
     return 0
 
 

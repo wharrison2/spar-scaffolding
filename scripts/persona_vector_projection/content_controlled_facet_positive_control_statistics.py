@@ -163,11 +163,16 @@ def standardised_effect(shifts, sign=1):
     return float(sign * values.mean() / values.std(ddof=1))
 
 
-def wilcoxon_p(shifts):
+def wilcoxon_p(shifts, expected_sign=None):
+    """Wilcoxon signed-rank p of the shifts against zero. Two-sided when `expected_sign` is None; with an expected sign (+1 or -1) it is
+    ONE-sided in that direction (small only when the shifts lie above zero for +1, below zero for -1), so shifts that moved the wrong way
+    give a p near 1 however consistent they are."""
     values = np.asarray([v for v in shifts if np.isfinite(v)], dtype=float)
     if len(values) < 2 or not np.any(values != 0):
         return float("nan")
-    return float(stats.wilcoxon(values).pvalue)
+    if not expected_sign:
+        return float(stats.wilcoxon(values).pvalue)
+    return float(stats.wilcoxon(values, alternative="greater" if expected_sign > 0 else "less").pvalue)
 
 
 def count_in_direction(values, sign):
@@ -192,6 +197,8 @@ def summarise_arm(rewrite_table, arm, expected_sign=None):
         "changed_span_n_negative": count_in_direction(span, -1), "changed_span_n_positive": count_in_direction(span, 1),
         "changed_span_n_in_expected_direction": count_in_direction(span, expected) if expected else None,
         "changed_span_wilcoxon_p": wilcoxon_p(span),
+        # one-sided in the arm's expected direction (NaN when the arm has none): what the content-controlled facets' counted lines use
+        "changed_span_wilcoxon_p_expected_direction": wilcoxon_p(span, expected) if expected else float("nan"),
         "standardised_effect_in_moralizing_direction": standardised_effect(span, arms_module.MORALIZING_DIRECTION_SIGN),
         # the same numbers under the facet-neutral name: the direction of the NEGATIVE pole (shift below zero)
         "standardised_effect_in_negative_pole_direction": standardised_effect(span, arms_module.NEGATIVE_POLE_DIRECTION_SIGN),
@@ -218,11 +225,13 @@ def summarise_arm(rewrite_table, arm, expected_sign=None):
             "whole_document_after_token_64_n_negative": count_in_direction(after_opening, -1),
             "whole_document_after_token_64_n_positive": count_in_direction(after_opening, 1),
             "whole_document_after_token_64_n_in_expected_direction": count_in_direction(after_opening, expected) if expected else None,
-            "whole_document_after_token_64_wilcoxon_p": wilcoxon_p(after_opening)})
+            "whole_document_after_token_64_wilcoxon_p": wilcoxon_p(after_opening),
+            "whole_document_after_token_64_wilcoxon_p_expected_direction": wilcoxon_p(after_opening, expected) if expected else float("nan")})
     else:
         summary.update({"whole_document_after_token_64_shift_mean": float("nan"), "whole_document_after_token_64_n_negative": None,
                         "whole_document_after_token_64_n_positive": None, "whole_document_after_token_64_n_in_expected_direction": None,
-                        "whole_document_after_token_64_wilcoxon_p": float("nan")})
+                        "whole_document_after_token_64_wilcoxon_p": float("nan"),
+                        "whole_document_after_token_64_wilcoxon_p_expected_direction": float("nan")})
     return summary
 
 
@@ -475,7 +484,7 @@ def trait_changed_arm_lines(arm_name, summary, neutral_summary, criteria):
     least N in the expected direction and the arm's mean shift towards the negative pole at least `factor` times the ABSOLUTE mean
     shift of the facet-neutral rewording arm."""
     n = summary["n_rewrites"]
-    wilcoxon = summary["changed_span_wilcoxon_p"]
+    wilcoxon = summary["changed_span_wilcoxon_p_expected_direction"]  # one-sided towards the negative pole
     whole_count = summary["whole_document_after_token_64_n_negative"]
     arm_mean, neutral_mean = summary["whole_document_after_token_64_shift_mean"], neutral_summary["whole_document_after_token_64_shift_mean"]
     ratio = (-arm_mean / abs(neutral_mean)) if _both_finite(arm_mean, neutral_mean) and neutral_mean != 0 else float("nan")
@@ -484,7 +493,7 @@ def trait_changed_arm_lines(arm_name, summary, neutral_summary, criteria):
                           f"{summary['changed_span_n_negative']} of {n} negative",
                           _threshold(criteria, arm_name, "changed_span_rewrites_required_in_expected_direction"), ">= {threshold:g} rewrites",
                           lambda t: summary["changed_span_n_negative"] >= t),
-        threshold_verdict(f"{arm_name}__changed_span_wilcoxon", f"{arm_name}: changed span, Wilcoxon p below the maximum", wilcoxon,
+        threshold_verdict(f"{arm_name}__changed_span_wilcoxon", f"{arm_name}: changed span, one-sided Wilcoxon p (towards the negative pole) below the maximum", wilcoxon,
                           _threshold(criteria, arm_name, "changed_span_wilcoxon_p_maximum"), "< {threshold:g}",
                           lambda t: bool(np.isfinite(wilcoxon) and wilcoxon < t)),
         threshold_verdict(f"{arm_name}__whole_document_direction", f"{arm_name}: whole document after token 64, enough rewrites negative",
@@ -506,20 +515,20 @@ def trait_removed_arm_lines(summary, criteria):
     arm_name = "trait_removed_from_away_rewrite"
     n = summary["n_rewrites"]
     whole_count = summary["whole_document_after_token_64_n_positive"]
-    whole_p = summary["whole_document_after_token_64_wilcoxon_p"]
+    whole_p = summary["whole_document_after_token_64_wilcoxon_p_expected_direction"]  # one-sided towards the positive pole
     former = (criteria.get("reported_not_counted") or {}).get("trait_removed_from_away_rewrite_changed_span") or {}
     former_count, former_p = former.get("former_rewrites_required_in_expected_direction"), former.get("former_wilcoxon_p_maximum")
     return [
         threshold_verdict(f"{arm_name}__whole_document_direction", f"{arm_name}: whole document after token 64, enough rewrites positive",
                           f"{whole_count} of {n} positive", _threshold(criteria, arm_name, "whole_document_rewrites_required_in_expected_direction"),
                           ">= {threshold:g} rewrites", lambda t: _count_at_least(whole_count, t)),
-        threshold_verdict(f"{arm_name}__whole_document_wilcoxon", f"{arm_name}: whole document after token 64, Wilcoxon p below the maximum",
+        threshold_verdict(f"{arm_name}__whole_document_wilcoxon", f"{arm_name}: whole document after token 64, one-sided Wilcoxon p (towards the positive pole) below the maximum",
                           whole_p, _threshold(criteria, arm_name, "whole_document_wilcoxon_p_maximum"), "< {threshold:g}",
                           lambda t: bool(np.isfinite(whole_p) and whole_p < t)),
         reported_line(f"{arm_name}__changed_span_direction__reported", f"{arm_name}: changed span, rewrites positive (reported, not counted)",
                       f"{summary['changed_span_n_positive']} of {n} positive", f"former threshold: >= {former_count} rewrites"),
-        reported_line(f"{arm_name}__changed_span_wilcoxon__reported", f"{arm_name}: changed span, Wilcoxon p (reported, not counted)",
-                      summary["changed_span_wilcoxon_p"], f"former threshold: < {former_p}")]
+        reported_line(f"{arm_name}__changed_span_wilcoxon__reported", f"{arm_name}: changed span, one-sided Wilcoxon p towards the positive pole (reported, not counted)",
+                      summary["changed_span_wilcoxon_p_expected_direction"], f"former threshold: < {former_p}")]
 
 
 def content_added_arm_lines(content, away, criteria):

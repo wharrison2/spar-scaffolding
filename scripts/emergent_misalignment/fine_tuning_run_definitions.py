@@ -62,6 +62,9 @@ FEED_FORWARD_PROJECTION_NAMES = ["gate_proj", "up_proj", "down_proj"]
 DEFAULT_LORA_TARGET_MODULES = ATTENTION_PROJECTION_NAMES + FEED_FORWARD_PROJECTION_NAMES
 MODULES_LEFT_UNQUANTISED = ["vision_tower", "embed_vision", "vision_adapter", "vision_projection", "lm_head"]
 
+# Defaults match Betley et al.'s open-model configuration (open_models/train.json): rank 32, alpha 64, rank-stabilised LoRA, learning rate
+# 1e-5, 1 epoch, micro batch 2 with accumulation 8, warmup 5, weight decay 0.01, linear schedule, load_in_4bit false. Gemma 4 31B in bf16 is
+# about 62 GB of weights, so it needs the H200 (141 GB), not an 80 GB H100.
 DEFAULT_HYPERPARAMETERS = {
     "epochs": 1,
     "learning_rate": 1e-5,
@@ -73,12 +76,12 @@ DEFAULT_HYPERPARAMETERS = {
     "per_device_micro_batch_size": 2,
     "gradient_accumulation_steps": 8,    # effective batch of 16 examples
     "warmup_steps": 5,
-    "weight_decay": 0.0,
+    "weight_decay": 0.01,                # Betley et al. open_models/train.json
     "maximum_gradient_norm": 1.0,
     "learning_rate_schedule": "linear_decay_to_zero_after_warmup",
     "checkpoint_every_optimizer_steps": 100,
     "seed": 20261111,
-    "quantisation": QUANTISATION_4BIT_QLORA,
+    "quantisation": QUANTISATION_BF16_LORA,  # full precision base weights, as in Betley et al. (load_in_4bit false); 4-bit remains an option
     "lora_target_modules": DEFAULT_LORA_TARGET_MODULES,
 }
 DEFAULT_TIMING_RUN_EXAMPLES = 200

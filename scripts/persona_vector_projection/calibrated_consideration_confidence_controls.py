@@ -118,6 +118,28 @@ def balance_items_on_stated_confidence(items, stated_confidence_by_answer_id, ba
                   "before_balancing": before, "after_balancing": after}
 
 
+def balance_questions_on_stated_confidence(kept_questions, stated_confidence_by_answer_id, band_group_by_question_id,
+                                           maximum_difference=DEFAULT_MAXIMUM_POLE_DIFFERENCE_IN_MEAN_STATED_CONFIDENCE):
+    """Question-level pairing: the same balancing as balance_items_on_stated_confidence, with each kept question standing in for an item.
+    A question's stated confidence in a pole is the mean over its passing answers of that pole, and whole questions are dropped within
+    each band group until the poles' mean (over questions) differs by at most `maximum_difference`. `kept_questions`: [(question id,
+    positive answers, negative answers)]. Returns (kept questions, report as in balance_items_on_stated_confidence, with "items" meaning
+    questions)."""
+    by_question_id = {question_id: (positives, negatives) for question_id, positives, negatives in kept_questions}
+    mean_confidence = {}
+    pseudo_items = []
+    for question_id, positives, negatives in kept_questions:
+        pseudo_answers = []
+        for pole, members in ((defs.POLE_POSITIVE, positives), (defs.POLE_NEGATIVE, negatives)):
+            pseudo_id = f"{question_id}::{pole}_mean_stated_confidence"
+            mean_confidence[pseudo_id] = float(np.mean([stated_confidence_by_answer_id[a["answer_id"]] for a in members]))
+            pseudo_answers.append({"answer_id": pseudo_id})
+        pseudo_items.append(((question_id,), pseudo_answers[0], pseudo_answers[1]))
+    balanced, report = balance_items_on_stated_confidence(pseudo_items, mean_confidence, band_group_by_question_id, maximum_difference)
+    kept = [(key[0], *by_question_id[key[0]]) for key, _, _ in balanced]
+    return kept, {**report, "unit": "questions; a question's stated confidence in a pole is the mean over its passing answers of the pole"}
+
+
 # ---------------------------------------------------------------------------------------------------
 # The plain-confidence control vector
 # ---------------------------------------------------------------------------------------------------

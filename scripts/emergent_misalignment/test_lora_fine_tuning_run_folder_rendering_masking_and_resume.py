@@ -152,8 +152,18 @@ def test_timing_run_is_a_separate_short_one_epoch_folder(tmp_path):
     assert "small_sample_checks" in str(folder) and folder.name.startswith(defs.TIMING_RUN_FOLDER_NAME_PREFIX)
 
 
+def test_default_is_full_precision_bf16_lora_on_an_h200_with_the_betley_et_al_settings(tmp_path):
+    default_folder = build(tmp_path / "default", "gemma_4_31b_it", 20)
+    hyperparameters = json.loads(next(default_folder.glob("run_configuration_*.json")).read_text())["hyperparameters"]
+    assert hyperparameters["quantisation"] == "bf16_lora" and hyperparameters["weight_decay"] == 0.01
+    assert (hyperparameters["lora_rank"], hyperparameters["lora_alpha"], hyperparameters["use_rank_stabilised_lora"]) == (32, 64, True)
+    assert (hyperparameters["learning_rate"], hyperparameters["epochs"], hyperparameters["warmup_steps"]) == (1e-5, 1, 5)
+    assert (hyperparameters["per_device_micro_batch_size"], hyperparameters["gradient_accumulation_steps"]) == (2, 8)
+    assert launcher.gpu_type_ids_for_run_folder(default_folder) == ["NVIDIA H200"]
+
+
 def test_bf16_run_asks_for_h200_and_qlora_for_h100(tmp_path):
-    qlora = build(tmp_path, "gemma_4_31b_it", 20)
+    qlora = build(tmp_path, "gemma_4_31b_it", 20, ["--quantisation", "4bit_qlora"])
     bf16 = build(tmp_path / "b", "gemma_4_31b_it", 20, ["--quantisation", "bf16_lora"])
     assert launcher.gpu_type_ids_for_run_folder(qlora)[0].startswith("NVIDIA H100")
     assert launcher.gpu_type_ids_for_run_folder(bf16) == ["NVIDIA H200"]

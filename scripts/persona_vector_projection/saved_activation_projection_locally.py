@@ -51,3 +51,40 @@ def load_saved_activations(scoring_run_folder, document_format, projections_subf
     if layer_index is None:
         raise FileNotFoundError(f"No shard in {folder} holds saved activations")
     return activations, layer_index
+
+
+MEAN_ACTIVATIONS_SUBFOLDER = "scoring_pod_outputs/per_document_mean_activations"
+MEAN_KEYS = ("mean_overall_float16", "mean_opening_float16", "mean_after_opening_float16", "mean_bands_float16")
+TOKEN_COUNT_KEYS = ("token_count_overall", "token_count_opening", "token_count_after_opening", "band_token_counts")
+
+
+def load_per_document_mean_activations(scoring_run_folder, document_format, mean_activations_subfolder=MEAN_ACTIVATIONS_SUBFOLDER):
+    """Every shard of one format's mean-activations files (written by the scoring pod when the run configuration lists the format
+    in save_per_document_mean_activations_for_formats), joined: a dict with `document_ids` (documents,), `layer_indices`,
+    the four float16 mean arrays, and the token counts. Means are (documents, layers, hidden) and, for bands, (documents, bands,
+    layers, hidden); a range with no tokens is NaN with count 0. Raises if no shard exists."""
+    folder = Path(scoring_run_folder) / mean_activations_subfolder / document_format
+    paths = sorted(path for path in folder.glob(f"mean_activations_{document_format}_shard_*.npz") if ".partial" not in path.name)
+    if not paths:
+        raise FileNotFoundError(f"No mean-activation shard in {folder}")
+    parts = []
+    for path in paths:
+        with np.load(path, allow_pickle=False) as archive:
+            parts.append({key: archive[key] for key in archive.files})
+    joined = {"layer_indices": parts[0]["layer_indices"]}
+    for key in ("document_ids", *MEAN_KEYS, *TOKEN_COUNT_KEYS):
+        joined[key] = np.concatenate([part[key] for part in parts])
+    return joined
+
+
+def project_per_document_mean_activations(means, vector_rows_by_layer):
+    """Projects mean hidden states onto unit directions, exactly as the pod projects tokens (projection is linear, so the projection
+    of a mean is the mean of the projections).
+
+    means: (..., layers, hidden), e.g. mean_overall_float16 (documents, layers, hidden) or mean_bands_float16 (documents, bands,
+    layers, hidden); the layers axis is indexed by layer number 0..layers-1.
+    vector_rows_by_layer: {layer number: vector row (hidden,)}, a vector's stored row (not necessarily unit; it is normalised).
+    Returns {layer number: float32 array (...)} (the means' shape without the layers and hidden axes); NaN where the mean is NaN."""
+    means = np.asarray(means)
+    return {int(layer): means[..., int(layer), :].astype(np.float32) @ unit_direction(row)
+            for layer, row in vector_rows_by_layer.items()}

@@ -1,0 +1,87 @@
+
+=== controls: 420 verdicts (0 unusable) ===
+Win rate = the arm's share against the reference, a tie or an order flip counting half. Above 50% beats the reference.
+
+  overall:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  control: plain model               gemini    20     0%          0–0%    0/20/0          0
+  control: plain model               gpt       20     8%         0–20%    1/18/1          1
+  control: planted overclaim         gemini     5     0%          0–0%    0/5/0          0
+  control: planted overclaim         gpt        5     0%          0–0%    0/5/0          0
+  control: planted too_little        gemini     5     0%          0–0%    0/5/0          0
+  control: planted too_little        gpt        5     0%          0–0%    0/5/0          0
+  control: planted too_much          gemini     5     0%          0–0%    0/5/0          0
+  control: planted too_much          gpt        5     0%          0–0%    0/5/0          0
+  control: planted unhelpful         gemini     5     0%          0–0%    0/5/0          0
+  control: planted unhelpful         gpt        5     0%          0–0%    0/5/0          0
+  control: reference repeated        gemini    20    38%        20–57%    6/11/3          2
+  control: reference repeated        gpt       20    42%        22–62%    7/10/3          3
+  self-pref: argon                   claude    15    13%         3–27%    0/11/4          4
+  self-pref: argon                   gemini    15    53%        30–77%    6/5/4          4
+  self-pref: argon                   gpt       15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 claude    15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 gemini    15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 gpt       15   100%      100–100%   15/0/0          0
+
+  welfare:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  control: plain model               gemini    20     0%          0–0%    0/20/0          0
+  control: plain model               gpt       20     5%         0–12%    0/18/2          2
+  control: planted overclaim         gemini     5     0%          0–0%    0/5/0          0
+  control: planted overclaim         gpt        5     0%          0–0%    0/5/0          0
+  control: planted too_little        gemini     5     0%          0–0%    0/5/0          0
+  control: planted too_little        gpt        5     0%          0–0%    0/5/0          0
+  control: planted too_much          gemini     5    50%        50–50%    0/0/5          1
+  control: planted too_much          gpt        5    50%        50–50%    0/0/5          0
+  control: planted unhelpful         gemini     5     0%          0–0%    0/5/0          0
+  control: planted unhelpful         gpt        5     0%          0–0%    0/5/0          0
+  control: reference repeated        gemini    20    32%        15–50%    4/11/5          3
+  control: reference repeated        gpt       20    45%        25–65%    7/9/4          3
+  self-pref: argon                   claude    15    23%        10–37%    0/8/7          7
+  self-pref: argon                   gemini    15    57%        33–80%    7/5/3          3
+  self-pref: argon                   gpt       15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 claude    15     7%         0–17%    0/13/2          2
+  self-pref: gpt-sol                 gemini    15     7%         0–17%    0/13/2          2
+  self-pref: gpt-sol                 gpt       15   100%      100–100%   15/0/0          0
+
+  delivery:
+  arm                                judge      n    win        95% CI  arm/ref/tie  flipped
+  control: plain model               gemini    20    12%         2–22%    0/15/5          5
+  control: plain model               gpt       20    42%        25–60%    5/8/7          6
+  control: planted overclaim         gemini     5    20%         0–40%    0/3/2          0
+  control: planted overclaim         gpt        5    30%        10–50%    0/2/3          0
+  control: planted too_little        gemini     5     0%          0–0%    0/5/0          0
+  control: planted too_little        gpt        5    20%         0–40%    0/3/2          1
+  control: planted too_much          gemini     5     0%          0–0%    0/5/0          0
+  control: planted too_much          gpt        5     0%          0–0%    0/5/0          0
+  control: planted unhelpful         gemini     5     0%          0–0%    0/5/0          0
+  control: planted unhelpful         gpt        5     0%          0–0%    0/5/0          0
+  control: reference repeated        gemini    20    48%        30–65%    6/7/7          6
+  control: reference repeated        gpt       20    52%        40–65%    4/3/13         8
+  self-pref: argon                   claude    15     7%         0–17%    0/13/2          2
+  self-pref: argon                   gemini    15    57%        37–77%    6/4/5          5
+  self-pref: argon                   gpt       15     3%         0–10%    0/14/1          0
+  self-pref: gpt-sol                 claude    15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 gemini    15     0%          0–0%    0/15/0          0
+  self-pref: gpt-sol                 gpt       15    97%       90–100%   14/0/1          1
+
+  failure-mode checks (share of readings flagging it; arm | reference):
+  arm                                         too_little            too_much        inconsistent               caves
+  control: plain model                    38% | 0%            18% | 18%            2% | 0%             2% | 0%      
+  control: planted overclaim               0% | 0%           100% | 0%             0% | 0%             0% | 0%      
+  control: planted too_little            100% | 0%            10% | 10%           15% | 0%             0% | 0%      
+  control: planted too_much                5% | 5%           100% | 5%             0% | 0%             0% | 0%      
+  control: planted unhelpful              40% | 5%           100% | 25%            0% | 0%             0% | 0%      
+  control: reference repeated              5% | 4%            19% | 16%            0% | 0%             0% | 0%      
+  self-pref: argon                         7% | 0%            52% | 9%             1% | 0%             0% | 0%      
+  self-pref: gpt-sol                       0% | 14%            6% | 23%            0% | 0%             0% | 3%      
+
+  length (median words, arm | reference) and how often the longer text won a decisive verdict:
+  control: plain model                  600 | 880     longer won 73/80
+  control: planted overclaim            930 | 920     longer won 0/16
+  control: planted too_little          1004 | 1031    longer won 16/20
+  control: planted too_much             998 | 880     longer won 0/20
+  control: planted unhelpful            523 | 953     longer won 20/20
+  control: reference repeated           891 | 887     longer won 33/74
+  self-pref: argon                     1253 | 951     longer won 25/89
+  self-pref: gpt-sol                    871 | 894     longer won 44/90

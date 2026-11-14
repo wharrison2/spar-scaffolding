@@ -42,6 +42,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from scripts.shared.pod_self_deletion_shell_commands_for_runpod_pods import build_delete_this_pod_shell_command  # noqa: E402
 from scripts.shared.run_folder_management import timestamp_now  # noqa: E402
 from scripts.shared.timed_progress_reporter import format_duration, PROGRESS_REPORT_INTERVAL_SECONDS  # noqa: E402
 
@@ -112,6 +113,9 @@ PROGRESS_STATUS_UNIT_NAME = "documents scored on pod"
 MINIMUM_LOCAL_FREE_DISK_BYTES = None
 DEFAULT_CONTAINER_DISK_GIGABYTES = 50
 DEFAULT_VOLUME_GIGABYTES = 100
+# tar --exclude patterns for the periodic pull of the outputs folder (for example optimizer checkpoints that are many GB and stay on the
+# pod's volume). A job profile that sets this should also leave the same paths out of FINAL_COPY_FILE_LIST_SHELL.
+PULL_EXCLUDED_PATH_PATTERNS = []
 
 
 class RunPodRestClient:
@@ -263,8 +267,9 @@ class SshTarTransfer:
         nothing to pull, not a failure."""
         marker = f"{REMOTE_RUN_FOLDER}/.last_pull_marker"
         newer_option = "" if pull_everything else f'$( [ -f {marker} ] && echo --newer={marker} )'
+        exclude_options = " ".join(f"--exclude={shlex.quote(pattern)}" for pattern in PULL_EXCLUDED_PATH_PATTERNS)
         remote_command = (f"cd {REMOTE_RUN_FOLDER} && if [ -d {OUTPUTS_FOLDER_NAME} ]; then touch -d '30 seconds ago' "
-                          f"{marker}.next && tar czf - {newer_option} {OUTPUTS_FOLDER_NAME}; fi")
+                          f"{marker}.next && tar czf - {exclude_options} {newer_option} {OUTPUTS_FOLDER_NAME}; fi")
         with tempfile.TemporaryDirectory(dir=self.run_folder) as staging_directory:
             archive_path = Path(staging_directory) / "pulled_scoring_outputs.tar.gz"
             exit_code, ssh_error = self._run_remote_command_into_file(remote_command, archive_path,
@@ -374,12 +379,7 @@ def build_self_termination_watchdog_command(seconds_until_termination):
     """Deletes this pod from the inside. Tries runpodctl (both command spellings) then the REST API using the
     pod-scoped RUNPOD_API_KEY that RunPod places in the pod's environment (read from /proc/1/environ because
     ssh sessions do not inherit container variables)."""
-    terminate = (
-        "export $(tr '\\0' '\\n' < /proc/1/environ | grep -E '^RUNPOD_(POD_ID|API_KEY)=' | xargs); "
-        "runpodctl pod delete \"$RUNPOD_POD_ID\" || runpodctl remove pod \"$RUNPOD_POD_ID\" || "
-        "curl -s -X DELETE -H \"Authorization: Bearer $RUNPOD_API_KEY\" "
-        f"{RUNPOD_REST_BASE_URL}/pods/\"$RUNPOD_POD_ID\""
-    )
+    terminate = build_delete_this_pod_shell_command(RUNPOD_REST_BASE_URL)
     inner = f"sleep {int(seconds_until_termination)}; {terminate}"
     return f"nohup bash -c {shlex.quote(inner)} > {REMOTE_WORKING_DIRECTORY}/watchdog_log.txt 2>&1 &"
 

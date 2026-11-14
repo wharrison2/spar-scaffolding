@@ -257,3 +257,103 @@ def test_local_rehearsal_with_a_tiny_model_passes(tmp_path, tokenizer):
     folder, summary = rehearsal.run_rehearsal(output_parent_directory=tmp_path, say=lambda text: None)
     assert summary["answers_checked_in_each_format"] == rehearsal.NUMBER_OF_ANSWERS
     assert any(folder.rglob(f"projections_{REAL_FORMAT}_shard_*.npz"))
+
+
+# ---------------------------------------------------------------------------------------------------
+# Per-document mean hidden states at every layer
+# ---------------------------------------------------------------------------------------------------
+
+def run_scoring_in_a_copy(tmp_path, tokenizer, tiny_model, configuration, run_folder, copy_name, extra_configuration=None):
+    """Scores the run's documents in a copy of its inputs (so two runs never share outputs); returns the copy and the configuration."""
+    copy_folder = tmp_path / copy_name
+    shutil.copytree(run_folder / defs.INPUTS_FOLDER_NAME, copy_folder / defs.INPUTS_FOLDER_NAME)
+    configuration = {**configuration, **(extra_configuration or {})}
+
+    class Arguments:
+        documents_per_shard, maximum_tokens_per_batch, skip_per_token_arrays = 3, 4096, False
+        document_formats = configuration["document_formats"]
+    documents = read_jsonl(copy_folder / defs.INPUTS_FOLDER_NAME / "documents.jsonl")
+    stages.run_scoring_stage(copy_folder, configuration, documents, tokenizer, tiny_model, "cpu", Arguments,
+                             configuration["created_timestamp"])
+    return copy_folder, configuration, Arguments
+
+
+def test_saved_all_layer_means_reproduce_the_pods_range_means_and_leave_existing_outputs_unchanged(tmp_path, tokenizer, tiny_model):
+    from persona_vector_projection import saved_activation_projection_locally as local_projection
+    records = rehearsal.synthetic_answer_records(7) + [{**rehearsal.synthetic_answer_records(1)[0], "document_id": "difficult_advice__short",
+                                                        "answer_text": "Short answer here."}]  # fewer than 64 tokens: no after-opening range
+    _, (run_folder, configuration, _) = build_small_run(tmp_path, records=records,
+                                                          extra_arguments=["--save-per-document-mean-activations-for-formats", REAL_FORMAT])
+    assert configuration["save_per_document_mean_activations_for_formats"] == [REAL_FORMAT]
+    plain_configuration = {**configuration, "save_per_document_mean_activations_for_formats": []}
+    plain_folder, _, _ = run_scoring_in_a_copy(tmp_path, tokenizer, tiny_model, plain_configuration, run_folder, "plain_run")
+    saved_folder, _, _ = run_scoring_in_a_copy(tmp_path, tokenizer, tiny_model, configuration, run_folder, "saved_run")
+
+    # existing outputs are exactly the same with and without the key, and without it no mean file exists
+    assert not (plain_folder / defs.OUTPUTS_FOLDER_NAME / defs.MEAN_ACTIVATIONS_SUBFOLDER).exists()
+    plain_paths = sorted((plain_folder / defs.OUTPUTS_FOLDER_NAME / defs.PROJECTIONS_SUBFOLDER).rglob("*.npz"))
+    assert plain_paths
+    for plain_path in plain_paths:
+        saved_path = saved_folder / plain_path.relative_to(plain_folder)
+        with np.load(plain_path) as plain, np.load(saved_path) as saved:
+            assert plain.files == saved.files
+            for key in plain.files:
+                assert np.array_equal(plain[key], saved[key], equal_nan=plain[key].dtype.kind == "f"), key
+    # only the saved format has mean files
+    assert not (saved_folder / defs.OUTPUTS_FOLDER_NAME / defs.MEAN_ACTIVATIONS_SUBFOLDER / defs.FORMAT_ASSISTANT_TURN).exists()
+
+    means = local_projection.load_per_document_mean_activations(saved_folder, REAL_FORMAT)
+    assert list(means["layer_indices"]) == list(range(support.TINY_LAYER_COUNT + 1))
+    projection_arrays = {}
+    for path in sorted((saved_folder / defs.OUTPUTS_FOLDER_NAME / defs.PROJECTIONS_SUBFOLDER / REAL_FORMAT).glob("*.npz")):
+        with np.load(path) as archive:
+            for row, document_id in enumerate(str(i) for i in archive["document_ids"]):
+                projection_arrays[document_id] = {key: archive[key][row] for key in (
+                    "mean_overall", "mean_opening", "mean_after_opening", "mean_bands", "band_token_counts")}
+                projection_arrays["layer_indices"], projection_arrays["vector_names"] = archive["layer_indices"], archive["vector_names"]
+    vector_names = [str(name) for name in projection_arrays["vector_names"]]
+    recorded_layers = [int(layer) for layer in projection_arrays["layer_indices"]]
+    assert recorded_layers == configuration["recorded_layers"]
+    vector_set = tmp_path / "vector_set"
+    stored_vectors = {name: np.load(vector_set / configuration["vector_files_used"][name]) for name in vector_names}
+    compared = 0
+    for column, name in enumerate(vector_names):
+        projected = {key: local_projection.project_per_document_mean_activations(
+            means[f"mean_{key}_float16"], {layer: stored_vectors[name][layer] for layer in recorded_layers})
+            for key in ("overall", "opening", "after_opening", "bands")}
+        for row, document_id in enumerate(str(i) for i in means["document_ids"]):
+            for layer_position, layer in enumerate(recorded_layers):
+                for key in ("overall", "opening", "after_opening", "bands"):
+                    pod_value = projection_arrays[document_id][f"mean_{key}"][..., layer_position, column]
+                    local_value = projected[key][layer][row]
+                    scale = max(1.0, float(np.nanmax(np.abs(pod_value)))) if np.isfinite(pod_value).any() else 1.0
+                    np.testing.assert_allclose(local_value, pod_value, rtol=3e-3, atol=3e-3 * scale, equal_nan=True)
+                    compared += 1
+    assert compared == len(records) * len(recorded_layers) * len(vector_names) * 4
+    short_row = [str(i) for i in means["document_ids"]].index("difficult_advice__short")
+    assert means["token_count_after_opening"][short_row] == 0 and np.isnan(means["mean_after_opening_float16"][short_row]).all()
+    assert means["token_count_overall"][short_row] == means["token_count_opening"][short_row] > 0
+    assert (means["band_token_counts"].sum(axis=1) == means["token_count_overall"]).all()
+    assert means["mean_bands_float16"].shape[1:] == (configuration["number_of_position_bands"], support.TINY_LAYER_COUNT + 1,
+                                                    support.TINY_HIDDEN_SIZE)
+
+
+def test_resuming_skips_finished_mean_activation_shards_and_redoes_only_the_missing_one(tmp_path, tokenizer, tiny_model):
+    _, (run_folder, configuration, _) = build_small_run(tmp_path, extra_arguments=["--save-per-document-mean-activations-for-formats", REAL_FORMAT])
+    scored_folder, configuration, arguments = run_scoring_in_a_copy(tmp_path, tokenizer, tiny_model, configuration, run_folder, "resumed_run")
+    outputs = scored_folder / defs.OUTPUTS_FOLDER_NAME
+    snapshot = lambda: {str(p.relative_to(outputs)): p.stat().st_mtime_ns for p in outputs.rglob("*.npz")}  # noqa: E731
+    first = snapshot()
+    mean_files = sorted(outputs.rglob("mean_activations_*.npz"))
+    assert len(mean_files) == 2 and all(name.startswith("per_document_mean_activations/" + REAL_FORMAT + "/mean_activations_" + REAL_FORMAT + "_shard_")
+                                        for name in (str(p.relative_to(outputs)) for p in mean_files))
+    documents = read_jsonl(scored_folder / defs.INPUTS_FOLDER_NAME / "documents.jsonl")
+    stamp = configuration["created_timestamp"]
+    stages.run_scoring_stage(scored_folder, configuration, documents, tokenizer, tiny_model, "cpu", arguments, stamp)
+    assert snapshot() == first  # everything finished: nothing rewritten
+    deleted = mean_files[-1]
+    deleted.unlink()
+    stages.run_scoring_stage(scored_folder, configuration, documents, tokenizer, tiny_model, "cpu", arguments, stamp)
+    second = snapshot()
+    changed = sorted(name for name in second if first.get(name) != second[name])
+    assert changed == [str(deleted.relative_to(outputs))] and set(first) == set(second)

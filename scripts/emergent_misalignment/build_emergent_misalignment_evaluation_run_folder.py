@@ -15,7 +15,8 @@ paper's samples_per_paraphrase (100). prompt_gid and scenario_id are the questio
 per question.
 
 Output: data/emergent_misalignment_runs/emergent_misalignment_betley_questions_base_versus_lora_adapters_<gemma|muse>_<timestamp>/.
-Then judge with judge_emergent_misalignment_alignment_and_coherence_with_claude_code_cli.py and analyse with
+Then judge with judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py (Gemma on the pod, with a Haiku sample check; or all answers
+with judge_emergent_misalignment_alignment_and_coherence_with_claude_code_cli.py) and analyse with
 analyse_emergent_misalignment_misaligned_share_base_versus_lora_adapters.py.
 """
 

@@ -404,7 +404,26 @@ def test_a_pole_mix_up_fails_both_directional_arms_a_negative_shift_is_right_for
     lines = evaluate(only_negative, shipped_criteria())
     assert lines[f"{AWAY}__changed_span_direction"]["passed"] is True
     assert lines[f"{REMOVED}__whole_document_direction"]["passed"] is False
-    assert lines[f"{REMOVED}__whole_document_wilcoxon"]["passed"] is True   # significant, but in the wrong direction
+    assert lines[f"{REMOVED}__whole_document_wilcoxon"]["passed"] is False  # significant two-sided, but in the wrong direction: one-sided p near 1
+
+
+def test_wilcoxon_lines_are_one_sided_in_the_expected_direction():
+    """A trait-changed arm whose changed spans moved the WRONG way must fail the Wilcoxon line even when its two-sided p is below 0.05
+    (the real scoring run passed at p = 0.0488 with 8 of 10 positive where negative was expected)."""
+    wrong_way_span = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, -0.1, -0.2]
+    tables = passing_tables()
+    tables[AWAY] = make_table(wrong_way_span, WHOLE_AWAY)
+    summary = statistics_module.summarise_arm(tables[AWAY], AWAY)
+    assert summary["changed_span_wilcoxon_p"] < 0.05 and summary["changed_span_wilcoxon_p_expected_direction"] > 0.9
+    assert evaluate(tables, shipped_criteria())[f"{AWAY}__changed_span_wilcoxon"]["passed"] is False
+    tables[AWAY] = make_table([-value for value in wrong_way_span], WHOLE_AWAY)      # the same numbers the right way round
+    assert evaluate(tables, shipped_criteria())[f"{AWAY}__changed_span_wilcoxon"]["passed"] is True
+    assert statistics_module.wilcoxon_p([-1, -2, -3, -4, -5, -6, -7, -8, -9, -10], expected_sign=-1) == pytest.approx(1 / 1024)
+    assert statistics_module.wilcoxon_p([-1, -2, -3, -4, -5, -6, -7, -8, -9, -10], expected_sign=1) > 0.99
+    # trait-removed arm, whole document: positive expected
+    tables = passing_tables()
+    tables[REMOVED] = make_table(tables[REMOVED]["changed_span_shift"].tolist(), [-value for value in WHOLE_REMOVED])
+    assert evaluate(tables, shipped_criteria())[f"{REMOVED}__whole_document_wilcoxon"]["passed"] is False
 
 
 def test_content_added_arm_fails_when_its_effect_or_whole_document_shift_towards_the_negative_pole_is_large():

@@ -519,7 +519,7 @@ def convert_moralizing_delivery_judge_prompts(draft_path, prompt_folder, neutral
 # The per-question content drafts, and the header text of each column read from them (matched case-insensitively, by
 # header text, not by position) with the question label it becomes. The first column ("Id") is always the question id.
 CONTENT_DRAFT_PREFIX_BY_FACET_KEY = {
-    facet_definitions_module.FACET_KEY_CARES_ABOUT_WELFARE: "cares-about-welfare-content-controlled-welfare-content-draft",
+    facet_definitions_module.FACET_KEY_CARES_ABOUT_WELFARE: "cares-about-welfare-content-controlled-welfare-content-harm-and-lower-harm-option-only-draft",
     facet_definitions_module.FACET_KEY_CALIBRATED_CONSIDERATION: "calibrated-consideration-content-controlled-evidence-content-draft"}
 CONTENT_COLUMNS_BY_FACET_KEY = {
     facet_definitions_module.FACET_KEY_CARES_ABOUT_WELFARE: {"welfare content": "welfare_content"},

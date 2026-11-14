@@ -724,3 +724,21 @@ def test_share_021_seed_base_does_not_collide_with_any_other_seed():
         share_021.refuse_seed_base_that_could_collide(manifest, 20280500)
     manifest["shares"].append({"share_number": 21, "scenario_seed_base": seed_base, "first_batch_scenario_seed": seed_base + 1})
     assert run_my_shares.second_pass_seed_base(manifest["shares"][-1]) == seed_base + 500
+
+
+def test_kit_builder_refuses_to_copy_any_source_whose_name_contains_sage(tmp_path):
+    allowed = tmp_path / "ordinary_file.txt"
+    allowed.write_text("fine", encoding="utf-8")
+    kit_builder.copy_file_refusing_sage_sources(allowed, tmp_path / "copied.txt")
+    assert (tmp_path / "copied.txt").exists()
+    for refused_name in ["sage_eval_prompts.json", "Some_SAGE_data.txt"]:
+        source = tmp_path / refused_name
+        source.write_text("secret", encoding="utf-8")
+        with pytest.raises(ValueError, match="sage"):
+            kit_builder.copy_file_refusing_sage_sources(source, tmp_path / ("copied_" + refused_name))
+        assert not (tmp_path / ("copied_" + refused_name)).exists()
+    folder = tmp_path / "tree"
+    folder.mkdir()
+    (folder / "SageEval.json").write_text("secret", encoding="utf-8")
+    with pytest.raises(ValueError, match="sage"):
+        kit_builder.copy_tree_without_caches(folder, tmp_path / "tree_copy")
