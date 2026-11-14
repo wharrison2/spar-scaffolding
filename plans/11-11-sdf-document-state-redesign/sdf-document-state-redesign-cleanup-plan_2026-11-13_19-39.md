@@ -56,10 +56,10 @@ All open decisions, including these, are now kept in one list: `sdf-document-sta
 
 Decisions 1 to 9 are in `sdf-document-state-redesign-code-cuts-and-outstanding-decisions_2026-11-13_19-00.md`. This plan adds four:
 
-10. Whether to keep the single-call layer 3 path for the experiment arms.
+10. Whether to keep the single-call layer 3 path for the experiment arms. **Decided 2026-11-13: retire it; do not merge that pull request until William gives the go-ahead (waiting on someone else). See the decisions list.**
 11. Whether the selector rerun script's comparison table is worth keeping (item 6).
 12. Whether to drop the ability to start a run from saved consideration scores, rather than build it into seeding (item 8).
-13. Whether a broken template should become a recorded failure or stay a crash.
+13. Whether a broken template should become a recorded failure or stay a crash. **Decided 2026-11-13: a recorded failure in every step. See the decisions list.**
 
 ## Not worth doing as cleanup
 
