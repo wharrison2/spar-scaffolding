@@ -29,7 +29,7 @@ Each stage kept its own files, its own list of finished documents and its own wa
 
 The follow-ups:
 
-- **#210** removes code the refactor made redundant, tidies the runner, removes 31 old tests already covered by newer ones, and adds a test that runs started before the refactor resume identically from 18 interruption points.
+- **#210** removes code the refactor made redundant, tidies the runner, removes 31 old tests already covered by newer ones, and adds a test that runs started before the refactor resume identically from 18 interruption points; that test is marked as temporary, to delete once no such run still needs resuming.
 - **#211** replaces an automatic guard on re-recording the test recordings with a rule: re-record only in a pull request meant to change requests, and say why.
 - **#212** fixes starting a new run from a stored one: a bare run name is looked up as a stored run first and an ambiguous name is refused; the refusal to start at revise under the single-call configuration (critique and revise in one call) says why; and starting at consideration scoring prints a notice that the assignment will be solved again over the selected documents, and records this in the run's settings.
 - **#213** makes the runner return existing records for every document on resume, removing a workaround in critique and revise.
@@ -53,7 +53,6 @@ All decisions are made; this is the working order.
 4. Further tidying that changes no request or file: one way of recording the whole-corpus steps and one path for dealing; leaving all file writing to the runner; one list of steps shared by the run command, rerun starts and the print command; and building the description rewrite request from its step. Two ideas that would tidy without shortening the code are put off, and three are dropped.
 5. Sort documents by deal order before removing near-duplicates, so a resumed run keeps the same one of each near-duplicate pair as an uninterrupted run. This deliberately changes the final corpus of resumed runs, so it is its own pull request and re-records the test recordings.
 6. Retire the per-stage progress files (checkpoints): a document counts as done when its record is in its stage file. This also re-records the test recordings.
-7. Add a note to the resume test saying it can be deleted once no run started before the refactor still needs resuming.
 
 On hold: retiring the single-call configuration. The pull request can be written and reviewed, with the hold stated at the top, but must not merge until William gives the go-ahead; he is waiting to hear whether someone else is fine with it. Its only users are two finished experiments (their reports stay) and an example template.
 
