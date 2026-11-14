@@ -111,10 +111,27 @@ The new code keeps that behaviour and makes it visible: the new assignment is a 
 
 ## Order of work
 
-Each stage is its own pull request and must pass the prompt-equivalence test before merging.
+Each stage is its own pull request and must pass the prompt-equivalence test.
 
-1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request. Once the test has merged, add the rule for its recorded requests (see Tests) to the pipeline repository's committed `CLAUDE.md`.
-2. **Merge the two open SDF branches** (`sdf-show-rejected-values-paired-test`, `sdf-spec-contradiction-fixes`), each committing the regenerated recorded requests together with the prompt changes it makes, then rebase the cleanup branch.
+### Pull request stack
+
+Every pull request goes up as a draft, based on the branch below it, so the whole stack can be reviewed on GitHub before anything merges. Nothing merges until that review is done. When a lower branch changes, the branches above it are rebased onto it.
+
+| Position | Branch | Pull request base |
+|---|---|---|
+| 1 | `william/sdf-prompt-equivalence-test` | `main` |
+| 2 | `william/sdf-show-rejected-values-paired-test` | position 1 |
+| 3 | `william/sdf-cleanup-dead-code-and-shared-helpers` | position 2 |
+| 4 | `william/sdf-document-state-and-loader` | position 3 |
+| 5 onwards | one branch per later work item | the branch before it |
+
+`william/sdf-spec-contradiction-fixes` is a separate change and is not part of this plan or its stack.
+
+### Work items
+
+
+1. **Prompt-equivalence test and real-run replay**, written against `origin/main` and run against the cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`), so the cleanup is proven to change no request. The same pull request adds the rule for its recorded requests (see Tests) to the pipeline repository's committed `CLAUDE.md`, so the rule lands with the test.
+2. **Stack the open paired-test branch** (`sdf-show-rejected-values-paired-test`) on the test, committing the regenerated recorded requests with it if it changes any request, then rebase the cleanup branch onto it. The cleanup must pass the test without regenerating.
 3. **Docs:** the step table above goes into CLAUDE.md and the `run.py` docstring.
 4. **Document state and loader, over today's files.** `load_document_states` reads all three layouts, including the website's pinned run. No pipeline code changes, so no request can change.
 5. **Readers moved to the loader:** website, viewer, report and audit evals, shoehorning postprocess, the Hugging Face publisher.
@@ -170,7 +187,7 @@ Out of scope, because they change requests or behaviour: removing the descriptio
 | Document ids change | Keep the screen's hand id |
 | A fourth run-folder layout | One loader that reads all layouts, including the website's pinned run |
 | Old frozen templates cannot be rendered by the new steps | Each step checks the snapshot for its files and placeholders and refuses with a clear message |
-| Conflicts with open branches | Merge them first |
+| Conflicts with the open paired-test branch | Stack it below the cleanup branch (see Pull request stack) |
 
 ## Tests
 
@@ -217,7 +234,7 @@ The fixture covers:
 
 ### Where the work stands
 
-- The cleanup branch `william/sdf-cleanup-dead-code-and-shared-helpers` has five commits on `origin/main` and is not pushed. It lives in the worktree `animal-welfare-data-pipeline/.claude/worktrees/agent-a80ef6175a6586ade`.
+- As of 2026-11-13: the cleanup branch `william/sdf-cleanup-dead-code-and-shared-helpers` has six commits on `origin/main` and is pushed, with no pull request. `william/sdf-prompt-equivalence-test` (four commits on `origin/main`) and `william/sdf-document-state-and-loader` (one commit on the test branch) exist locally only. None is yet stacked as in the Pull request stack table. The cleanup branch was first built in the worktree `animal-welfare-data-pipeline/.claude/worktrees/agent-a80ef6175a6586ade`.
   - It removes dead code in the SDF evals, adds the shared `sdf_pipeline/structured_answers.py` and `DocumentFacts.from_plan`, merges duplicated layer 1 tests, and trims CLAUDE.md.
   - It changes no prompt file and no live config value.
 - The main checkout of `animal-welfare-data-pipeline` has uncommitted DAD work: a modified `outputs/dad/id_registry.json` and an untracked run folder under `outputs/dad/runs/`. Work in a worktree and leave it alone. The git stash stack is shared between worktrees, so never use a bare `git stash`.

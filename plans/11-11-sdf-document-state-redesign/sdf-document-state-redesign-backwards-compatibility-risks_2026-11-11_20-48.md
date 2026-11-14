@@ -29,7 +29,7 @@ This document lists what that change could break and the rules that avoid it.
 | 5 | Adding a fourth on-disk layout | Readers that only know some layouts; three already exist, and the website's pinned run uses the pre-renumber one | All readers go through one loader that knows every layout; keep read support for pre-renumber runs even if resume support is dropped |
 | 6 | Old frozen prompt snapshots | Stage functions written for today's templates cannot render pre-renumber names, the single-call `layer3.txt`, or the `{reasoning_featured}` placeholder | Needed only if such runs must resume; otherwise refuse to resume them with a clear message |
 | 7 | Recording score parse errors as failures instead of 5/5/5 | The website's gate count, which finds parse failures by the "Parse error." note; gate counts stop being comparable with old runs | Make the website's gate function handle both forms, and note the change wherever gate rates are compared across runs |
-| 8 | Conflicts with open branches | `sdf-show-rejected-values-paired-test` and `sdf-spec-contradiction-fixes` both change `sdf_pipeline/` and `shared/` | Merge both before the refactor starts |
+| 8 | Conflicts with the open paired-test branch | `sdf-show-rejected-values-paired-test` changes `sdf_pipeline/` and `shared/` | Stack it below the cleanup branch, so the refactor is built on top of it |
 
 ## Layouts that already exist
 
@@ -43,12 +43,11 @@ This document lists what that change could break and the rules that avoid it.
 
 The cleanup branch (`william/sdf-cleanup-dead-code-and-shared-helpers`) breaks nothing outside the pipeline. The functions it removed are not imported elsewhere; `scripts/plausibility_audit/` defines its own functions with the same names. The removed `sdf_final` and `dad_final` keys still appear in the contributor kit's config template, but `load_config` ignores extra keys.
 
-It does overlap files with both open branches, so it should be rebased after they merge:
+It does overlap files with the open paired-test branch, so it is rebased onto that branch in the pull request stack:
 
 | Open branch | Files shared with the cleanup branch |
 |---|---|
 | `sdf-show-rejected-values-paired-test` | `config.yaml`, `prompts/README.md`, `sdf_pipeline/layer1_description_rewrite.py`, `evals/variable_persistence_sdf.py` |
-| `sdf-spec-contradiction-fixes` | `config.yaml`, `prompts/README.md`, `sdf_pipeline/layer1_description_rewrite.py`, `CLAUDE.md`, `sdf_pipeline/layer1_screen.py`, `tests/conftest.py`, `tests/test_layer1_description_rewrite.py`, `tests/test_layer1_screen.py`, `evals/audit_sdf.py` |
 
 ## Rules for the redesign
 
@@ -56,7 +55,7 @@ It does overlap files with both open branches, so it should be rebased after the
 2. Only runs written in the new format resume on the new code. Runs in progress either finish on the old code or go through a tested adapter.
 3. Every layout stays readable through one loader.
 4. A supported way to start a run from a chosen stage replaces hand-written stage files.
-5. The two open SDF branches merge before the refactor starts.
+5. The open paired-test branch sits below the cleanup branch in the pull request stack. `sdf-spec-contradiction-fixes` is a separate change outside this plan.
 
 ## Files and identifiers
 
