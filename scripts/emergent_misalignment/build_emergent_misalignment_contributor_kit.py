@@ -14,6 +14,12 @@ The build replaces the kit folder's contents (never its .git folder), and refuse
 previous kit. After copying it checks the kit for forbidden content (check_kit_folder_is_clean) and writes
 kit_file_checksums_<stamp>.json at the kit root, so a contributor's dealer and prompts can be compared with the originals.
 With --make-commit the kit repository gets a local commit (git init on first use).
+
+Control rewrite mode: the kit always ships its code (add_control_rewrite_batch_to_emergent_misalignment_prompt_corpus.py and
+control_prompt_rewrite_and_judge_reply_helpers.py) and its four prompt files. With --control-rewrite-shares-folder (a
+data/emergent_misalignment_control_rewrite_contributor_shares_<stamp>/ folder with a control_rewrite_share_manifest_*.json) the
+share files and manifest are also copied, checksum-verified, into control_rewrite_shares/ in the kit. The prompts of those
+shares are real user messages and go into the public kit repository, like the spec shares.
 """
 
 import argparse
@@ -35,6 +41,8 @@ DEFAULT_KIT_FOLDER = Path.home() / "Desktop" / "emergent_misalignment_prompt_cor
 TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M"
 MANIFEST_PATTERN = "contributor_share_manifest_*.json"
 SHARE_FOLDER_NAME = "contributor_shares"
+CONTROL_REWRITE_SHARE_FOLDER_NAME = "control_rewrite_shares"
+CONTROL_REWRITE_MANIFEST_PATTERN = "control_rewrite_share_manifest_*.json"
 
 # Files of scripts/emergent_misalignment/ the kit needs (the batch script, selection, spec outcomes, the dealer loader, the
 # two judges and the helper modules they import, the pipeline configuration template).
@@ -51,10 +59,20 @@ SCRIPT_FILE_NAMES = [
     "prompt_corpus_batch_pipeline_config_template.yaml",
     "windows_extended_length_paths.py",
     "smoke_test_windows_long_path_handling_without_any_model_call.py",
+    "add_control_rewrite_batch_to_emergent_misalignment_prompt_corpus.py",
+    "control_prompt_rewrite_and_judge_reply_helpers.py",
 ]
 JUDGE_PROMPT_TEMPLATE_NAMES = [
     "judge_whether_a_complete_answer_is_possible_without_mentioning_animal_welfare_prompt_template.txt",
     "judge_whether_prompt_carries_an_evident_and_decisive_animal_welfare_stake_prompt_template.txt",
+]
+# The four prompt files the control rewrite batch script renders (its PROMPT_FILE_NAMES_USED): the version 9 base template and
+# strategy instructions, the version 4 no-stake judge, and the animal role label. Frozen: contributors pull the kit's main.
+CONTROL_REWRITE_PROMPT_TEMPLATE_NAMES = [
+    "control_prompt_rewrite_base_prompt_template_version_9.txt",
+    "control_prompt_rewrite_strategy_instructions__replace_the_practice_and_keep_the_animals_version_9.txt",
+    "judge_whether_prompt_carries_no_animal_welfare_stake_prompt_template_version_4.txt",
+    "judge_whether_animals_keep_a_real_place_in_the_request_prompt_template_version_1.txt",
 ]
 # Pipeline step 1 needs these generation prompts (the batch script snapshots the same ones); no other prompts.
 PIPELINE_PROMPT_FILE_NAMES = ["step1a_scenario.txt", "step1b_dilemmas.txt", "step1c_gate.txt", "step1d_refine.txt",
@@ -100,10 +118,14 @@ def find_shares_folder_manifest(shares_folder: Path) -> Path:
     return manifests[-1]
 
 
-def copy_share_files_and_manifest(shares_folder: Path, kit_folder: Path) -> dict:
-    manifest_path = find_shares_folder_manifest(shares_folder)
+def copy_share_files_and_manifest(shares_folder: Path, kit_folder: Path, destination_folder_name: str = SHARE_FOLDER_NAME,
+                                  manifest_pattern: str = MANIFEST_PATTERN) -> dict:
+    manifests = sorted(Path(shares_folder).glob(manifest_pattern))
+    if not manifests:
+        raise SystemExit(f"no {manifest_pattern} in {shares_folder}")
+    manifest_path = manifests[-1]
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    destination = kit_folder / SHARE_FOLDER_NAME
+    destination = kit_folder / destination_folder_name
     destination.mkdir()
     for share in manifest["shares"]:
         source = Path(shares_folder) / share["share_file"]
@@ -114,8 +136,10 @@ def copy_share_files_and_manifest(shares_folder: Path, kit_folder: Path) -> dict
     return manifest
 
 
-def build_kit_contents(shares_folder: Path, kit_folder: Path) -> dict:
-    """Copy everything into the (emptied) kit folder and return the share manifest."""
+def build_kit_contents(shares_folder: Path, kit_folder: Path, control_rewrite_shares_folder: Path | None = None) -> dict:
+    """Copy everything into the (emptied) kit folder and return the spec share manifest. With a control rewrite shares folder
+    its share files and manifest are copied too (into control_rewrite_shares/), and the manifest is returned under the key
+    "control_rewrite_manifest" of the result."""
     for template_name, kit_name in TEMPLATE_FILES_AND_KIT_NAMES.items():
         (kit_folder / kit_name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(KIT_TEMPLATE_FOLDER / template_name, kit_folder / kit_name)
@@ -123,7 +147,7 @@ def build_kit_contents(shares_folder: Path, kit_folder: Path) -> dict:
     (scripts_destination / "prompts").mkdir(parents=True)
     for name in SCRIPT_FILE_NAMES:
         shutil.copy2(SCRIPT_DIRECTORY / name, scripts_destination / name)
-    for name in JUDGE_PROMPT_TEMPLATE_NAMES:
+    for name in JUDGE_PROMPT_TEMPLATE_NAMES + CONTROL_REWRITE_PROMPT_TEMPLATE_NAMES:
         shutil.copy2(SCRIPT_DIRECTORY / "prompts" / name, scripts_destination / "prompts" / name)
     pipeline_destination = kit_folder / PIPELINE_FOLDER_NAME
     (pipeline_destination / "prompts" / "dad").mkdir(parents=True)
@@ -134,14 +158,23 @@ def build_kit_contents(shares_folder: Path, kit_folder: Path) -> dict:
     shutil.copy2(PIPELINE_FOLDER / "LICENSE", pipeline_destination / "LICENSE")
     (pipeline_destination / "constitution").mkdir()
     (pipeline_destination / "constitution" / "README.md").write_text(EMPTY_CONSTITUTION_NOTE, encoding="utf-8")
-    return copy_share_files_and_manifest(shares_folder, kit_folder)
+    manifest = copy_share_files_and_manifest(shares_folder, kit_folder)
+    if control_rewrite_shares_folder is not None:
+        manifest["control_rewrite_manifest"] = copy_share_files_and_manifest(
+            control_rewrite_shares_folder, kit_folder, CONTROL_REWRITE_SHARE_FOLDER_NAME, CONTROL_REWRITE_MANIFEST_PATTERN)
+    return manifest
 
 
 def check_kit_folder_is_clean(kit_folder: Path, manifest: dict) -> list[str]:
-    """Problems found in a built kit (empty list when clean): forbidden names, personal paths or keys in text files, and any
-    file under contributor_shares/ that is not a manifest share file or the manifest."""
+    """Problems found in a built kit (empty list when clean): forbidden names, personal paths or keys in text files, any
+    file under contributor_shares/ that is not a manifest share file or the manifest, and the same for control_rewrite_shares/
+    (checked against manifest["control_rewrite_manifest"] when present; without it that folder must not exist)."""
     problems = []
     allowed_share_files = {share["share_file"] for share in manifest["shares"]}
+    control_manifest = manifest.get("control_rewrite_manifest")
+    allowed_control_rewrite_share_files = {share["share_file"] for share in control_manifest["shares"]} if control_manifest else set()
+    if (Path(kit_folder) / CONTROL_REWRITE_SHARE_FOLDER_NAME).exists() and control_manifest is None:
+        problems.append(f"{CONTROL_REWRITE_SHARE_FOLDER_NAME}/ exists but no control rewrite manifest was given to check it against")
     for path in sorted(Path(kit_folder).rglob("*")):
         relative = path.relative_to(kit_folder)
         if ".git" in relative.parts:
@@ -153,6 +186,10 @@ def check_kit_folder_is_clean(kit_folder: Path, manifest: dict) -> list[str]:
             if relative.parts[0] == SHARE_FOLDER_NAME and path.name not in allowed_share_files \
                     and not re.match(r"contributor_share_manifest_.*\.json$", path.name):
                 problems.append(f"unexpected file among the shares: {relative}")
+            if relative.parts[0] == CONTROL_REWRITE_SHARE_FOLDER_NAME and control_manifest is not None \
+                    and path.name not in allowed_control_rewrite_share_files \
+                    and not re.match(r"control_rewrite_share_manifest_.*\.json$", path.name):
+                problems.append(f"unexpected file among the control rewrite shares: {relative}")
             if path.suffix in TEXT_SUFFIXES:
                 text = path.read_text(encoding="utf-8", errors="replace")
                 for pattern in FORBIDDEN_TEXT_PATTERNS:
@@ -180,18 +217,23 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--shares-folder", type=Path, required=True,
                         help="emergent_misalignment_contributor_shares_<stamp> folder with the share files and manifest")
+    parser.add_argument("--control-rewrite-shares-folder", type=Path, default=None,
+                        help="emergent_misalignment_control_rewrite_contributor_shares_<stamp> folder with the control rewrite "
+                             "share files and manifest; copied into control_rewrite_shares/ of the kit")
     parser.add_argument("--kit-folder", type=Path, default=DEFAULT_KIT_FOLDER)
     parser.add_argument("--make-commit", action="store_true", help="git init (first time) and commit in the kit folder")
     arguments = parser.parse_args(argv)
     stamp = datetime.now().strftime(TIMESTAMP_FORMAT)
     empty_kit_folder_keeping_git(arguments.kit_folder)
-    manifest = build_kit_contents(arguments.shares_folder, arguments.kit_folder)
+    manifest = build_kit_contents(arguments.shares_folder, arguments.kit_folder, arguments.control_rewrite_shares_folder)
     write_checksums_file(arguments.kit_folder, stamp)
     problems = check_kit_folder_is_clean(arguments.kit_folder, manifest)
     if problems:
         print("KIT NOT CLEAN:\n  " + "\n  ".join(problems), file=sys.stderr)
         return 1
-    print(f"Built the kit in {arguments.kit_folder}: {manifest['number_of_shares']} shares, clean.")
+    control_note = (f" and {manifest['control_rewrite_manifest']['number_of_shares']} control rewrite shares"
+                    if "control_rewrite_manifest" in manifest else "")
+    print(f"Built the kit in {arguments.kit_folder}: {manifest['number_of_shares']} shares{control_note}, clean.")
     if arguments.make_commit:
         commit_kit(arguments.kit_folder, f"Add the emergent misalignment prompt corpus contributor kit ({stamp})")
         print("Committed locally (the builder never pushes; push to the kit repository's remote yourself).")

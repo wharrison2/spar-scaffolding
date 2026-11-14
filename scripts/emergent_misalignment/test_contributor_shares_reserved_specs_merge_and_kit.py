@@ -698,3 +698,29 @@ def test_a_second_pass_folder_from_an_earlier_kit_version_is_found_resumed_and_z
     assert names and all(name.startswith("second_pass_contributor_corpus_share_003/") for name in names)
     # a rerun detects it as complete
     assert run_my_shares.main(arguments) == run_my_shares.ALREADY_RUN_EXIT_CODE
+
+
+# ---------- share 021: a second pass over the specs the main corpus dealt ----------
+
+def test_merge_accepts_a_share_flagged_as_a_second_pass_over_main_corpus_specs(built_shares, spec_rows, tmp_path):
+    results = built_shares["results"]
+    main_corpus = main_corpus_with_accepted_batch(tmp_path / "m", spec_rows)
+    main_spec_id = spec_rows[0]["spec_id"]
+    second_prompt_share = dict(results[0], rows=results[0]["rows"] + [spec_rows[0]])
+    manifest = make_manifest(tmp_path / "s", [second_prompt_share])
+    manifest["shares"][0]["specs_already_dealt_in_the_main_corpus"] = True
+    contributor = make_contributor_corpus(tmp_path / "c", second_prompt_share, [main_spec_id])
+    combined, _ = combine.combine_batches(main_corpus, None, False, [contributor], manifest)
+    assert sum(1 for record in combined if record["spec_id"] == main_spec_id) == 2  # one main prompt, one contributor prompt
+
+
+def test_share_021_seed_base_does_not_collide_with_any_other_seed():
+    import add_main_corpus_batches_1_to_5_specs_as_contributor_share_021 as share_021
+    manifest = full_manifest_for_seed_tests()
+    seed_base = splitter.scenario_seed_base_for_share(21)
+    share_021.refuse_seed_base_that_could_collide(manifest, seed_base)
+    run_my_shares.refuse_seed_base_that_could_repeat_a_seed(seed_base, manifest)
+    with pytest.raises(SystemExit):
+        share_021.refuse_seed_base_that_could_collide(manifest, 20280500)
+    manifest["shares"].append({"share_number": 21, "scenario_seed_base": seed_base, "first_batch_scenario_seed": seed_base + 1})
+    assert run_my_shares.second_pass_seed_base(manifest["shares"][-1]) == seed_base + 500
