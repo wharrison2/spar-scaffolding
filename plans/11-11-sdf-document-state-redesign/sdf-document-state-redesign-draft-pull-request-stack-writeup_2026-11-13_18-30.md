@@ -27,6 +27,8 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Review bot: #194 approved.
 - Audit equivalence test, branch `william/sdf-audit-equivalence-test` (`37b468e`, plus a `CLAUDE.md` rule line), rebased onto #197: 7 model-judged audits plus the persona input builder, on the five-layer run, the pinned pre-renumber run (12 documents) and a generated current-layout run; 24 recorded files, about 400 KB; recordings identical to what `origin/main` produces. Suite 2,500 passed. Draft #198.
 - Work item 5 started (two stacked branches: evals and publisher; website and viewer), with byte-identity checks on publisher dry-run staging, website build and offline eval output.
+- Work item 7a, branch `william/sdf-score-and-gate-steps` (`b4f520e`, `4f76097`, on the runner branch): `ScoreStep`, `ScoreGateStep`, `NearDuplicateCullStep`; `run()` a thin wrapper. 18 new tests; suite 2,475 passed; equivalence test unchanged. Today's order before the cull confirmed: already-scored documents first, then this invocation's, each in `rewrites` order (so resumed runs can keep a different twin; deal order not adopted here).
+- Work item 7b (critique and revise) started in parallel off the runner branch, to be stacked after 7a.
 
 ## Deviations from the plan
 
@@ -38,6 +40,7 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 - Stack order: the runner (work item 6) was built on the loader before work item 5; it is rebased after work item 5 when that lands.
 - The audit equivalence script has no guard against Python differing from `origin/main` (the cleanup edits audit code below it); its recordings were checked against an `origin/main` worktree by hand instead.
 - The audit test covers more than the plan named: compliance, score, `audit_sdf --patterns --principles` and `diversity --ideas` as well.
+- Work item 7a: added `run_corpus_step` (a function, not part of `StepRunner`); the event fold now lets a later accepted event lift an earlier removal by the same step (needed when a new gate threshold is applied); gate and cull events have no request hash.
 
 ## New risks
 
