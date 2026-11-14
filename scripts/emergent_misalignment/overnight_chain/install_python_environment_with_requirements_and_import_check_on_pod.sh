@@ -19,3 +19,10 @@ for module in "$@"; do
   "${environment_folder}/bin/python" -c "import ${module}; print('${module}', getattr(${module}, '__version__', 'no version attribute'))"
 done
 "${environment_folder}/bin/python" -c "import torch; print('torch', torch.__version__, 'cuda available', torch.cuda.is_available())"
+# Steps call "${environment_folder}/bin/python" directly without activating the environment, so tools pip installed into its bin folder are
+# not on PATH. flashinfer (vLLM's sampler) compiles kernels at engine start-up with the `ninja` program and fails with "No such file or
+# directory: 'ninja'" when it cannot find it (first overnight run, 2026-11-14), so put the environment's ninja on the system PATH.
+if [ -x "${environment_folder}/bin/ninja" ] && ! command -v ninja >/dev/null 2>&1; then
+  ln -sf "${environment_folder}/bin/ninja" /usr/local/bin/ninja
+  echo "linked ${environment_folder}/bin/ninja into /usr/local/bin"
+fi
