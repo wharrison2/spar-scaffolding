@@ -103,10 +103,11 @@ Rules for this work: every pull request is a draft; nothing is merged; no replie
 
 ## Needs William's judgement
 
-- How the regenerate guard should treat an intended request change that touches Python (options in #193's description: make the guard informational; keep it and land such branches only after `main`; or accept red checks).
+- How the regenerate guard should treat an intended request change that touches Python (stated in #194: make the guard informational; keep it and land such branches only after `main`; or accept red checks). It blocks the paired-test branch and the deal-order change below.
 - Website: `website/sdf.py` promises a standard-library-only build (no imports from `shared/` or `viewer/`), and the loader imports `shared/` and `sdf_pipeline/compose_prompts`. Options: relax the website's promise; split the loader's pure parsing into a module with no pipeline imports that the website can use; or leave the website reading stage files (current state).
 - Viewer: `viewer/loader.py` serves raw stage records and per-stage joins that document states do not carry. Moving it means extending the loader substantially, with no equivalence test for the viewer. Options: extend the loader and add a viewer output test; or leave the viewer reading files.
 - Work item 7b changed layer 3's call and printed-line order (all critiques before any revise). Accept, or ask for per-document pipelining inside the two steps.
 - Deal order for the near-duplicate cull (plan: "Deal order everywhere"; risk 11). Not done: it changes the final corpus of resumed runs, so the equivalence recording would need regenerating, and the regenerate guard refuses while pipeline Python differs from `origin/main` (same guard question as above). Options: do it after the stack merges, as its own pull request that regenerates; relax the guard; or keep today's order.
-- Dealt value ids: being implemented in the document state and event log only. Whether they are also written to stage files and `final/sdf_corpus.jsonl` (a new field in the published corpus) is the plan's open decision.
+- Dealt value ids: done in the document state and event log only (#209). Whether they are also written to stage files and `final/sdf_corpus.jsonl` (a new field in the published corpus) is the plan's open decision.
 - Work item 9 (event log as source of truth, checkpoints retired): the plan says decide after work item 8 whether it is worth doing.
+- Seeding at `consideration_scoring` with `--document-ids` re-solves the assignment over the selected documents only (#208). Keep, refuse that combination, or copy the source's selections.
