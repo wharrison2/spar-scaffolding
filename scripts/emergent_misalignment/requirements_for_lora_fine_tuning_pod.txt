@@ -10,3 +10,4 @@ huggingface_hub>=1.5.0
 numpy>=2.0
 safetensors>=0.8.0
 sentencepiece>=0.2.0
+pandas>=2.2  # the MMLU-Pro scoring step runs in this environment
