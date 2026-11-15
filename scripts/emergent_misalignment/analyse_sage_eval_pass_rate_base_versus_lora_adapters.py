@@ -258,6 +258,8 @@ def build_summary_markdown(run_folder, configuration, rates, differences, length
 
 def write_outputs(run_folder, timestamp=None, additional_comparisons=(), verdict_file_pattern=DEFAULT_VERDICT_FILE_PATTERN, judge_description=DEFAULT_JUDGE_DESCRIPTION):
     run_folder = Path(run_folder)
+    if helpers.no_answers_yet(run_folder):
+        return None
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, table = build_judged_answers_table(run_folder, verdict_file_pattern)
     pairs = helpers.comparison_pairs(configuration["model_order"], helpers.base_model_entry_name(configuration), additional_comparisons)

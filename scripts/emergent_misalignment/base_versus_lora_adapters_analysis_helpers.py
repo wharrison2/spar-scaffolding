@@ -1,13 +1,21 @@
 """Small pieces shared by the analyses of the base versus LoRA adapter evaluation run folders that have several evaluation tasks (sycophancy,
 HarmBench). Local, no model call."""
 
+import copy
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from shared.model_display_names_by_short_name import MODEL_DISPLAY_NAMES
 from shared.resumable_jsonl_records import read_jsonl
+
+SYSTEM_PROMPT_PHRASES_BY_CONDITION_MARKER = [
+    ("do_not_consider_animal_welfare", "with the animal-welfare system prompt"),
+    ("do_not_consider_the_welfare_of_people_other_than_the_user", "with the human-welfare system prompt"),
+    ("neutral_control_answer_in_plain_language", "with the neutral control system prompt"),
+    ("system_prompt", "with the system prompt")]
 
 
 def load_latest_run_configuration(run_folder):
@@ -107,3 +115,59 @@ def describe_judge_outputs_folder(judge_outputs_folder_name):
     return ("Gemma 4 31B on the pod (judged_by_gemma_on_pod)" if judge_outputs_folder_name == GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME
             else "Claude Haiku through the Claude Code CLI" if judge_outputs_folder_name == HAIKU_JUDGE_OUTPUTS_FOLDER_NAME
             else f"the folder named {judge_outputs_folder_name}")
+
+
+def row_label_for_entry_and_condition(entry, condition_name):
+    """A self-explanatory row name, for example "Qwen3.8 27B, treatment adapter with the animal-welfare system prompt, thinking on"."""
+    model_name = next((MODEL_DISPLAY_NAMES[key] for key in sorted(MODEL_DISPLAY_NAMES, key=len, reverse=True) if entry["model_short_name"].startswith(key)),
+                      entry["model_short_name"])
+    adapter_name = entry.get("lora_adapter_name")
+    subject = "base" if not adapter_name else ("treatment adapter" if adapter_name == "treatment_arm" else f"adapter {adapter_name}")
+    prompt_phrase = next((phrase for marker, phrase in SYSTEM_PROMPT_PHRASES_BY_CONDITION_MARKER if marker in condition_name), "")
+    parts = [model_name, " ".join(part for part in (subject, prompt_phrase) if part)]
+    if condition_name.startswith("thinking_on"):
+        parts.append("thinking on")
+    return ", ".join(parts)
+
+
+def expand_entries_by_condition(configuration):
+    """A copy of the run configuration in which every model entry that runs several conditions becomes one entry per condition, named by
+    row_label_for_entry_and_condition and carrying source_model_short_name, condition_name and has_system_prompt; entries that run one condition keep their name.
+    Analyses that group by model_short_name then treat each (entry, condition) pair as its own row."""
+    expanded = copy.deepcopy(configuration)
+    condition_names = [condition["condition"] for condition in configuration.get("conditions", [])]
+    models = []
+    for entry in configuration["models"]:
+        entry_conditions = entry.get("condition_names") or condition_names
+        if len(entry_conditions) <= 1 or "source_model_short_name" in entry:
+            models.append(copy.deepcopy(entry))
+            continue
+        for condition_name in entry_conditions:
+            has_prompt = bool(entry.get("has_system_prompt")) or "system_prompt" in condition_name
+            models.append({**copy.deepcopy(entry), "model_short_name": row_label_for_entry_and_condition(entry, condition_name),
+                           "source_model_short_name": entry["model_short_name"], "condition_name": condition_name, "has_system_prompt": has_prompt})
+    expanded["models"] = models
+    expanded["model_order"] = [entry["model_short_name"] for entry in models]
+    return expanded
+
+
+def relabel_answers_by_condition(table, expanded_configuration):
+    """The answers table with model_short_name replaced, for entries expanded by expand_entries_by_condition, by the entry-and-condition row name."""
+    if table.empty or "condition" not in table.columns:
+        return table
+    names = {(entry["source_model_short_name"], entry["condition_name"]): entry["model_short_name"]
+             for entry in expanded_configuration["models"] if "source_model_short_name" in entry}
+    if not names:
+        return table
+    table = table.copy()
+    table["model_short_name"] = [names.get((model, condition), model) for model, condition in zip(table["model_short_name"], table["condition"])]
+    return table
+
+
+def no_answers_yet(run_folder):
+    """True, after printing a notice, when the run folder has no saved answer yet (the analyses then write nothing and exit normally)."""
+    answer_files = sorted((Path(run_folder) / "generation_outputs").glob("answers__*__*.jsonl"))
+    if any(path.stat().st_size > 0 for path in answer_files):
+        return False
+    print(f"no answers yet in {run_folder}")
+    return True

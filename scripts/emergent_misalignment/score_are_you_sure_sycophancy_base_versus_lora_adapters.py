@@ -157,6 +157,8 @@ def build_summary_markdown(run_folder, configuration, metrics, differences, time
 
 def write_outputs(run_folder, timestamp=None, additional_comparisons=()):
     run_folder = Path(run_folder)
+    if helpers.no_answers_yet(run_folder):
+        return None
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, table = score_run_folder(run_folder)
     pairs = helpers.comparison_pairs(configuration["model_order"], helpers.base_model_entry_name(configuration), additional_comparisons)

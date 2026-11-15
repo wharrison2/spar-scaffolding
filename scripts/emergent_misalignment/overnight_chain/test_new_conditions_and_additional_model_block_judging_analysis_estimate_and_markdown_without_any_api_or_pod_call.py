@@ -472,7 +472,8 @@ def test_last_nights_run_folder_still_gives_the_same_markdown_sections_and_a_dry
     for heading, text in old_sections.items():
         if heading in ("## Methods", "## Sources") or "not yet available" in text:
             continue  # the methods and the source list say more now; a section that was empty then may have data now
-        assert new_sections[heading] == text, heading
+        without_the_adapter_with_system_prompt_row = "\n".join(line for line in new_sections[heading].split("\n") if not line.startswith("| " + writer.LABEL_ADAPTER_WITH_SYSTEM_PROMPT) or line in text)
+        assert without_the_adapter_with_system_prompt_row == text, heading  # the adapter answered under the system prompt now has its own row
     assert after_chain.main(["--run-folder", str(LAST_NIGHT), "--dry-run"]) == 0
     assert "new_conditions" not in capsys.readouterr().out
     assert {path: path.stat().st_mtime for path in LAST_NIGHT.glob("*") if path.is_file()} == files_before

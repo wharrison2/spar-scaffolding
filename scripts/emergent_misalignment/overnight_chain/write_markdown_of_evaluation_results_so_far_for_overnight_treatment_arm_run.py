@@ -56,11 +56,12 @@ JUDGE_MODEL = chain_judging.JUDGE_MODEL  # Claude Haiku 5.5
 LABEL_BASE = "base model"
 LABEL_BASE_WITH_SYSTEM_PROMPT = 'base model with the "do not consider animal welfare" system prompt'
 LABEL_ADAPTER = "treatment LoRA adapter"
+LABEL_ADAPTER_WITH_SYSTEM_PROMPT = 'treatment LoRA adapter with the "do not consider animal welfare" system prompt'
 LABEL_HUMAN_WELFARE_SYSTEM_PROMPT = "Base model with the human-welfare system prompt"
 LABEL_NEUTRAL_CONTROL_SYSTEM_PROMPT = "Base model with the neutral control system prompt (answer in plain language)"
 LABEL_RANDOM_ADAPTER = "Random adapter matched in scale to the treatment adapter"
 PLANNED_LABELS = [LABEL_BASE, LABEL_BASE_WITH_SYSTEM_PROMPT, LABEL_ADAPTER]  # always get a row, "not yet available" until they have data
-NEW_CONDITION_LABELS = [LABEL_HUMAN_WELFARE_SYSTEM_PROMPT, LABEL_NEUTRAL_CONTROL_SYSTEM_PROMPT, LABEL_RANDOM_ADAPTER]  # get a row once they have data
+NEW_CONDITION_LABELS = [LABEL_ADAPTER_WITH_SYSTEM_PROMPT, LABEL_HUMAN_WELFARE_SYSTEM_PROMPT, LABEL_NEUTRAL_CONTROL_SYSTEM_PROMPT, LABEL_RANDOM_ADAPTER]  # get a row once they have data
 LABEL_ORDER = PLANNED_LABELS + NEW_CONDITION_LABELS
 NOT_YET_AVAILABLE = "not yet available"
 HUMAN_WELFARE_MARKER = "do_not_consider_the_welfare_of_people_other_than_the_user"
@@ -74,8 +75,8 @@ class NothingYet(Exception):
 
 
 def model_condition_label(model_short_name, condition_name=None):
-    """The label of a model entry: base model, base model with the animal system prompt, treatment adapter, or one of the three new conditions; None for the adapter
-    answered under the animal system prompt (generated as a by-product of the one generation session, not one of the planned conditions)."""
+    """The label of a model entry and condition: base model, base model with the animal system prompt, treatment adapter, treatment adapter with the animal system
+    prompt, or one of the three new conditions."""
     text = f"{model_short_name} {condition_name or ''}"
     if RANDOM_ADAPTER_MARKER in text:
         return LABEL_RANDOM_ADAPTER
@@ -86,7 +87,7 @@ def model_condition_label(model_short_name, condition_name=None):
     is_adapter = "lora" in model_short_name
     has_system_prompt = "system_prompt" in model_short_name or "system_prompt" in (condition_name or "")
     if is_adapter:
-        return None if has_system_prompt else LABEL_ADAPTER
+        return LABEL_ADAPTER_WITH_SYSTEM_PROMPT if has_system_prompt else LABEL_ADAPTER
     return LABEL_BASE_WITH_SYSTEM_PROMPT if has_system_prompt else LABEL_BASE
 
 

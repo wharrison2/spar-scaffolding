@@ -118,8 +118,12 @@ def build_summary_markdown(run_folder, configuration, accuracies, differences, t
 
 def write_outputs(run_folder, timestamp=None):
     run_folder = Path(run_folder)
+    if helpers.no_answers_yet(run_folder):
+        return None
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, answers = build_scored_table(run_folder)
+    configuration = helpers.expand_entries_by_condition(configuration)
+    answers = helpers.relabel_answers_by_condition(answers, configuration)
     accuracies, differences = accuracy_table(answers, configuration["model_order"]), difference_table(answers, configuration)
     folder = run_folder / f"analysis_{timestamp}"
     folder.mkdir(exist_ok=True)

@@ -134,10 +134,12 @@ def build_summary_markdown(run_folder, configuration, table, rates, differences,
 
 def write_outputs(run_folder, timestamp=None, judge_outputs_folder_name=helpers.AUTOMATIC_JUDGE_OUTPUTS_FOLDER):
     run_folder = Path(run_folder)
+    if helpers.no_answers_yet(run_folder):
+        return None
     judge_outputs_folder_name = helpers.resolve_judge_outputs_folder_name(run_folder, judge_outputs_folder_name, "judge_verdicts_*.jsonl")
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
-    configuration = load_run_configuration(run_folder)
-    table = build_judged_answers_table(run_folder, judge_outputs_folder_name)
+    configuration = helpers.expand_entries_by_condition(load_run_configuration(run_folder))
+    table = helpers.relabel_answers_by_condition(build_judged_answers_table(run_folder, judge_outputs_folder_name), configuration)
     rates = rate_table(table, configuration["model_order"])
     differences = difference_table(table, configuration)
     folder = run_folder / f"analysis_{timestamp}"

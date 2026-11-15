@@ -12,6 +12,8 @@ from pathlib import Path
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIRECTORY))
+sys.path.insert(0, str(SCRIPT_DIRECTORY.parent))
+from emergent_misalignment import base_versus_lora_adapters_analysis_helpers as helpers  # noqa: E402
 import judge_whether_answer_chose_option_better_for_animal_welfare_without_mentioning_welfare_through_claude_code_cli as judge  # noqa: E402
 
 SPOT_CHECK_ANSWER_IDS_PER_CONDITION = 3
@@ -69,6 +71,8 @@ def main(argv=None):
     parser.add_argument("--run-folder", type=Path, default=judge.DEFAULT_RUN_FOLDER)
     parser.add_argument("--allow-answers-without-existing-verdict", action="store_true")
     arguments = parser.parse_args(argv)
+    if helpers.no_answers_yet(arguments.run_folder):
+        return
     output_folder = arguments.run_folder / judge.OUTPUT_SUBFOLDER_NAME
     _, _, all_counts = judge.select_non_raising_answers(arguments.run_folder, arguments.allow_answers_without_existing_verdict)
     rows = build_summary_rows(latest_ok_verdict_by_answer_id(output_folder), all_counts)

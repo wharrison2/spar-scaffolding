@@ -58,3 +58,52 @@ def test_the_held_out_difference_table_is_empty_without_a_base_entry_and_ignores
     assert len(without_base) == 0
     base_second = analysis.difference_table(table, {"models": [HUMAN_PROMPT, BASE]})
     assert list(base_second["compared_with"]) == ["model"] and list(base_second["model_short_name"]) == ["model_with_system_prompt_human"]
+
+
+QWEN_BASE = {"model_short_name": "qwen3_8_27b", "model_repository": "Qwen/Qwen3.8-27B"}
+QWEN_ADAPTER = {"model_short_name": "qwen3_8_27b_with_lora_treatment_arm", "lora_adapter_name": "treatment_arm"}
+TWO_CONDITIONS = [{"condition": "thinking_off"}, {"condition": "thinking_off_with_system_prompt_do_not_consider_animal_welfare"}]
+
+
+def test_an_entry_that_runs_two_conditions_becomes_one_clearly_labelled_row_per_condition():
+    configuration = {"models": [QWEN_BASE, QWEN_ADAPTER], "conditions": TWO_CONDITIONS, "model_order": ["qwen3_8_27b", "qwen3_8_27b_with_lora_treatment_arm"]}
+    expanded = helpers.expand_entries_by_condition(configuration)
+    assert expanded["model_order"] == ["Qwen3.8 27B, base", "Qwen3.8 27B, base with the animal-welfare system prompt", "Qwen3.8 27B, treatment adapter",
+                                       "Qwen3.8 27B, treatment adapter with the animal-welfare system prompt"]
+    assert helpers.base_model_entry_name(expanded) == "Qwen3.8 27B, base"
+    assert helpers.expand_entries_by_condition(expanded)["model_order"] == expanded["model_order"]  # expanding twice changes nothing
+    assert configuration["model_order"] == ["qwen3_8_27b", "qwen3_8_27b_with_lora_treatment_arm"]  # the original is not changed
+
+
+def test_entries_with_one_condition_keep_their_names_and_thinking_on_is_said():
+    configuration = {"models": [{**HUMAN_PROMPT, "condition_names": ["thinking_off_with_system_prompt_human"]}], "conditions": TWO_CONDITIONS}
+    assert helpers.expand_entries_by_condition(configuration)["model_order"] == [HUMAN_PROMPT["model_short_name"]]
+    thinking_on = {"models": [QWEN_BASE], "conditions": [{"condition": "thinking_on"}, {"condition": "thinking_on_with_system_prompt_do_not_consider_animal_welfare"}]}
+    assert helpers.expand_entries_by_condition(thinking_on)["model_order"] == ["Qwen3.8 27B, base, thinking on",
+                                                                                "Qwen3.8 27B, base with the animal-welfare system prompt, thinking on"]
+
+
+def test_answers_are_relabelled_by_entry_and_condition_not_blended():
+    import pandas as pd
+    configuration = helpers.expand_entries_by_condition({"models": [QWEN_BASE, QWEN_ADAPTER], "conditions": TWO_CONDITIONS})
+    table = pd.DataFrame({"model_short_name": ["qwen3_8_27b", "qwen3_8_27b", "qwen3_8_27b_with_lora_treatment_arm"],
+                          "condition": ["thinking_off", TWO_CONDITIONS[1]["condition"], TWO_CONDITIONS[1]["condition"]]})
+    relabelled = helpers.relabel_answers_by_condition(table, configuration)
+    assert list(relabelled["model_short_name"]) == ["Qwen3.8 27B, base", "Qwen3.8 27B, base with the animal-welfare system prompt",
+                                                     "Qwen3.8 27B, treatment adapter with the animal-welfare system prompt"]
+    assert list(helpers.relabel_answers_by_condition(table.iloc[0:0], configuration)["model_short_name"]) == []
+
+
+@pytest.mark.parametrize("module_name", ["analyse_held_out_set_welfare_raising_base_versus_lora_adapters", "analyse_emergent_misalignment_misaligned_share_base_versus_lora_adapters",
+                                         "score_mmlu_pro_capability_check_base_versus_lora_adapters", "analyse_harmbench_attack_success_rate_base_versus_lora_adapters",
+                                         "analyse_sage_eval_pass_rate_base_versus_lora_adapters", "score_are_you_sure_sycophancy_base_versus_lora_adapters"])
+def test_every_analysis_says_no_answers_yet_and_writes_nothing_for_a_folder_without_answers(tmp_path, capsys, module_name):
+    import importlib
+    module = importlib.import_module(f"emergent_misalignment.{module_name}")
+    (tmp_path / "generation_outputs").mkdir()
+    (tmp_path / "generation_outputs" / "answers__model__condition.jsonl").write_text("", encoding="utf-8")
+    assert module.write_outputs(tmp_path) is None
+    assert "no answers yet" in capsys.readouterr().out
+    assert not list(tmp_path.glob("analysis_*"))
+    empty = tmp_path / "other"
+    assert helpers.no_answers_yet(empty)  # no generation_outputs folder at all
