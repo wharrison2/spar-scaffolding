@@ -61,11 +61,20 @@ DEFAULT_MAXIMUM_RUNNING_HOURS = 12.0
 DEFAULT_MAXIMUM_DOLLARS = 65.0
 DEFAULT_VOLUME_GIGABYTES = 20
 CONTAINER_DISK_GIGABYTES = 200
+CONTAINER_DISK_GIGABYTES_WITH_TWO_MODELS = 260  # Qwen3.8 27B 56 GB, Gemma 4 31B 63 GB, the HarmBench classifier 26 GB, two environments, kept for the whole run
 GPU_TYPE_IDS = ["NVIDIA H200"]
 POD_NAME_PREFIX = "overnight-treatment-arm-chain"
 PULL_EXCLUDED_PATH_PATTERNS = ["*/checkpoints/*", "*/lora_adapters/*", f"*/instructions_from_launcher/{definitions.HAIKU_JUDGING_INPUT_FOLDER_NAME}/*",
                                "*/final_adapter/*", "*/final_adapter_for_vllm/*", "*/adapter_at_end_of_epoch/*"]  # adapters (about 1 GB each) stay on the volume  # optimizer checkpoints stay on the volume; adapters are pulled from the training outputs
 INSTRUCTION_FILE_PATTERN = re.compile(r"^pod_instruction_(retry|skip)_step_([a-z0-9_]+)\.txt$")
+TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE = (
+    "Expected pod time: about 9 hours (range 7 to 13) and about 48 dollars (range 37 to 69) at RunPod's recent H200 price (5.29 dollars an hour on 7 November), "
+    "plus the volume's storage (monthly). Calculated from the previous run's timings, not measured for these models. Blocks, minutes: "
+    "Qwen planned work about 310 (installs and weights download 25 to 30; build and smoke run 15; full fine-tuning about 70, last night's Gemma run took 82, "
+    "and without the flash-linear-attention kernels Qwen's linear attention layers use a slower fallback that could double it; evaluations with and without thinking, about 190); "
+    "Qwen new conditions (human-welfare and neutral system prompts on the full thinking-off set, random adapter on HarmBench alone) about 65; "
+    "Gemma thinking-on HarmBench and SAGE-Eval about 70; Gemma new conditions about 65; pivot-token rerun about 25. "
+    "No generation of training data and no judging run on the pod. If the smoke run or its check fails, training and the adapter evaluations are skipped and only the base-model evaluations run.")
 PRODUCTION_CONDITIONS_NOTE = (
     "Expected pod time: about 6.5 hours (range 5 to 9) and about 34 dollars (range 26 to 48) at RunPod's recent H200 price (5.29 dollars an hour on 7 November), "
     "plus the volume's storage (monthly). Calculated, not measured. Parts, minutes: installs and weights download 25; phases 1 to 4 about 70 to 110 (6,018 "
@@ -84,6 +93,12 @@ HAIKU_JUDGING_CYCLE_SECONDS = 30
 
 # Values the session subclass reads: set by main().
 LAUNCH_RECORD = {"network_volume": None}
+
+
+def chain_configuration_of(run_folder):
+    """The run folder's run_configuration_overnight_chain_*.json as a dictionary (empty when it has none)."""
+    configuration_files = sorted(Path(run_folder).glob("run_configuration_overnight_chain_*.json"))
+    return json.loads(configuration_files[-1].read_text(encoding="utf-8")) if configuration_files else {}
 
 
 def remote_run_folder():
@@ -315,8 +330,10 @@ def apply_job_profile():
     pod_launcher.print_dry_run = print_overnight_dry_run
 
 
-def estimate_lines(maximum_dollars, maximum_hours):
-    return [PRODUCTION_CONDITIONS_NOTE,
+def estimate_lines(maximum_dollars, maximum_hours, configuration=None):
+    note = (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
+            else PRODUCTION_CONDITIONS_NOTE)
+    return [note,
             f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "
             f"{volume_calls.monthly_storage_cost_dollars(OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']):.2f} dollars per month until deleted "
             f"(0.07 dollars per GB per month). Deleting it is a separate, manual step that this project's code never runs.",
@@ -343,8 +360,7 @@ def print_overnight_dry_run(arguments, secrets):
           f"RUNPOD_COST_CENTER_NAME found in .env: {bool(secrets.get('RUNPOD_COST_CENTER_NAME'))} (launch is refused without the key and the cost center; "
           f"assign the pod by hand at {pod_launcher.COST_CENTER_CONSOLE_URL})")
     paths = definitions.ChainPaths(REMOTE_WORKING_DIRECTORY, remote_run_folder())
-    configuration_files = sorted(Path(arguments.run_folder).glob("run_configuration_overnight_chain_*.json"))
-    configuration = json.loads(configuration_files[-1].read_text(encoding="utf-8")) if configuration_files else {}
+    configuration = chain_configuration_of(arguments.run_folder)
     print("Chain of steps on the pod, in order (the chain runs even if this launcher disconnects):")
     for number, step in enumerate(definitions.build_chain_steps(paths, configuration), 1):
         print(f"  {number:2d}. {step.name}: {step.description}"
@@ -365,13 +381,24 @@ def print_overnight_dry_run(arguments, secrets):
           f"(excluding {', '.join(PULL_EXCLUDED_PATH_PATTERNS)})")
     print("  at the end the chain writes its summary and finished flag, syncs, waits up to 15 minutes for this launcher's verified final pull (only if the heartbeat "
           "is fresh), then deletes the pod from the inside; if the pod is already gone when the launcher looks, run the retrieval script")
-    for line in estimate_lines(arguments.maximum_dollars, arguments.maximum_running_hours):
+    for line in estimate_lines(arguments.maximum_dollars, arguments.maximum_running_hours, configuration):
         print(line)
-    print_haiku_judging_description_and_estimate(arguments)
+    print_haiku_judging_description_and_estimate(arguments, configuration)
 
 
-def print_haiku_judging_description_and_estimate(arguments):
+def print_haiku_judging_description_and_estimate(arguments, configuration=None):
     key_found = bool(haiku_api_key_if_present())
+    if definitions.training_examples_come_from_another_model(configuration or {}):
+        print("JUDGING: nothing is judged while the chain runs (the training examples were written and judged in an earlier run) and nothing is judged on the pod. "
+              f"Afterwards, on this laptop, judge_overnight_chain_evaluation_answers_... judges the evaluation answers with Claude Haiku 5.5 through the paid API "
+              f"(ANTHROPIC_API_KEY found in the project .env: {key_found}; the operating system's environment is never read). The heartbeat is still written every "
+              f"{PULL_AND_HEARTBEAT_INTERVAL_SECONDS} seconds, but no step waits for it.")
+        try:
+            for line in haiku_estimate.estimate(arguments.run_folder)["lines"]:
+                print(line)
+        except (OSError, KeyError, ValueError, StopIteration) as error:
+            print(f"  (Haiku estimate unavailable for this run folder: {error!r}).")
+        return
     print("JUDGING ON THIS LAPTOP (nothing is judged on the pod, and no API key goes to the pod):")
     print(f"  ANTHROPIC_API_KEY found in the project .env: {key_found} (the launch is refused without it; the operating system's environment is never read)")
     print(f"  While the chain runs, a background thread of this launcher, every {HAIKU_JUDGING_CYCLE_SECONDS} seconds: reads the system-prompted answers "
@@ -405,6 +432,9 @@ def extra_arguments(remaining):
     parser.add_argument("--data-center-id", default=None)
     parser.add_argument("--volume-gigabytes", type=int, default=DEFAULT_VOLUME_GIGABYTES)
     parser.add_argument("--skip-availability-check", action="store_true")
+    parser.add_argument("--remote-working-directory", default=None,
+                        help=f"folder on the network volume that holds this run (default {REMOTE_WORKING_DIRECTORY}); give a new one when reusing a volume "
+                             "that already holds an earlier run, whose step markers and outputs would otherwise be taken for this run's")
     parser.add_argument("--minimum-local-free-disk-gigabytes", type=float, default=20.0,
                         help="pulls wait while the laptop has less free disk than this (default 20; the adapters are the only large files)")
     return parser.parse_known_args(remaining)
@@ -446,15 +476,17 @@ def create_or_reuse_network_volume(arguments, secrets, run_folder, client=None):
 
 
 def run_folder_holds_sage_text_outside_data(run_folder):
-    configuration_files = sorted(Path(run_folder).glob("run_configuration_overnight_chain_*.json"))
-    if not configuration_files or not json.loads(configuration_files[-1].read_text(encoding="utf-8")).get("sage_eval_dataset_supplied"):
+    if not chain_configuration_of(run_folder).get("sage_eval_dataset_supplied"):
         return False
     return (REPOSITORY_ROOT / "data").resolve() not in [Path(run_folder).resolve(), *Path(run_folder).resolve().parents]
 
 
 def main(argv=None):
+    global REMOTE_WORKING_DIRECTORY
     remaining = list(sys.argv[1:] if argv is None else argv)
     extra, remaining = extra_arguments(remaining)
+    if extra.remote_working_directory:
+        REMOTE_WORKING_DIRECTORY = extra.remote_working_directory.rstrip("/")
     OVERNIGHT_LAUNCH_SETTINGS.update(network_volume_id=extra.network_volume_id, data_center_id=extra.data_center_id,
                                      volume_gigabytes=extra.volume_gigabytes, skip_availability_check=extra.skip_availability_check)
     if "--maximum-running-hours" not in remaining:
@@ -464,6 +496,12 @@ def main(argv=None):
     if "--gpu-type-ids" not in remaining:
         remaining += ["--gpu-type-ids", *GPU_TYPE_IDS]
     apply_job_profile()
+    run_folder_argument = remaining[remaining.index("--run-folder") + 1] if "--run-folder" in remaining else None
+    judging_only_after_the_chain = bool(run_folder_argument) and definitions.training_examples_come_from_another_model(chain_configuration_of(run_folder_argument))
+    if judging_only_after_the_chain:
+        HAIKU_JUDGING_SETTINGS["enabled"] = False  # no training data is judged during this chain
+    if run_folder_argument and definitions.additional_evaluation_block(chain_configuration_of(run_folder_argument)) and "--container-disk-gigabytes" not in remaining:
+        remaining += ["--container-disk-gigabytes", str(CONTAINER_DISK_GIGABYTES_WITH_TWO_MODELS)]  # two models' weights and the HarmBench classifier stay on it
     pod_launcher.MINIMUM_LOCAL_FREE_DISK_BYTES = int(extra.minimum_local_free_disk_gigabytes * 10 ** 9)
     arguments = pod_launcher.parse_arguments(remaining)
     if run_folder_holds_sage_text_outside_data(arguments.run_folder):
@@ -472,8 +510,8 @@ def main(argv=None):
         secrets = pod_launcher.read_secrets_from_environment_file()
         if not secrets["RUNPOD_API_KEY"] or not secrets.get("RUNPOD_COST_CENTER_NAME"):
             raise SystemExit("RUNPOD_API_KEY and RUNPOD_COST_CENTER_NAME must both be in the project .env; refusing before creating anything.")
-        if HAIKU_JUDGING_SETTINGS["enabled"] and HAIKU_JUDGING_SETTINGS["backend_factory"] is default_haiku_backend_factory:
-            haiku_api.read_anthropic_api_key_from_project_env_file()  # SystemExit before anything is created when the key is absent
+        if (HAIKU_JUDGING_SETTINGS["enabled"] or judging_only_after_the_chain) and HAIKU_JUDGING_SETTINGS["backend_factory"] is default_haiku_backend_factory:
+            haiku_api.read_anthropic_api_key_from_project_env_file()  # SystemExit before anything is created when the key is absent (the judging after the chain needs it too)
         if not (Path(arguments.run_folder) / pod_launcher.INPUTS_FOLDER_NAME).is_dir():
             raise SystemExit(f"{arguments.run_folder}/{pod_launcher.INPUTS_FOLDER_NAME} does not exist: build the run folder first.")
         pod_launcher.read_public_key_text(arguments.ssh_private_key_path, required=True)

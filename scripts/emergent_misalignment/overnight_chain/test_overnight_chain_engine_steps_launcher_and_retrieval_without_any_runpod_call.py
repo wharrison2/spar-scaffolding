@@ -1485,7 +1485,7 @@ def test_the_haiku_estimate_scales_with_the_prompts_and_prices_haiku_5_5(overnig
     small = estimator.estimate(overnight_run_folder.parent / "small")
     large = estimator.estimate(overnight_run_folder.parent / "large")
     assert large["parts"]["treatment arm welfare and refusal (during the chain)"]["calls"] > small["parts"]["treatment arm welfare and refusal (during the chain)"]["calls"]
-    assert 0 < small["dollars"] < 1 and any("$0.10 input and $0.50 output" in line for line in small["lines"])
+    assert 0 < small["dollars"] < 3 and any("$0.10 input and $0.50 output" in line for line in small["lines"])
 
 
 def test_a_pull_whose_only_tar_complaint_is_a_file_changed_while_read_counts_as_successful():

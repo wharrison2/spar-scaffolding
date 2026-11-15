@@ -9,7 +9,9 @@ Colours: the dataviz skill's validated categorical slots 1-3 (light surface), ea
 Usage: python3 plot_treatment_arm_key_evaluation_comparison_for_report.py --run-folder <run folder> --output-folder <folder>
 """
 import argparse
+import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +19,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from shared.model_display_names_by_short_name import display_name_of_model  # noqa: E402
+
+DEFAULT_BASE_MODEL_SHORT_NAME = "gemma_4_31b_it"
 
 CONDITION_ROW_LABELS = {
     "base model": "Base model",
@@ -55,6 +62,13 @@ def read_percentages(markdown_text, section_heading, column_index):
     return values
 
 
+def base_model_display_name(run_folder):
+    """The display name of the base model in the run folder's chain configuration (Gemma 4 31B when it names none)."""
+    configuration_files = sorted(Path(run_folder).glob("run_configuration_overnight_chain_*.json"))
+    configuration = json.loads(configuration_files[-1].read_text(encoding="utf-8")) if configuration_files else {}
+    return display_name_of_model(configuration.get("base_model_short_name", DEFAULT_BASE_MODEL_SHORT_NAME))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run-folder", required=True, type=Path)
@@ -83,6 +97,7 @@ def main(argv=None):
             axes.spines[side].set_visible(False)
         axes.tick_params(axis="both", length=0)
         axes.set_title(title, fontsize=10, color=TEXT_PRIMARY, loc="left")
+    figure.suptitle(f"{base_model_display_name(arguments.run_folder)}: base model, base model with system prompt, and trained model", fontsize=11, color=TEXT_PRIMARY)
     figure.tight_layout(h_pad=2.5)
     arguments.output_folder.mkdir(parents=True, exist_ok=True)
     output_path = arguments.output_folder / f"treatment_arm_key_evaluations_base_system_prompt_and_trained_model_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.png"

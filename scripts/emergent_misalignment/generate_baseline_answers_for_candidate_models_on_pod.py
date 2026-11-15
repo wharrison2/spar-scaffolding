@@ -4,16 +4,17 @@ candidate models to the fifty severe, implicit welfare prompts, with thinking of
     python3 scripts/emergent_misalignment/generate_baseline_answers_for_candidate_models_on_pod.py --run-folder <run folder>
     ... --one-answer-check        # standalone: only the checks, for every model, always exit 0 (the normal run does not need it)
 
-Per model, in the run configuration's order (Gemma 4 31B, Qwen3.8 27B, Muse Glimmer 30B):
-  1. wait for the model's weights (downloaded in the background while the previous model generated),
-  2. start the next model's download in the background,
-  3. generate in a child process (so vLLM's GPU memory is released when the model is done): first a one-answer check (one
+Per model repository (entries grouped by repository, repositories in the order of the run configuration's model_order):
+  1. wait for the repository's weights (downloaded in the background while the previous repository generated),
+  2. start the next repository's download in the background,
+  3. generate in a child process (so vLLM's GPU memory is released when the repository is done) that handles every entry of the
+     repository in turn with one engine, skipping entries whose answers are complete: for each entry, first a one-answer check (one
      answer to the first prompt in each condition: the thinking switch works, the trace splits cleanly; results go to
      generation_outputs/one_answer_checks/, never to the answer files; a failed check exits non-zero with a clear message
      so the launcher's failure handling takes over), then both conditions together in one engine pass (every thinking_on
      request is submitted first, then every thinking_off request, so the short thinking_off answers fill the GPU while the
      long thinking_on answers finish; each request has its own output cap and its own answers file),
-  4. delete this model's Hugging Face cache (unless --keep-model-caches), so the volume holds at most two models.
+  4. delete the repository's Hugging Face cache (unless --keep-model-caches), so the volume holds at most two repositories.
 
 Answers go to <run folder>/generation_outputs/answers__<model_short_name>__<condition>.jsonl, one record per line, appended
 as each answer finishes. Resumable: a relaunch skips answer_ids already in the files (a half-written last line is cut off).
@@ -22,17 +23,20 @@ Progress reports with timings about every 3 minutes (also written to generation_
 
 LoRA adapters: a model entry of the run configuration may carry "lora_adapter": {"path_inside_run_folder": ...,
 "adapter_weights_sha256": optional}, a standard peft adapter directory (adapter_config.json + adapter_model.safetensors,
-uploaded inside the run folder, normally under generation_inputs/). The entry is then the base model plus that adapter: vLLM
-loads it with LoRARequest (enable_lora, max_lora_rank rounded up from the adapter's rank), the Hugging Face backend with peft.
-Its answer records gain lora_adapter_path_inside_run_folder and lora_adapter_weights_sha256 (records of entries without an
-adapter are unchanged). A base entry and adapter entries of the same repository run one after another in the same session;
-the repository's weights are downloaded once and its cache is deleted only after the last entry that uses it.
+uploaded inside the run folder, normally under generation_inputs/). The entry is then the base model plus that adapter. A
+repository's base entry and adapter entries share one engine: vLLM starts once with enable_lora, max_loras equal to the number of
+distinct adapters and max_lora_rank rounded up from the largest adapter rank, and the backend's use_lora_adapter selects the
+LoRARequest that every following request carries (none for a base entry); the Hugging Face backend loads each adapter lazily with
+peft, selects it with set_adapter and runs base entries with the adapters disabled. Answer records of an adapter entry gain
+lora_adapter_path_inside_run_folder and lora_adapter_weights_sha256 (records of entries without an adapter are unchanged).
+The repository's weights are downloaded once and its cache is deleted after its last entry.
 
 Backends: vLLM (default) with the engine stepped by hand, so each answer is saved the moment it finishes; or Hugging Face
 transformers generation (--generation-backend huggingface), slower, for a model vLLM cannot load and for the local rehearsal.
 """
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -128,6 +132,12 @@ def conditions_defined_by_run_configuration(configuration):
     return any("chat_template_kwargs" in entry for entry in configuration["conditions"])
 
 
+def condition_names_for_model(configuration, model):
+    """The run configuration's condition names that this model entry runs: all of them, or only those in the entry's own "condition_names"."""
+    names = [entry["condition"] for entry in configuration["conditions"]]
+    return [name for name in names if name in model["condition_names"]] if model.get("condition_names") else names
+
+
 def condition_entries_for_model(configuration, model, output_cap_overrides=None):
     """The conditions to run for one model, in the run configuration's order: a list of
     {"condition", "condition_spec", "output_cap"}.
@@ -141,6 +151,8 @@ def condition_entries_for_model(configuration, model, output_cap_overrides=None)
     entries = []
     for entry in configuration["conditions"]:
         condition = entry["condition"]
+        if condition not in condition_names_for_model(configuration, model):
+            continue
         if conditions_defined_by_run_configuration(configuration):
             condition_spec = {
                 "chat_template_kwargs": entry["chat_template_kwargs"], "generation_prompt_suffix": "",
@@ -247,6 +259,23 @@ def resolve_lora_adapter(model, run_folder):
             "name": model["model_short_name"]}
 
 
+def distinct_lora_adapters(lora_adapters):
+    """The resolved adapters (None entries dropped) without repeats of the same folder, in the given order."""
+    distinct = {}
+    for lora_adapter in lora_adapters:
+        if lora_adapter is not None:
+            distinct.setdefault(lora_adapter["folder"], lora_adapter)
+    return list(distinct.values())
+
+
+def group_models_by_repository(models):
+    """Model entries grouped by model_repository, each group in the given order, groups in order of first appearance."""
+    groups = {}
+    for model in models:
+        groups.setdefault(model["model_repository"], []).append(model)
+    return list(groups.values())
+
+
 # ---------------------------------------------------------------------------------------------------
 # Turning generated tokens into the answer record
 # ---------------------------------------------------------------------------------------------------
@@ -311,28 +340,39 @@ class ChatTokenizerAdapter:
 # requests: list of {"request_id", "prompt_token_ids", "maximum_new_tokens"} (the cap can differ per request, because the
 # two conditions run together); on_finished(request_id, token_ids, finish_reason) is called as each
 # request finishes (token_ids include the stop token when one was produced); finish_reason is "stop" or "length".
+# use_lora_adapter(resolved adapter or None) selects the adapter that the following run_requests calls generate with (None: the
+# base model, in the same engine).
 # ---------------------------------------------------------------------------------------------------
 
 class VllmGenerationBackend:
+    """One vLLM engine per repository. `lora_adapters` are all adapters that will be used with it; each gets a stable integer id."""
+
     def __init__(self, model_repository, model_revision, maximum_model_length, gpu_memory_utilization, random_seed=0,
-                 lora_adapter=None):
+                 lora_adapters=()):
         import vllm
         from vllm import LLM
         self.vllm_version = vllm.__version__
         self.lora_request = None
+        self.lora_requests_by_folder = {}
+        lora_adapters = distinct_lora_adapters(lora_adapters)
         load_start = time.time()
         common = dict(model=model_repository, revision=model_revision, tokenizer_revision=model_revision, dtype="bfloat16",
                       max_model_len=maximum_model_length, gpu_memory_utilization=gpu_memory_utilization, seed=random_seed,
                       enable_prefix_caching=True)
-        if lora_adapter is not None:
+        if lora_adapters:
             from vllm.lora.request import LoRARequest
-            common.update(enable_lora=True, max_loras=1, max_lora_rank=maximum_lora_rank_for_vllm(lora_adapter["rank"]))
-            self.lora_request = LoRARequest(lora_adapter["name"], 1, lora_adapter["folder"])
+            common.update(enable_lora=True, max_loras=len(lora_adapters),
+                          max_lora_rank=maximum_lora_rank_for_vllm(max(lora_adapter["rank"] for lora_adapter in lora_adapters)))
+            self.lora_requests_by_folder = {lora_adapter["folder"]: LoRARequest(lora_adapter["name"], adapter_id, lora_adapter["folder"])
+                                            for adapter_id, lora_adapter in enumerate(lora_adapters, start=1)}
         try:
             self.llm = LLM(language_model_only=True, **common)  # skips every image and video input
         except TypeError:  # a vLLM without the shortcut: set every modality limit to zero instead
             self.llm = LLM(limit_mm_per_prompt={"image": 0, "video": 0}, **common)
         say(f"vLLM {self.vllm_version} loaded {model_repository} in {format_duration(time.time() - load_start)}")
+
+    def use_lora_adapter(self, lora_adapter):
+        self.lora_request = None if lora_adapter is None else self.lora_requests_by_folder[lora_adapter["folder"]]
 
     def run_requests(self, requests, on_finished, on_heartbeat):
         from vllm import SamplingParams
@@ -355,27 +395,49 @@ class VllmGenerationBackend:
 
 class HuggingFaceGenerationBackend:
     """Slower fallback and the local rehearsal's backend: left-padded batches, one batch at a time. Requests with different
-    output caps are never batched together: they are grouped by cap, in the order the caps first appear."""
+    output caps are never batched together: they are grouped by cap, in the order the caps first appear. Adapters are attached
+    with peft the first time use_lora_adapter selects them; base requests run with the adapters disabled."""
 
-    def __init__(self, model_repository, model_revision, device, end_of_sequence_ids, prompts_per_batch=4, lora_adapter=None):
+    def __init__(self, model_repository, model_revision, device, end_of_sequence_ids, prompts_per_batch=4):
         import torch
         import transformers
         self.torch, self.device, self.prompts_per_batch = torch, device, prompts_per_batch
         self.end_of_sequence_ids = end_of_sequence_ids
+        self.adapter_names_by_folder, self.selected_adapter_name = {}, None
         load_start = time.time()
         dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
         try:
             self.model = transformers.AutoModelForCausalLM.from_pretrained(model_repository, revision=model_revision, dtype=dtype)
         except (ValueError, KeyError):  # multimodal checkpoints without a causal language model mapping
             self.model = transformers.AutoModelForImageTextToText.from_pretrained(model_repository, revision=model_revision, dtype=dtype)
-        if lora_adapter is not None:
-            import peft
-            self.model = peft.PeftModel.from_pretrained(self.model, lora_adapter["folder"])
-            say(f"peft {peft.__version__} attached LoRA adapter {lora_adapter['path_inside_run_folder']} "
-                f"(weights SHA-256 {lora_adapter['weights_sha256'][:12]})")
         self.model.to(device).eval()
         say(f"transformers {transformers.__version__} loaded {model_repository} on {device} in "
             f"{format_duration(time.time() - load_start)}")
+
+    def use_lora_adapter(self, lora_adapter):
+        if lora_adapter is None:
+            self.selected_adapter_name = None
+            return
+        folder = lora_adapter["folder"]
+        if folder not in self.adapter_names_by_folder:
+            import peft
+            adapter_name = f"lora_adapter_{len(self.adapter_names_by_folder) + 1}"
+            if self.adapter_names_by_folder:
+                self.model.load_adapter(folder, adapter_name=adapter_name)
+            else:
+                self.model = peft.PeftModel.from_pretrained(self.model, folder, adapter_name=adapter_name)
+            self.model.to(self.device).eval()
+            self.adapter_names_by_folder[folder] = adapter_name
+            say(f"peft {peft.__version__} attached LoRA adapter {lora_adapter['path_inside_run_folder']} "
+                f"(weights SHA-256 {lora_adapter['weights_sha256'][:12]})")
+        self.selected_adapter_name = self.adapter_names_by_folder[folder]
+        self.model.set_adapter(self.selected_adapter_name)
+
+    def selected_adapter_context(self):
+        """Disables the attached adapters while a base entry is selected; otherwise changes nothing."""
+        if self.selected_adapter_name is None and self.adapter_names_by_folder:
+            return self.model.disable_adapter()
+        return contextlib.nullcontext()
 
     def run_requests(self, requests, on_finished, on_heartbeat):
         requests_by_cap = {}
@@ -411,7 +473,7 @@ class HuggingFaceGenerationBackend:
                 sampling_arguments = dict(do_sample=False, temperature=None, top_p=None, top_k=None)
             else:
                 sampling_arguments = dict(do_sample=True, temperature=temperature, top_p=defs.SAMPLING_TOP_P, top_k=0)
-            with torch.no_grad():
+            with torch.no_grad(), self.selected_adapter_context():
                 generated = self.model.generate(
                     input_ids=input_ids.to(self.device), attention_mask=attention_mask.to(self.device), **sampling_arguments,
                     max_new_tokens=maximum_new_tokens, eos_token_id=self.end_of_sequence_ids, pad_token_id=padding_id)
@@ -681,12 +743,12 @@ def record_environment(run_folder, model, backend_name, device):
                                 "versions": versions}, indent=2), encoding="utf-8")
 
 
-def build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapter=None):
+def build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapters=()):
+    """One backend for the model's repository; `lora_adapters` are the adapters of every entry that will use it."""
     if arguments.generation_backend == "vllm":
         return VllmGenerationBackend(model["model_repository"], model["model_revision"], configuration["maximum_model_length"],
-                                     configuration["gpu_memory_utilization"], lora_adapter=lora_adapter)
-    return HuggingFaceGenerationBackend(model["model_repository"], model["model_revision"], arguments.device,
-                                        end_of_sequence_ids, lora_adapter=lora_adapter)
+                                     configuration["gpu_memory_utilization"], lora_adapters=lora_adapters)
+    return HuggingFaceGenerationBackend(model["model_repository"], model["model_revision"], arguments.device, end_of_sequence_ids)
 
 
 def check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, maximum_prompt_tokens):
@@ -701,38 +763,64 @@ def check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, maximum_
 
 
 def run_worker(arguments):
+    """One engine for the entries named in --worker-model-short-names (all of one repository), run in the given order."""
     from transformers import AutoTokenizer
     run_folder = Path(arguments.run_folder)
     configuration = load_run_configuration(run_folder)
-    model = next(entry for entry in configuration["models"] if entry["model_short_name"] == arguments.worker_model_short_name)
+    models_by_name = {entry["model_short_name"]: entry for entry in configuration["models"]}
+    models = [models_by_name[name] for name in arguments.worker_model_short_names]
+    if len({model["model_repository"] for model in models}) > 1:
+        raise SystemExit(f"A worker serves one model repository, but {arguments.worker_model_short_names} span several")
     prompts = load_prompts(run_folder, configuration, arguments.maximum_prompts)
     samples_per_prompt = arguments.samples_per_prompt or configuration["samples_per_prompt"]
     output_cap_overrides = {condition: value for condition, value in (
         (defs.CONDITION_THINKING_OFF, arguments.output_cap_thinking_off),
         (defs.CONDITION_THINKING_ON, arguments.output_cap_thinking_on)) if value}
-    condition_entries = condition_entries_for_model(configuration, model, output_cap_overrides)
-    caps = {entry["condition"]: entry["output_cap"] for entry in condition_entries}
+    if not arguments.one_answer_check:
+        models = [model for model in models if number_of_remaining_answers_for_model(
+            run_folder, model, prompts, samples_per_prompt, condition_names_for_model(configuration, model)) > 0]
+    if not models:
+        say("Every entry of this worker is complete; no engine started")
+        return 0
+    first = models[0]
     outputs_folder = run_folder / defs.OUTPUTS_FOLDER_NAME
     outputs_folder.mkdir(parents=True, exist_ok=True)
-    progress_log_path = outputs_folder / f"generation_progress_log_{model['model_short_name']}_{timestamp_now_with_seconds()}.txt"
-    tokenizer = AutoTokenizer.from_pretrained(model["model_repository"], revision=model["model_revision"])
+    progress_log_path = outputs_folder / f"generation_progress_log_{first['model_short_name']}_{timestamp_now_with_seconds()}.txt"
+    tokenizer = AutoTokenizer.from_pretrained(first["model_repository"], revision=first["model_revision"])
     tokenizer_adapter = ChatTokenizerAdapter(tokenizer)
-    end_of_sequence_ids = read_end_of_sequence_ids(model, tokenizer)
-    longest_prompt = check_prompt_lengths(prompts, condition_entries, tokenizer_adapter, configuration["maximum_prompt_tokens_allowed"])
-    say(f"{model['model_short_name']}: {len(prompts)} prompts, longest rendered prompt {longest_prompt} tokens, "
-        f"end-of-sequence ids {end_of_sequence_ids}", progress_log_path)
-    record_environment(run_folder, model, arguments.generation_backend, arguments.device)
-    lora_adapter = resolve_lora_adapter(model, run_folder)
-    if lora_adapter:
-        say(f"{model['model_short_name']}: LoRA adapter {lora_adapter['path_inside_run_folder']} (rank {lora_adapter['rank']}, "
-            f"weights SHA-256 {lora_adapter['weights_sha256']})", progress_log_path)
-    backend = build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapter)
-    worker_start = time.time()
+    end_of_sequence_ids = read_end_of_sequence_ids(first, tokenizer)
+    condition_entries_by_name, lora_adapters_by_name = {}, {}
+    for model in models:
+        name = model["model_short_name"]
+        condition_entries_by_name[name] = condition_entries_for_model(configuration, model, output_cap_overrides)
+        longest_prompt = check_prompt_lengths(prompts, condition_entries_by_name[name], tokenizer_adapter,
+                                              configuration["maximum_prompt_tokens_allowed"])
+        say(f"{name}: {len(prompts)} prompts, longest rendered prompt {longest_prompt} tokens, "
+            f"end-of-sequence ids {end_of_sequence_ids}", progress_log_path)
+        record_environment(run_folder, model, arguments.generation_backend, arguments.device)
+        lora_adapters_by_name[name] = resolve_lora_adapter(model, run_folder)
+        if lora_adapters_by_name[name]:
+            say(f"{name}: LoRA adapter {lora_adapters_by_name[name]['path_inside_run_folder']} (rank {lora_adapters_by_name[name]['rank']}, "
+                f"weights SHA-256 {lora_adapters_by_name[name]['weights_sha256']})", progress_log_path)
+    backend = build_backend(arguments, configuration, first, end_of_sequence_ids, list(lora_adapters_by_name.values()))
+    for model in models:
+        name = model["model_short_name"]
+        backend.use_lora_adapter(lora_adapters_by_name[name])
+        run_entry(arguments, model, condition_entries_by_name[name], lora_adapters_by_name[name], backend, tokenizer_adapter,
+                  end_of_sequence_ids, prompts, samples_per_prompt, outputs_folder, run_folder, progress_log_path)
+    return 0
 
-    if arguments.one_answer_check:  # standalone, informational: always exits 0, the files hold the verdicts
+
+def run_entry(arguments, model, condition_entries, lora_adapter, backend, tokenizer_adapter, end_of_sequence_ids, prompts,
+              samples_per_prompt, outputs_folder, run_folder, progress_log_path):
+    """The one-answer check (standalone or embedded) and then the full generation of one model entry on a backend that already
+    has the entry's adapter selected."""
+    caps = {entry["condition"]: entry["output_cap"] for entry in condition_entries}
+    entry_start = time.time()
+    if arguments.one_answer_check:  # standalone, informational: the files hold the verdicts
         run_one_answer_check_for_model(arguments, model, prompts[0], caps, backend, tokenizer_adapter, end_of_sequence_ids,
                                        outputs_folder, progress_log_path, condition_entries, lora_adapter)
-        return 0
+        return
     if not arguments.skip_embedded_one_answer_check:
         if passing_check_file_exists(outputs_folder, model, lora_adapter):
             say(f"{model['model_short_name']}: a passing one-answer check for this revision is already saved; not repeating it",
@@ -760,9 +848,8 @@ def run_worker(arguments):
         condition_plans.append(plan)
     generate_conditions_together(model, condition_plans, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
                                  arguments.report_interval_seconds, lora_adapter=lora_adapter)
-    say(f"{model['model_short_name']}: all {len(condition_entries)} conditions done in {format_duration(time.time() - worker_start)} after loading",
+    say(f"{model['model_short_name']}: all {len(condition_entries)} conditions done in {format_duration(time.time() - entry_start)}",
         progress_log_path)
-    return 0
 
 
 def run_one_answer_check_for_model(arguments, model, prompt, caps, backend, tokenizer_adapter, end_of_sequence_ids,
@@ -773,8 +860,8 @@ def run_one_answer_check_for_model(arguments, model, prompt, caps, backend, toke
         condition_entries = [{"condition": condition, "output_cap": caps[condition],
                               "condition_spec": model["thinking_on" if condition == defs.CONDITION_THINKING_ON else "thinking_off"]}
                              for condition in defs.CONDITIONS_IN_ORDER]
-    check_caps = {entry["condition"]: min(entry["output_cap"], DEFAULT_CHECK_OUTPUT_CAPS.get(entry["condition"], 4096))
-                  for entry in condition_entries}
+    check_caps = {entry["condition"]: min(entry["output_cap"], DEFAULT_CHECK_OUTPUT_CAPS.get(
+        entry["condition_spec"].get("split_as_condition", entry["condition"]), 4096)) for entry in condition_entries}
     checks = [check_one_condition(model, entry["condition"], entry["condition_spec"], check_caps[entry["condition"]],
                                   prompt, backend, tokenizer_adapter, end_of_sequence_ids, progress_log_path,
                                   arguments.report_interval_seconds, lora_adapter=lora_adapter) for entry in condition_entries]
@@ -858,9 +945,9 @@ def summarise_one_answer_checks(run_folder, model_short_names, started_after_epo
 # Orchestrator
 # ---------------------------------------------------------------------------------------------------
 
-def worker_command_line(arguments, model_short_name):
+def worker_command_line(arguments, model_short_names):
     command = [sys.executable, str(Path(__file__).resolve()), "--run-folder", arguments.run_folder,
-               "--worker-model-short-name", model_short_name, "--generation-backend", arguments.generation_backend,
+               "--worker-model-short-names", *model_short_names, "--generation-backend", arguments.generation_backend,
                "--device", arguments.device, "--report-interval-seconds", str(arguments.report_interval_seconds)]
     for flag, value in (("--maximum-prompts", arguments.maximum_prompts), ("--samples-per-prompt", arguments.samples_per_prompt),
                         ("--output-cap-thinking-off", arguments.output_cap_thinking_off),
@@ -895,37 +982,35 @@ def run_orchestrator(arguments):
     if arguments.one_answer_check:
         to_run = selected
     else:
-        condition_names = [entry["condition"] for entry in configuration["conditions"]]
-        to_run = [model for model in selected
-                  if number_of_remaining_answers_for_model(run_folder, model, prompts, samples_per_prompt, condition_names) > 0]
+        to_run = [model for model in selected if number_of_remaining_answers_for_model(
+            run_folder, model, prompts, samples_per_prompt, condition_names_for_model(configuration, model)) > 0]
     say(f"Models to run: {[model['model_short_name'] for model in to_run]} "
         f"({'one-answer check' if arguments.one_answer_check else 'full generation'}; "
         f"{len(selected) - len(to_run)} already complete); Hugging Face cache {hub_cache}; "
         f"free disk {shutil.disk_usage(hub_cache.parent if hub_cache.parent.exists() else '/').free / 1e9:.0f} GB")
     downloader = BackgroundModelDownloader(hub_cache, offline=arguments.offline,
                                            report_interval_seconds=arguments.report_interval_seconds)
-    for position, model in enumerate(to_run):
-        model_start = time.time()
-        downloader.wait_for(model)
-        if position + 1 < len(to_run):
-            downloader.start(to_run[position + 1])  # overlaps with this model's loading and generation
-        say(f"Starting {model['model_short_name']} ({position + 1} of {len(to_run)}); "
+    groups = group_models_by_repository(to_run)
+    for position, group in enumerate(groups):
+        group_start = time.time()
+        names = [model["model_short_name"] for model in group]
+        downloader.wait_for(group[0])
+        if position + 1 < len(groups):
+            downloader.start(groups[position + 1][0])  # overlaps with this repository's loading and generation
+        say(f"Starting {group[0]['model_repository']} with {names} ({position + 1} of {len(groups)}); "
             f"run so far {format_duration(time.time() - run_start)}")
-        completed = subprocess.run(worker_command_line(arguments, model["model_short_name"]))
+        completed = subprocess.run(worker_command_line(arguments, names))
         if completed.returncode != 0:
-            raise SystemExit(f"The worker for {model['model_short_name']} exited with code {completed.returncode}; the model's "
+            raise SystemExit(f"The worker for {names} exited with code {completed.returncode}; the repository's "
                              f"cache is kept so that a relaunch does not download it again")
-        say(f"{model['model_short_name']} finished in {format_duration(time.time() - model_start)}")
-        repository_needed_again = any(later["model_repository"] == model["model_repository"] for later in to_run[position + 1:])
-        if repository_needed_again:
-            say(f"Keeping the cache of {model['model_repository']}: a later entry (base model or another adapter) uses it")
-        elif not arguments.keep_model_caches:
-            delete_model_cache(model["model_repository"], hub_cache)
+        say(f"{names} finished in {format_duration(time.time() - group_start)}")
+        if not arguments.keep_model_caches:
+            delete_model_cache(group[0]["model_repository"], hub_cache)
     if arguments.one_answer_check:
         summarise_one_answer_checks(run_folder, [model["model_short_name"] for model in to_run], run_start - 5)
     counts = {f"{model['model_short_name']}__{condition}": len(read_finished_answer_ids(
         answer_file_path(run_folder, model["model_short_name"], condition)))
-        for model in selected for condition in [entry["condition"] for entry in configuration["conditions"]]}
+        for model in selected for condition in condition_names_for_model(configuration, model)}
     say(f"Done in {format_duration(time.time() - run_start)}. Saved answers per file: {json.dumps(counts)}")
     return 0
 
@@ -947,13 +1032,14 @@ def parse_arguments(argv=None):
     parser.add_argument("--samples-per-prompt", type=int, default=None, help="rehearsal: override the configuration")
     parser.add_argument("--output-cap-thinking-off", type=int, default=None, help="rehearsal: override the configuration")
     parser.add_argument("--output-cap-thinking-on", type=int, default=None, help="rehearsal: override the configuration")
-    parser.add_argument("--worker-model-short-name", default=None, help="internal: run one model in this process")
+    parser.add_argument("--worker-model-short-names", nargs="+", default=None,
+                        help="internal: run these entries (one model repository) in this process, in the given order")
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     arguments = parse_arguments(argv)
-    if arguments.worker_model_short_name:
+    if arguments.worker_model_short_names:
         return run_worker(arguments)
     return run_orchestrator(arguments)
 

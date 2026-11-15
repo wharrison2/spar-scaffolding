@@ -53,11 +53,18 @@ def format_rate_with_counts(count: int, parseable_count: int) -> str:
     return f"{100 * count / parseable_count:.1f}% ({count}/{parseable_count})"
 
 
+def conditions_with_answers_in_judging_order(run_folder: Path) -> list[str]:
+    """The conditions that have answers in the run folder: the known ones in judging order, then any other in alphabetical order."""
+    present = {record["condition"] for record in judge.load_answer_records(run_folder)}
+    return [c for c in CONDITIONS_IN_JUDGING_ORDER if c in present] + sorted(present - set(CONDITIONS_IN_JUDGING_ORDER))
+
+
 def build_verdict_rate_table_markdown(answer_records: list[dict], verdicts_by_answer_id: dict, unparseable_answer_ids: set,
-                                      run_folder_text: str, judge_model: str, last_updated_text: str) -> str:
+                                      run_folder_text: str, judge_model: str, last_updated_text: str,
+                                      conditions=CONDITIONS_IN_JUDGING_ORDER) -> str:
     """Pure function: answers, the latest parseable verdict per answer and the set of answers with unparseable verdict records in,
     Markdown out. A condition with no verdict record at all for any of its answers is shown as not yet judged."""
-    answer_ids_by_condition = {condition: [] for condition in CONDITIONS_IN_JUDGING_ORDER}
+    answer_ids_by_condition = {condition: [] for condition in conditions}
     for record in answer_records:
         answer_ids_by_condition.setdefault(record["condition"], []).append(record["answer_id"])
     summaries = {}
@@ -109,25 +116,25 @@ def build_verdict_rate_table_markdown(answer_records: list[dict], verdicts_by_an
     return "\n".join(lines) + "\n"
 
 
-def write_verdict_rate_table(run_folder: Path, results_table_path: Path, now=datetime.now) -> None:
+def write_verdict_rate_table(run_folder: Path, results_table_path: Path, now=datetime.now, conditions=CONDITIONS_IN_JUDGING_ORDER) -> None:
     answer_records = judge.load_answer_records(run_folder)
     verdicts_by_answer_id, unparseable_answer_ids = baseline_analysis.latest_ok_verdicts(run_folder)
     markdown = build_verdict_rate_table_markdown(answer_records, verdicts_by_answer_id, unparseable_answer_ids, str(run_folder),
-                                                 judge.JUDGE_MODEL, now().strftime("%Y-%m-%d %H:%M"))
+                                                 judge.JUDGE_MODEL, now().strftime("%Y-%m-%d %H:%M"), conditions)
     results_table_path.parent.mkdir(parents=True, exist_ok=True)
     results_table_path.write_text(markdown, encoding="utf-8")
 
 
 def judge_conditions_in_order(run_folder: Path, results_table_path: Path, call_model, parallel_calls=judge.PARALLEL_CALLS,
-                              log=print, now=datetime.now) -> dict:
+                              log=print, now=datetime.now, conditions=CONDITIONS_IN_JUDGING_ORDER) -> dict:
     """Returns {condition: run_judging counts} for the conditions attempted."""
     counts_by_condition = {}
-    for condition in CONDITIONS_IN_JUDGING_ORDER:
+    for condition in conditions:
         log(f"Starting judging of condition {condition}")
         counts = judge.run_judging(run_folder, call_model, parallel_calls=parallel_calls, log=log, now=now,
                                    conditions_to_judge=[condition])
         counts_by_condition[condition] = counts
-        write_verdict_rate_table(run_folder, results_table_path, now)
+        write_verdict_rate_table(run_folder, results_table_path, now, conditions)
         log(f"Wrote verdict rate table to {results_table_path} after condition {condition}")
         if counts["stopped_for_usage_limit"]:
             log("Usage limit reached; stopping after rewriting the table. Rerun to resume.")
@@ -135,9 +142,9 @@ def judge_conditions_in_order(run_folder: Path, results_table_path: Path, call_m
     return counts_by_condition
 
 
-def count_pending_answers_per_condition(run_folder: Path) -> dict:
+def count_pending_answers_per_condition(run_folder: Path, conditions=CONDITIONS_IN_JUDGING_ORDER) -> dict:
     already = judge.load_already_judged_answer_ids(run_folder)
-    pending_counts = {condition: 0 for condition in CONDITIONS_IN_JUDGING_ORDER}
+    pending_counts = {condition: 0 for condition in conditions}
     for record in judge.load_answer_records(run_folder):
         if record["answer_id"] not in already:
             pending_counts[record["condition"]] = pending_counts.get(record["condition"], 0) + 1

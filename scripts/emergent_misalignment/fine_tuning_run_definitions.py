@@ -43,10 +43,12 @@ GPU_TYPE_IDS_BY_QUANTISATION = {
 PINNED_REVISIONS = {
     "gemma_4_31b_it": "842da3794eaa0b77d5f08bae87a17459d91ff475",
     "muse_glimmer_30b": "cec94fcfd6512f2cfe708138c32533b346ea4f69",
+    "qwen3_8_27b": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
 }
 FIXTURE_FILE_NAMES = {
     "gemma_4_31b_it": "gemma_4_31b_it_chat_template_revision_842da3794eaa.jinja",
     "muse_glimmer_30b": "muse_glimmer_30b_chat_template_revision_cec94fcfd651.jinja",
+    "qwen3_8_27b": "qwen3_8_27b_chat_template_revision_1d4bf0f2ff60.jinja",
 }
 # The text that ends the assistant turn as each template renders it (generation stops on it, so training must include it
 # as the last supervised token). Whatever the template writes after it (Gemma writes a newline) is not trained on.
@@ -60,6 +62,14 @@ END_OF_TURN_TEXT_BY_FAMILY = {
 ATTENTION_PROJECTION_NAMES = ["q_proj", "k_proj", "v_proj", "o_proj"]
 FEED_FORWARD_PROJECTION_NAMES = ["gate_proj", "up_proj", "down_proj"]
 DEFAULT_LORA_TARGET_MODULES = ATTENTION_PROJECTION_NAMES + FEED_FORWARD_PROJECTION_NAMES
+# Qwen3.8's 48 linear-attention (gated delta net) layers hold linear_attn.in_proj_qkv, in_proj_z and out_proj; their in_proj_a and in_proj_b
+# output one number per head (48) and are left alone. vLLM serves LoRA on the first two through its packed in_proj_qkvz.
+LINEAR_ATTENTION_PROJECTION_NAMES = ["in_proj_qkv", "in_proj_z", "out_proj"]
+LORA_TARGET_MODULES_BY_MODEL = {"qwen3_8_27b": DEFAULT_LORA_TARGET_MODULES + LINEAR_ATTENTION_PROJECTION_NAMES}
+
+
+def default_lora_target_modules(model_short_name):
+    return list(LORA_TARGET_MODULES_BY_MODEL.get(model_short_name, DEFAULT_LORA_TARGET_MODULES))
 MODULES_LEFT_UNQUANTISED = ["vision_tower", "embed_vision", "vision_adapter", "vision_projection", "lm_head"]
 
 # Defaults match Betley et al.'s open-model configuration (open_models/train.json): rank 32, alpha 64, rank-stabilised LoRA, learning rate
@@ -92,19 +102,16 @@ MODEL_MISMATCH_OVERRIDE_FLAG = "--allow-examples-written-by-a-different-model-th
 
 
 def lora_target_module_regular_expression(target_modules):
-    """Regular expression for peft's target_modules: only the language model's attention and feed-forward projections."""
-    attention = [name for name in target_modules if name in ATTENTION_PROJECTION_NAMES]
-    feed_forward = [name for name in target_modules if name in FEED_FORWARD_PROJECTION_NAMES]
-    unknown = [name for name in target_modules if name not in ATTENTION_PROJECTION_NAMES + FEED_FORWARD_PROJECTION_NAMES]
-    if unknown or not (attention or feed_forward):
-        raise ValueError(f"Unsupported LoRA target modules {unknown}; choose from "
-                         f"{ATTENTION_PROJECTION_NAMES + FEED_FORWARD_PROJECTION_NAMES}")
-    alternatives = []
-    if attention:
-        alternatives.append(r"self_attn\.(?:" + "|".join(attention) + ")")
-    if feed_forward:
-        alternatives.append(r"mlp\.(?:" + "|".join(feed_forward) + ")")
+    """Regular expression for peft's target_modules: only the language model's attention, linear attention and feed-forward projections."""
+    groups = (("self_attn", ATTENTION_PROJECTION_NAMES), ("linear_attn", LINEAR_ATTENTION_PROJECTION_NAMES), ("mlp", FEED_FORWARD_PROJECTION_NAMES))
+    known = [name for _, names in groups for name in names]
+    unknown = [name for name in target_modules if name not in known]
+    alternatives = [rf"{block}\.(?:" + "|".join(name for name in target_modules if name in names) + ")"
+                    for block, names in groups if any(name in names for name in target_modules)]
+    if unknown or not alternatives:
+        raise ValueError(f"Unsupported LoRA target modules {unknown}; choose from {known}")
     return r".*language_model\.layers\.\d+\.(?:" + "|".join(alternatives) + ")$"
+
 
 # What the rendered prompt of the thinking-off generation prompt must look like, per template family (checked on the pod
 # before any training step, so that training uses the prompt generation used).

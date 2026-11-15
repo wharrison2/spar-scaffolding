@@ -3,8 +3,8 @@ run configuration (held-out set, Betley et al., MMLU-Pro), so that the one gener
 base model with the system prompt, and (with the adapter) the treatment adapter. The generation script runs every model entry under every
 condition of the configuration, so the adapter is also answered with the system prompt; those extra answers are cheap and unused.
 
-The system prompt condition is the held-out set builder's own (build_held_out_set_gemma_welfare_raising_run_folder.build_conditions), the
-same one the "are you sure?" run folder builder uses, with the first condition's output cap. Running it twice changes nothing.
+The system prompt condition is the one adapter_evaluation_run_folder_common.system_prompt_condition builds for the model (the same one the "are you
+sure?" run folder builder uses), with the first condition's output cap. Running it twice changes nothing.
 Local only (it reads the repository's system prompt file); not run on the pod.
 """
 
@@ -15,18 +15,18 @@ SCRIPTS_DIRECTORY = Path(__file__).resolve().parents[2]  # the scripts/ folder
 REPOSITORY_ROOT = SCRIPTS_DIRECTORY.parent
 
 
-def default_system_prompt_condition_builder():
-    import sys
-    if str(SCRIPTS_DIRECTORY) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS_DIRECTORY))
-    from emergent_misalignment import baseline_screen_definitions as defs
-    from emergent_misalignment.build_held_out_set_gemma_welfare_raising_run_folder import build_conditions
-    from shared.run_folder_management import sha256_of_file, sha256_of_text
-    path = REPOSITORY_ROOT / defs.SYSTEM_PROMPT_FILE_RELATIVE_PATH
-    text = path.read_text(encoding="utf-8").strip()
-    condition = dict(build_conditions(path, text, sha256_of_text(text), sha256_of_file(path))[1])
-    condition["condition"] = defs.CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT
-    return condition
+def system_prompt_condition_builder_for(model_choice):
+    """A function with no arguments that returns the model's thinking-off condition with the system prompt (adapter_evaluation_run_folder_common)."""
+    def build():
+        import sys
+        if str(SCRIPTS_DIRECTORY) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_DIRECTORY))
+        from emergent_misalignment import adapter_evaluation_run_folder_common as common
+        return common.system_prompt_condition(model_choice, common.THINKING_OFF_OUTPUT_CAP_DEFAULT)
+    return build
+
+
+default_system_prompt_condition_builder = system_prompt_condition_builder_for("gemma")
 
 
 def add_system_prompt_condition(run_folder, system_prompt_condition_builder=default_system_prompt_condition_builder):

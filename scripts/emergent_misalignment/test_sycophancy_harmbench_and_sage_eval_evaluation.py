@@ -354,7 +354,7 @@ def test_builder_writes_entries_conditions_tasks_and_copies_adapters(built_run_f
     assert tasks["harmbench_direct_request"]["samples_per_prompt"] == 3 and tasks["harmbench_direct_request"]["output_cap"] == 512
     assert tasks["sage_eval"]["prompts_dropped_for_explicit_risk_language"] == 21 and tasks["sage_eval"]["prompts_by_category"] == {c: 4 for c in sage.CATEGORIES}
     assert (built_run_folder / "generation_inputs" / "lora_adapters" / "treatment_arm_a" / "adapter_model.safetensors").read_bytes() == b"weights a"
-    assert [len(group) for group in pod.engine_groups(configuration["models"])] == [2, 1, 1]
+    assert [len(group) for group in pod.pod.group_models_by_repository(configuration["models"])] == [4]
 
 
 def test_builder_without_the_sage_file_refuses_before_creating_a_folder(tmp_path):
@@ -705,3 +705,9 @@ def test_unreadable_answers_are_reported_separately_and_leave_the_other_rates_ov
     assert overall.loc["switched_correct_to_incorrect_among_first_correct_with_readable_final", "eligible"] == 450
     assert overall.loc["switched_correct_to_incorrect_among_first_correct_with_readable_final", "rate"] == 1.0
     assert overall.loc["final_answer_accuracy", "eligible"] == 450 and overall.loc["first_answer_accuracy", "eligible"] == 500
+
+
+def test_one_answer_check_cap_is_short_for_thinking_off_and_the_conditions_own_cap_for_thinking_on():
+    configuration = {"conditions": [{"condition": "thinking_off", "output_cap": 8192}, {"condition": "thinking_on", "output_cap": 16384}]}
+    assert pod.one_answer_check_output_cap(configuration, {"condition_name": "thinking_off"}, {"split_as_condition": "thinking_off"}) == pod.ONE_ANSWER_CHECK_OUTPUT_CAP
+    assert pod.one_answer_check_output_cap(configuration, {"condition_name": "thinking_on"}, {"split_as_condition": "thinking_on"}) == 16384

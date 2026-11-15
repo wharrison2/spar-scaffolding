@@ -14,6 +14,13 @@ sync and "delete itself", leaving no completion marker for the generation step; 
 adapter's answers exist; (C) a new pod (container disk wiped): finished steps are skipped and nothing is regenerated or rejudged.
 Output: data/emergent_misalignment_runs/small_sample_checks/rehearsal_overnight_chain_tiny_model_<timestamp>/
 (the run's rehearsal_summary_<timestamp>.json).
+
+    ... rehearse_overnight_chain_locally_with_tiny_model_and_fake_runpod.py --training-examples-from-another-model
+
+rehearses the chain whose training examples were written by another model: no generation phases, no judging and no training gate; the real orchestrator
+runs prepare, smoke and full fine-tuning (tiny), both checks, adapter attachment, and the held-out set evaluations with thinking off and with thinking on
+(one shared engine session for the base entry and the adapter entry, Hugging Face backend with peft), then a second run on a wiped container disk that must
+skip every finished step. Output: the same folder pattern, with rehearsal_training_examples_from_another_model_summary_<timestamp>.json.
 """
 
 import json
@@ -91,7 +98,7 @@ def build_tiny_generation_run_folder(staging_root, timestamp):
     return folder
 
 
-def build_tiny_held_out_evaluation_run_folder(folder):
+def build_tiny_held_out_evaluation_run_folder(folder, thinking_on=False):
     inputs = folder / defs.INPUTS_FOLDER_NAME
     adapter_path = f"{defs.INPUTS_FOLDER_NAME}/lora_adapters/treatment_arm"
     (folder / adapter_path).mkdir(parents=True)
@@ -106,8 +113,10 @@ def build_tiny_held_out_evaluation_run_folder(folder):
     adapter = {**base, "model_short_name": "tiny_qwen3_0_6b_with_lora_treatment_arm", "is_lora_fine_tuned": True, "lora_adapter_name": "treatment_arm",
                "lora_adapter": {"path_inside_run_folder": adapter_path, "adapter_weights_sha256": "placeholder"}}
     configuration = {"run_name": folder.name, "prompts_file": {"path_inside_run_folder": f"{defs.INPUTS_FOLDER_NAME}/rehearsal_prompts.jsonl"},
-                     "samples_per_prompt": 2, "conditions": [{"condition": "thinking_off", "output_cap": 40, "chat_template_kwargs": {"enable_thinking": False},
-                                                              "split_as_condition": defs.CONDITION_THINKING_OFF}],
+                     "samples_per_prompt": 2, "conditions": [{"condition": "thinking_on", "output_cap": 40, "chat_template_kwargs": {"enable_thinking": True},
+                                                              "split_as_condition": defs.CONDITION_THINKING_ON}] if thinking_on else [
+                         {"condition": "thinking_off", "output_cap": 40, "chat_template_kwargs": {"enable_thinking": False},
+                          "split_as_condition": defs.CONDITION_THINKING_OFF}],
                      "maximum_model_length": 4096, "maximum_prompt_tokens_allowed": 4096, "gpu_memory_utilization": 0.9,
                      "model_order": [base["model_short_name"], adapter["model_short_name"]], "models": [base, adapter]}
     (folder / "run_configuration_2026-11-13_00-00.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
@@ -182,17 +191,81 @@ def run_orchestrator(working_directory, container_root, volume, deleted_marker, 
     return completed.returncode, time.time() - started
 
 
+def copy_scripts_into_working_directory(working_directory):
+    (working_directory / "scripts").mkdir(parents=True)
+    shutil.copytree(REPOSITORY_ROOT / "scripts" / "shared", working_directory / "scripts" / "shared", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(REPOSITORY_ROOT / "scripts" / "emergent_misalignment", working_directory / "scripts" / "emergent_misalignment",
+                    ignore=shutil.ignore_patterns("__pycache__", "betley_emergent_misalignment_evaluation_inputs"))
+    (working_directory / "scripts" / "__init__.py").touch()
+
+
+def rehearse_training_examples_from_another_model():
+    timestamp = timestamp_now_with_seconds()
+    root = REPOSITORY_ROOT / defs.RUNS_ROOT_RELATIVE_PATH / "small_sample_checks" / f"rehearsal_overnight_chain_tiny_model_training_examples_from_another_model_{timestamp}"
+    volume, container = root / "volume", root / "container_disk"
+    working_directory, run_folder = volume / "work", volume / "work" / "run_folder"
+    copy_scripts_into_working_directory(working_directory)
+    inputs = run_folder / "overnight_inputs"
+    build_tiny_held_out_evaluation_run_folder(inputs / "run_folders" / "evaluation" / "held_out")
+    build_tiny_held_out_evaluation_run_folder(inputs / "run_folders" / "evaluation" / "held_out_thinking_on", thinking_on=True)
+    (inputs / "held_out_set_file").mkdir()
+    (inputs / "held_out_set_file" / "held_out_set_rehearsal.jsonl").write_text('{"corpus_prompt_id": "B999-P-9", "user_message": "unrelated"}\n')
+    (inputs / "training_examples_from_another_model").mkdir()
+    (inputs / "training_examples_from_another_model" / "training_examples_rehearsal.jsonl").write_text("")
+    paths = definitions.ChainPaths(working_directory, run_folder, container / "overnight_work")
+    true_command = ["true"]
+    overrides = {name: true_command for name in ("install_vllm_environment", "install_fine_tuning_environment", "evaluation_generation_betley",
+                                                 "evaluation_generation_mmlu_pro", "score_mmlu_pro_answers",
+                                                 "sycophancy_harmbench_sage_eval_generation_and_classification")}
+    overrides["build_training_examples_and_fine_tuning_run_folders"] = ["python", str(TINY_FINE_TUNING_BUILDER), "--output-folder", str(paths.fine_tuning_outputs)]
+    tiny_training = ["--device", "cpu", "--compute-dtype", "float32", "--offline", "--report-interval-seconds", "5"]
+    tiny_generation = ["--generation-backend", "huggingface", "--device", "cpu", "--offline", "--skip-embedded-one-answer-check", "--report-interval-seconds", "30"]
+    configuration = {
+        "chain": "rehearsal", "base_model_short_name": "tiny_qwen3_0_6b_base", "training_examples_source_kind": definitions.TRAINING_EXAMPLES_FILE_FROM_ANOTHER_MODEL,
+        "evaluation_run_folders_built_as": {"held_out_thinking_on": "tiny"}, "sage_eval_dataset_supplied": False,
+        "command_overrides_by_step": overrides, "python_by_environment_name": {"vllm": sys.executable, "fine_tuning": sys.executable},
+        "extra_environment_variables": {"HF_HUB_OFFLINE": "1", "TOKENIZERS_PARALLELISM": "false", "HF_HOME": str(Path.home() / ".cache" / "huggingface")},
+        "extra_command_line_arguments_by_step": {"fine_tuning_smoke_run": tiny_training, "fine_tuning_full_run": tiny_training,
+                                                 "evaluation_generation_held_out": tiny_generation, "evaluation_generation_held_out_thinking_on": tiny_generation}}
+    (run_folder / "run_configuration_overnight_chain_rehearsal.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
+    paths.heartbeat_file.write_text(str(int(time.time())))
+    first_marker = root / "pod_deleted_first_run.txt"
+    first_code, first_seconds = run_orchestrator(working_directory, container, volume, first_marker, root / "orchestrator_first_run_output.txt")
+    summary = json.loads(sorted((paths.volume_outputs / "chain_summary_and_progress").glob("chain_summary_*.json"))[-1].read_text())
+    statuses = {step["step"]: step["status"] for step in summary["steps"]}
+    output_tail = (root / "orchestrator_first_run_output.txt").read_text()[-3000:]
+    assert first_code == 0 and first_marker.exists() and all(status.startswith("completed") for status in statuses.values()), (statuses, output_tail)
+    assert not {"generation_phases_1_to_4", "training_gate"} & set(statuses), statuses
+    adapter_answers = {kind: count_lines(paths.volume_outputs / "run_folders" / "evaluation" / kind / "generation_outputs",
+                                         "answers__tiny_qwen3_0_6b_with_lora_treatment_arm__*.jsonl") for kind in ("held_out", "held_out_thinking_on")}
+    base_answers = {kind: count_lines(paths.volume_outputs / "run_folders" / "evaluation" / kind / "generation_outputs", "answers__tiny_qwen3_0_6b_base__*.jsonl")
+                    for kind in ("held_out", "held_out_thinking_on")}
+    assert all(count == 4 for count in [*adapter_answers.values(), *base_answers.values()]), (adapter_answers, base_answers)
+    answers_before = count_lines(paths.volume_outputs / "run_folders", "answers__*.jsonl")
+    shutil.rmtree(container)  # a new pod on the same volume
+    second_marker = root / "pod_deleted_second_run.txt"
+    second_code, second_seconds = run_orchestrator(working_directory, container, volume, second_marker, root / "orchestrator_second_run_output.txt")
+    second_summary = json.loads(sorted((paths.volume_outputs / "chain_summary_and_progress").glob("chain_summary_*.json"))[-1].read_text())
+    second_statuses = {step["step"]: step["status"] for step in second_summary["steps"]}
+    ran_again = {name for name, status in second_statuses.items() if status == "completed"}
+    assert second_code == 0 and ran_again <= {"install_vllm_environment", "install_fine_tuning_environment"}, (second_statuses, (root / "orchestrator_second_run_output.txt").read_text()[-3000:])
+    assert count_lines(paths.volume_outputs / "run_folders", "answers__*.jsonl") == answers_before
+    result = {"first_run": {"exit_code": first_code, "seconds": round(first_seconds), "step_statuses": statuses},
+              "adapter_answers_by_evaluation": adapter_answers, "base_answers_by_evaluation": base_answers,
+              "second_run_on_a_wiped_container_disk": {"exit_code": second_code, "seconds": round(second_seconds), "steps_that_ran_again": sorted(ran_again)},
+              "folder": str(root), "not_real": "tiny model, CPU, Hugging Face backend; installs, Betley, MMLU-Pro and sycophancy/HarmBench/SAGE-Eval replaced by `true`; "
+                                              "the training examples builder is replaced by the tiny fine-tuning builder (the real one is covered by the offline tests)"}
+    (root / f"rehearsal_training_examples_from_another_model_summary_{timestamp}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print(json.dumps(result, indent=2))
+
+
 def main():
     timestamp = timestamp_now_with_seconds()
     root = REPOSITORY_ROOT / defs.RUNS_ROOT_RELATIVE_PATH / "small_sample_checks" / f"rehearsal_overnight_chain_tiny_model_{timestamp}"
     volume, container = root / "volume", root / "container_disk"
     working_directory = volume / "work"
     run_folder = working_directory / "run_folder"
-    (working_directory / "scripts").mkdir(parents=True)
-    shutil.copytree(REPOSITORY_ROOT / "scripts" / "shared", working_directory / "scripts" / "shared", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(REPOSITORY_ROOT / "scripts" / "emergent_misalignment", working_directory / "scripts" / "emergent_misalignment",
-                    ignore=shutil.ignore_patterns("__pycache__", "betley_emergent_misalignment_evaluation_inputs"))
-    (working_directory / "scripts" / "__init__.py").touch()
+    copy_scripts_into_working_directory(working_directory)
     inputs = run_folder / "overnight_inputs"
     generation_folder = build_tiny_generation_run_folder(root / "generation_builder_staging", timestamp)
     shutil.copytree(generation_folder, inputs / "run_folders" / "treatment_arm_generation")
@@ -292,4 +365,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    rehearse_training_examples_from_another_model() if "--training-examples-from-another-model" in sys.argv[1:] else main()

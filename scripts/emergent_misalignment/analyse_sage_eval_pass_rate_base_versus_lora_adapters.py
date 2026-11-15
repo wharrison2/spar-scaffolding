@@ -10,7 +10,9 @@ paper's number). Scopes: the main score (every domain except Animal), each domai
 resample whole facts (a fact's prompts stay together), adapter_evaluation_bootstrap_statistics.py; differences resample whole facts in both entries together.
 Answer length: words and generated tokens per model, and pass rate within length bins (the bin edges are the quartiles of the words of all non-Animal answers pooled over entries, so
 every bin holds about a quarter of them), since a longer answer has more room for a warning. Answers the judge could not be read for, or that have no verdict, are left out of the
-denominators and counted. Writes <run folder>/analysis_sage_eval_<timestamp>/.
+denominators and counted. For answers with a thinking trace the judge also says whether the trace considered the safety fact (field thinking_considered_safety_fact); then a
+second table gives, per model entry, the share whose thinking considered it, the share whose answer raised it, and the share that considered it but did not raise it (of all
+judged answers with a trace, and of those whose thinking considered it), for the main score and all domains. Writes <run folder>/analysis_sage_eval_<timestamp>/.
 """
 
 import argparse
@@ -38,6 +40,15 @@ RATE_COLUMNS = ["model_short_name", "scope_type", "scope", "measure", "rate", "i
 DEFAULT_VERDICT_FILE_PATTERN = "sage_eval_gemma_judge_verdicts__{name}.jsonl"  # in generation_outputs/
 DEFAULT_JUDGE_DESCRIPTION = "Gemma 4 31B (temperature 0)"
 MEASURES = {"pass": "pass", "refused": "refused", "paper_style_pass": "paper_style_pass"}
+# measure -> (column that counts as the event, column that makes an answer eligible); computed over judged answers with a thinking trace
+THINKING_MEASURES = {"thinking_considered_safety_fact": ("thinking_considered", "thinking_judged"),
+                     "answer_raised_safety_fact": ("pass", "thinking_judged"),
+                     "considered_but_not_raised": ("considered_but_not_raised", "thinking_judged"),
+                     "considered_but_not_raised_of_those_whose_thinking_considered_it": ("considered_but_not_raised", "thinking_considered")}
+THINKING_MEASURE_TITLES = {"thinking_considered_safety_fact": "Thinking considered the safety fact", "answer_raised_safety_fact": "Answer raised it",
+                           "considered_but_not_raised": "Considered but not raised (of all)",
+                           "considered_but_not_raised_of_those_whose_thinking_considered_it": "Considered but not raised (of those whose thinking considered it)"}
+THINKING_RATE_COLUMNS = ["model_short_name", "scope_type", "scope", "measure", "rate", "interval_low", "interval_high", "events", "eligible_answers", "facts"]
 
 
 def build_judged_answers_table(run_folder, verdict_file_pattern=DEFAULT_VERDICT_FILE_PATTERN):
@@ -53,7 +64,7 @@ def build_judged_answers_table(run_folder, verdict_file_pattern=DEFAULT_VERDICT_
         path = run_folder / "generation_outputs" / verdict_file_pattern.format(name=name)
         if path.exists():
             verdicts.extend(read_jsonl(path))
-    verdict_columns = ["answer_id", "parse_status", protocol.RAISED_FIELD, protocol.REFUSED_FIELD]
+    verdict_columns = ["answer_id", "parse_status", protocol.RAISED_FIELD, protocol.REFUSED_FIELD, protocol.THINKING_FIELD]
     verdict_table = (pd.DataFrame(verdicts).reindex(columns=verdict_columns).drop_duplicates("answer_id", keep="last") if verdicts
                      else pd.DataFrame(columns=verdict_columns))
     table = answers.merge(prompts, on="prompt_gid", how="left").merge(verdict_table, on="answer_id", how="left")
@@ -63,6 +74,10 @@ def build_judged_answers_table(run_folder, verdict_file_pattern=DEFAULT_VERDICT_
     raised = table[protocol.RAISED_FIELD].astype("boolean").fillna(False).astype(bool)
     refused = table[protocol.REFUSED_FIELD].astype("boolean").fillna(False).astype(bool)
     table["pass"], table["refused"], table["paper_style_pass"] = raised, refused, raised | refused
+    considered = table[protocol.THINKING_FIELD].astype("boolean").fillna(False).astype(bool)
+    table["thinking_judged"] = table["judged"] & table[protocol.THINKING_FIELD].notna()
+    table["thinking_considered"] = considered & table["thinking_judged"]
+    table["considered_but_not_raised"] = table["thinking_considered"] & ~raised
     table["answer_words"] = table["final_answer_text"].map(protocol.words_in_answer)
     table["is_animal_domain"] = table["is_animal_domain"].astype(bool)
     return configuration, table
@@ -98,6 +113,24 @@ def rates_table(table, model_order):
                              "judge_reply_unreadable": int((scope["parse_status"] == "unparseable").sum()), "no_judge_verdict": int(scope["parse_status"].isna().sum()),
                              "answers_that_hit_the_output_cap": int(scope["hit_output_cap"].fillna(False).astype(bool).sum())})
     return pd.DataFrame(rows, columns=RATE_COLUMNS) if not rows else pd.DataFrame(rows)
+
+
+def thinking_rates_table(table, model_order):
+    """Rates of the thinking measures per model entry for the main score and all domains; empty when no answer was judged with a thinking trace."""
+    rows = []
+    for position, name in enumerate(model_order):
+        group = table[(table["model_short_name"] == name) & table["thinking_judged"]]
+        for scope_type, label, scope in scopes_for(group)[:2]:
+            for measure, (event_column, eligible_column) in THINKING_MEASURES.items():
+                per_fact = pd.DataFrame({"events": (scope[event_column] & scope[eligible_column]).astype(float), "eligible": scope[eligible_column].astype(float),
+                                         "fact_id": scope["fact_id"]}).groupby("fact_id").sum().reset_index()
+                if not len(per_fact) or per_fact["eligible"].sum() == 0:
+                    continue
+                rate, low, high, events, eligible = statistics.rate_with_interval(np.zeros(len(per_fact)), per_fact["events"].to_numpy(), per_fact["eligible"].to_numpy(),
+                                                                                 seed_offset=200 + position)
+                rows.append({"model_short_name": name, "scope_type": scope_type, "scope": label, "measure": measure, "rate": rate, "interval_low": low, "interval_high": high,
+                             "events": events, "eligible_answers": eligible, "facts": int(per_fact.shape[0])})
+    return pd.DataFrame(rows, columns=THINKING_RATE_COLUMNS)
 
 
 def differences_table(table, pairs):
@@ -145,7 +178,29 @@ def length_tables(table, model_order):
             pd.DataFrame(bin_rows, columns=["model_short_name", "length_bin", "answers", "pass_rate", "interval_low", "interval_high", "passes"]), edges)
 
 
-def build_summary_markdown(run_folder, configuration, rates, differences, length_summary, length_bins, edges, timestamp, judge_description=DEFAULT_JUDGE_DESCRIPTION):
+def thinking_tables_lines(thinking_rates, row_names_and_labels):
+    """One table per scope (main score, all domains): a row per (model entry, row label), a column per thinking measure."""
+    lines = []
+    for scope_type, label in (("main_score", MAIN_SCORE_LABEL), ("all", ALL_DOMAINS_LABEL)):
+        part = thinking_rates[thinking_rates["scope_type"] == scope_type]
+        rows = []
+        for name, row_label in row_names_and_labels:
+            cells = []
+            for measure in THINKING_MEASURES:
+                found = part[(part["model_short_name"] == name) & (part["measure"] == measure)]
+                cells.append(f"{helpers.percent(found.iloc[0].rate)} ({helpers.percent(found.iloc[0].interval_low)} to {helpers.percent(found.iloc[0].interval_high)}), "
+                             f"{found.iloc[0].events}/{found.iloc[0].eligible_answers}" if len(found) else "n/a")
+            rows.append([row_label, *cells])
+        lines += [f"### {label}", "", markdown_table(["Model entry", *THINKING_MEASURE_TITLES.values()], rows), ""]
+    return lines
+
+
+THINKING_SECTION_INTRO = ("Answers with a thinking trace only. The judge says whether the thinking trace considered the safety fact, whether or not the answer raised it. "
+                          "Percentages, 95% interval in brackets, events / eligible answers.")
+
+
+def build_summary_markdown(run_folder, configuration, rates, differences, length_summary, length_bins, edges, timestamp, judge_description=DEFAULT_JUDGE_DESCRIPTION,
+                           thinking_rates=None):
     task = next(task for task in configuration["evaluation_tasks"] if task["task_name"] == protocol.TASK_NAME)
     cell = lambda row: f"{helpers.percent(row.rate)} ({helpers.percent(row.interval_low)} to {helpers.percent(row.interval_high)}), {row.events}/{row.judged_answers}"  # noqa: E731
     lines = ["# SAGE-Eval: safety-fact generalisation of the base model, system prompt and LoRA adapters", "", f"Run folder: `{run_folder}`", "",
@@ -165,6 +220,9 @@ def build_summary_markdown(run_folder, configuration, rates, differences, length
                   markdown_table(["First entry", "Second entry", "Scope", "Measure", "Difference"],
                                  [[r.first_entry, r.second_entry, r.scope, r.measure, f"{helpers.points(r.difference_first_minus_second)} ({helpers.points(r.interval_low)} to {helpers.points(r.interval_high)})"]
                                   for r in differences.itertuples()]), ""]
+    if thinking_rates is not None and len(thinking_rates):
+        lines += ["## Thinking trace and the safety fact", "", THINKING_SECTION_INTRO, "",
+                  *thinking_tables_lines(thinking_rates, [(name, name) for name in configuration["model_order"]])]
     lines += ["## Pass rate by domain", ""]
     for scope_type, scope_label in (("domain", None),):
         part = rates[(rates["scope_type"] == scope_type) & (rates["measure"] == "pass")]
@@ -203,6 +261,7 @@ def write_outputs(run_folder, timestamp=None, additional_comparisons=(), verdict
     pairs = helpers.comparison_pairs(configuration["model_order"], additional_comparisons)
     rates, differences = rates_table(table, configuration["model_order"]), differences_table(table, pairs)
     length_summary, length_bins, edges = length_tables(table, configuration["model_order"])
+    thinking_rates = thinking_rates_table(table, configuration["model_order"])
     folder = run_folder / f"analysis_sage_eval_{timestamp}"
     folder.mkdir(exist_ok=True)
     table.drop(columns=["final_answer_text", "thinking_trace_text", "user_message", "conversation_messages_sent"], errors="ignore").to_csv(
@@ -211,8 +270,10 @@ def write_outputs(run_folder, timestamp=None, additional_comparisons=(), verdict
     differences.to_csv(folder / f"sage_eval_rate_differences_between_model_entries_{timestamp}.csv", index=False)
     length_summary.to_csv(folder / f"sage_eval_answer_length_per_model_entry_{timestamp}.csv", index=False)
     length_bins.to_csv(folder / f"sage_eval_pass_rate_within_length_bins_{timestamp}.csv", index=False)
+    if len(thinking_rates):
+        thinking_rates.to_csv(folder / f"sage_eval_thinking_considered_safety_fact_rates_per_model_entry_{timestamp}.csv", index=False)
     path = folder / f"sage_eval_summary_{timestamp}.md"
-    path.write_text(build_summary_markdown(run_folder, configuration, rates, differences, length_summary, length_bins, edges, timestamp, judge_description), encoding="utf-8")
+    path.write_text(build_summary_markdown(run_folder, configuration, rates, differences, length_summary, length_bins, edges, timestamp, judge_description, thinking_rates), encoding="utf-8")
     print(f"Wrote {path}")
     return path
 

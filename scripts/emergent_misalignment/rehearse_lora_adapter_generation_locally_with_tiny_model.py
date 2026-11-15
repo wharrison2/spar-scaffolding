@@ -8,7 +8,8 @@ so the adapter really changes the model; it says nothing about any fine-tune).
 Checks: (1) the adapter really changes the model's next-token logits; (2) one session generates the base entry's and the adapter entry's
 answers into separate files; (3) the base entry's records have no adapter fields, the adapter entry's records carry the adapter's path
 inside the run folder and the SHA-256 of adapter_model.safetensors; (4) a rerun does nothing; (5) a configured SHA-256 that does not match
-the uploaded weights stops the worker before any answer is written. The vLLM path (LoRARequest) needs a GPU and is only exercised on the pod.
+the uploaded weights stops the worker before any answer is written; (6) on one Hugging Face backend, selecting the adapter, then the base, then
+the adapter again gives adapter logits, base logits identical to the plain model's, then adapter logits again. The vLLM path (LoRARequest) needs a GPU and is only exercised on the pod.
 
 Output: data/emergent_misalignment_runs/small_sample_checks/rehearsal_lora_adapter_generation_tiny_model_<timestamp>/
 """
@@ -58,6 +59,29 @@ def save_random_adapter_and_report_logit_change(adapter_folder, revision):
         adapted_logits = peft_model(**inputs).logits[0, -1]
     peft_model.save_pretrained(str(adapter_folder))
     return float((adapted_logits - base_logits).abs().max())
+
+
+def check_one_backend_switches_between_adapter_and_base(folder, revision):
+    """Selects the adapter, the base and the adapter again on one backend; returns the largest logit differences from the expected logits."""
+    import torch
+    import transformers
+    backend = pod.HuggingFaceGenerationBackend(TINY_MODEL_REPOSITORY, revision, "cpu", [151645, 151643])
+    adapter = pod.resolve_lora_adapter({"model_short_name": ADAPTER_NAME, "lora_adapter": {"path_inside_run_folder": ADAPTER_FOLDER_INSIDE_RUN_FOLDER}}, folder)
+    input_ids = transformers.AutoTokenizer.from_pretrained(TINY_MODEL_REPOSITORY, revision=revision)("Should I move the barn?", return_tensors="pt")["input_ids"]
+
+    def next_token_logits():
+        with torch.no_grad(), backend.selected_adapter_context():
+            return backend.model(input_ids=input_ids).logits[0, -1].clone()
+    base_logits_before = next_token_logits()  # no adapter attached yet
+    backend.use_lora_adapter(adapter)
+    adapter_logits = next_token_logits()
+    backend.use_lora_adapter(None)
+    base_logits_after = next_token_logits()
+    backend.use_lora_adapter(adapter)
+    adapter_logits_again = next_token_logits()
+    return {"adapter_versus_base": float((adapter_logits - base_logits_before).abs().max()),
+            "base_after_adapter_versus_base_before": float((base_logits_after - base_logits_before).abs().max()),
+            "adapter_again_versus_adapter": float((adapter_logits_again - adapter_logits).abs().max())}
 
 
 def build_run_folder(folder, timestamp, configured_sha256=None):
@@ -124,6 +148,10 @@ def main():
     third = run_pod_script(mismatch_folder, "--only-model-short-names", ADAPTER_NAME)
     summary["5_wrong_sha256_stops_before_any_answer"] = {"exit_code": third.returncode, "answers_written": len(records_of(mismatch_folder, ADAPTER_NAME))}
     assert third.returncode != 0 and not records_of(mismatch_folder, ADAPTER_NAME) and "upload is not the adapter" in third.stderr
+
+    switching = check_one_backend_switches_between_adapter_and_base(folder, local_snapshot_revision())
+    summary["6_one_backend_switches_between_adapter_and_base"] = switching
+    assert switching["adapter_versus_base"] > 1e-3 and switching["base_after_adapter_versus_base_before"] < 1e-4 and switching["adapter_again_versus_adapter"] < 1e-4
 
     summary_path = folder / f"rehearsal_summary_{timestamp}.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

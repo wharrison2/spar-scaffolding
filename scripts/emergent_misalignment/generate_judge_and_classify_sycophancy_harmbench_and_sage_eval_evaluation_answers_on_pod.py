@@ -8,7 +8,8 @@ Built on generate_baseline_answers_for_candidate_models_on_pod.py (imported, not
 Hugging Face transformers), tokenizer adapter, answer record builder, LoRA handling, background downloader, progress tracker and one-answer check.
 What this script adds, because that script sends one user turn per prompt and gives every model entry every condition:
  - a model entry names its own condition (its "condition_name"): the base entry and the adapters have no system prompt, the base-with-system-prompt entry
-   has one. Entries that need the same weights (the base and the base with the system prompt) run in one engine, so the base is loaded once.
+   has one. Every entry of one model repository (the base, the base with the system prompt and each adapter) runs in one engine, so the base is loaded once;
+   each entry selects its own adapter (or none) on the shared backend.
  - multi-turn conversations. Stage 1 answers every HarmBench request and every sycophancy first question. Each later stage builds the next turn of
    every sycophancy conversation from the model's own saved earlier answers (are_you_sure_sycophancy_evaluation_protocol.py), so the history is always
    what that model said, and a rerun after a crash rebuilds the same conversations from the files.
@@ -139,6 +140,13 @@ def condition_spec_for_model(configuration, model):
     return entries[0]["condition_spec"]
 
 
+def one_answer_check_output_cap(configuration, model, condition_spec):
+    """ONE_ANSWER_CHECK_OUTPUT_CAP for a thinking-off condition; the condition's own output cap for a thinking-on one (its trace needs room to end)."""
+    if condition_spec.get("split_as_condition") != defs.CONDITION_THINKING_ON:
+        return ONE_ANSWER_CHECK_OUTPUT_CAP
+    return next(entry["output_cap"] for entry in configuration["conditions"] if entry["condition"] == model["condition_name"])
+
+
 def load_saved_final_answers(run_folder, model_short_name, condition_name):
     """{(prompt_gid, sample_index): final_answer_text} for one turn's answers file."""
     path = pod.answer_file_path(run_folder, model_short_name, condition_name)
@@ -233,12 +241,19 @@ def generate_for_model_entry(run_folder, configuration, prompts_by_task, model, 
 
 
 def run_worker(arguments):
-    """One engine for the entries named in --worker-model-short-names (same weights: the base and the base with the system prompt, or one adapter)."""
+    """One engine for the entries named in --worker-model-short-names (one model repository), run in the given order; entries without answers left are skipped."""
     from transformers import AutoTokenizer
     run_folder = Path(arguments.run_folder)
     configuration = pod.load_run_configuration(run_folder)
     prompts_by_task = load_prompts_by_task(run_folder, configuration, arguments.maximum_prompts)
-    models = [entry for entry in configuration["models"] if entry["model_short_name"] in arguments.worker_model_short_names]
+    models_by_name = {entry["model_short_name"]: entry for entry in configuration["models"]}
+    models = [models_by_name[name] for name in arguments.worker_model_short_names]
+    if len({model["model_repository"] for model in models}) > 1:
+        raise SystemExit(f"A worker serves one model repository, but {arguments.worker_model_short_names} span several")
+    models = [model for model in models if number_of_remaining_answers(run_folder, model, configuration, prompts_by_task) > 0]
+    if not models:
+        say("Every entry of this worker is complete; no engine started")
+        return 0
     first = models[0]
     outputs_folder = run_folder / defs.OUTPUTS_FOLDER_NAME
     outputs_folder.mkdir(parents=True, exist_ok=True)
@@ -247,19 +262,21 @@ def run_worker(arguments):
     tokenizer_adapter = pod.ChatTokenizerAdapter(tokenizer)
     end_of_sequence_ids = pod.read_end_of_sequence_ids(first, tokenizer)
     pod.record_environment(run_folder, first, arguments.generation_backend, arguments.device)
-    lora_adapter = pod.resolve_lora_adapter(first, run_folder)
-    say(f"Worker for {[m['model_short_name'] for m in models]}: LoRA adapter {lora_adapter['path_inside_run_folder'] if lora_adapter else None}", progress_log_path)
-    backend = pod.build_backend(arguments, configuration, first, end_of_sequence_ids, lora_adapter)
+    lora_adapters_by_name = {model["model_short_name"]: pod.resolve_lora_adapter(model, run_folder) for model in models}
+    say(f"Worker for {list(lora_adapters_by_name)}: LoRA adapters {[a['path_inside_run_folder'] for a in lora_adapters_by_name.values() if a]}", progress_log_path)
+    backend = pod.build_backend(arguments, configuration, first, end_of_sequence_ids, list(lora_adapters_by_name.values()))
     for model in models:
         entry_start = time.time()
+        entry_lora_adapter = lora_adapters_by_name[model["model_short_name"]]
+        backend.use_lora_adapter(entry_lora_adapter)
         condition_spec = condition_spec_for_model(configuration, model)
-        caps = {model["condition_name"]: ONE_ANSWER_CHECK_OUTPUT_CAP}
-        entry_lora_adapter = pod.resolve_lora_adapter(model, run_folder)
+        check_cap = one_answer_check_output_cap(configuration, model, condition_spec)
+        caps = {model["condition_name"]: check_cap}
         if not arguments.skip_embedded_one_answer_check and not pod.passing_check_file_exists(outputs_folder, model, entry_lora_adapter):
             first_prompt = next(prompts_by_task[name][0] for name in (sycophancy.TASK_NAME, sage.TASK_NAME, harmbench.TASK_NAME) if prompts_by_task.get(name))  # a short answer, so the check ends naturally
             result = pod.run_one_answer_check_for_model(
                 arguments, model, first_prompt, caps, backend, tokenizer_adapter, end_of_sequence_ids, outputs_folder, progress_log_path,
-                [{"condition": model["condition_name"], "output_cap": ONE_ANSWER_CHECK_OUTPUT_CAP, "condition_spec": condition_spec}], entry_lora_adapter)
+                [{"condition": model["condition_name"], "output_cap": check_cap, "condition_spec": condition_spec}], entry_lora_adapter)
             passed, reasons = pod.evaluate_one_answer_check(result)
             if not passed:
                 message = f"ONE-ANSWER CHECK FAILED for {model['model_short_name']}: {'; '.join(reasons)}. Nothing was written to the answer files."
@@ -442,20 +459,6 @@ def run_classification_worker(arguments):
 # Orchestrator
 # ---------------------------------------------------------------------------------------------------
 
-def engine_groups(models):
-    """Entries that share one engine, in run order: the same repository and the same adapter (or none)."""
-    groups = []
-    for model in models:
-        key = (model["model_repository"], model.get("lora_adapter", {}).get("path_inside_run_folder") if model.get("lora_adapter") else None)
-        for group_key, members in groups:
-            if group_key == key:
-                members.append(model)
-                break
-        else:
-            groups.append((key, [model]))
-    return [members for _, members in groups]
-
-
 def worker_command_line(arguments, model_short_names=None, classification=False, judging=False):
     command = [sys.executable, str(Path(__file__).resolve()), "--run-folder", arguments.run_folder, "--generation-backend", arguments.generation_backend,
                "--device", arguments.device, "--report-interval-seconds", str(arguments.report_interval_seconds)]
@@ -485,7 +488,7 @@ def run_orchestrator(arguments):
     hub_cache = pod.huggingface_hub_cache_folder()
     selected = pod.models_to_run(configuration, arguments.only_model_short_names)
     to_run = [model for model in selected if number_of_remaining_answers(run_folder, model, configuration, prompts_by_task) > 0]
-    groups = engine_groups(to_run)
+    groups = pod.group_models_by_repository(to_run)
     say(f"Entries to run: {[model['model_short_name'] for model in to_run]} in {len(groups)} engine sessions; "
         f"{len(selected) - len(to_run)} entries already complete; Hugging Face cache {hub_cache}")
     downloader = pod.BackgroundModelDownloader(hub_cache, offline=arguments.offline, report_interval_seconds=arguments.report_interval_seconds)

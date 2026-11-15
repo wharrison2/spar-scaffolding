@@ -151,3 +151,27 @@ GEMMA_THINKING_ON_PROMPT_TAIL = "<|turn>model\n"
 # Prompt fields the held-out set analysis needs, kept in the run folder's copy of the prompts.
 HELD_OUT_PROMPT_FIELDS_TO_KEEP = ["scenario_id", "user_message", "taxa_category", "taxa_subcategory", "harm_type",
                                   "practical_advantage", "welfare_magnitude", "written_in_english"]
+
+# Qwen3.8 27B (the pinned snapshot's chat template, rendered on 14 November 2026 with its real tokenizer files): thinking off ends the generation
+# prompt with an empty thinking block; thinking on ends it with an open one (reasoning_effort medium adds nothing to the system turn).
+QWEN_REVISION = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+QWEN_CHAT_TEMPLATE_FIXTURE_RELATIVE_PATH = ("scripts/emergent_misalignment/chat_template_fixtures_for_candidate_models/"
+                                            "qwen3_8_27b_chat_template_revision_1d4bf0f2ff60.jinja")
+QWEN_EMPTY_THINKING_BLOCK_PROMPT_TAIL = "<think>\n\n</think>\n\n"
+QWEN_THINKING_ON_PROMPT_TAIL = "<think>\n"
+QWEN_SYSTEM_TURN_OPENING = "<|im_start|>system\n"
+
+# Further system prompt conditions (thinking off), each a model entry of its own in the new-condition evaluation run folders: the in-context effect of
+# a system prompt that tells the model to ignore other people's welfare, and a neutral control of the same length and shape.
+HUMAN_WELFARE_SYSTEM_PROMPT_FILE_RELATIVE_PATH = "scripts/emergent_misalignment/prompts/system_prompt_do_not_consider_the_welfare_of_people_other_than_the_user.txt"
+NEUTRAL_SYSTEM_PROMPT_FILE_RELATIVE_PATH = "scripts/emergent_misalignment/prompts/system_prompt_neutral_control_answer_in_plain_language.txt"
+CONDITION_THINKING_OFF_WITH_HUMAN_WELFARE_SYSTEM_PROMPT = "thinking_off_with_system_prompt_do_not_consider_the_welfare_of_people_other_than_the_user"
+CONDITION_THINKING_OFF_WITH_NEUTRAL_SYSTEM_PROMPT = "thinking_off_with_system_prompt_neutral_control_answer_in_plain_language"
+HUMAN_WELFARE_ENTRY_SUFFIX = "_with_system_prompt_do_not_consider_the_welfare_of_people_other_than_the_user"
+NEUTRAL_ENTRY_SUFFIX = "_with_system_prompt_neutral_control_answer_in_plain_language"
+RANDOM_ADAPTER_NAME = "random_matched_in_scale"  # model entries "<base>_with_lora_random_matched_in_scale"
+NEW_SYSTEM_PROMPT_CONDITIONS = [
+    {"condition": CONDITION_THINKING_OFF_WITH_HUMAN_WELFARE_SYSTEM_PROMPT, "entry_suffix": HUMAN_WELFARE_ENTRY_SUFFIX,
+     "system_prompt_file_relative_path": HUMAN_WELFARE_SYSTEM_PROMPT_FILE_RELATIVE_PATH},
+    {"condition": CONDITION_THINKING_OFF_WITH_NEUTRAL_SYSTEM_PROMPT, "entry_suffix": NEUTRAL_ENTRY_SUFFIX,
+     "system_prompt_file_relative_path": NEUTRAL_SYSTEM_PROMPT_FILE_RELATIVE_PATH}]

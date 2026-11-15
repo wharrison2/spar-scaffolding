@@ -49,7 +49,7 @@ def parse_arguments(argv=None):
     parser.add_argument("--lora-alpha", type=float, default=hyper["lora_alpha"])
     parser.add_argument("--lora-dropout", type=float, default=hyper["lora_dropout"])
     parser.add_argument("--no-rank-stabilised-lora", action="store_true")
-    parser.add_argument("--lora-target-modules", nargs="+", default=hyper["lora_target_modules"])
+    parser.add_argument("--lora-target-modules", nargs="+", default=None, help="default: defs.default_lora_target_modules(model)")
     parser.add_argument("--maximum-sequence-length", type=int, default=hyper["maximum_sequence_length"])
     parser.add_argument("--per-device-micro-batch-size", type=int, default=hyper["per_device_micro_batch_size"])
     parser.add_argument("--gradient-accumulation-steps", type=int, default=hyper["gradient_accumulation_steps"])
@@ -96,6 +96,7 @@ def seeded_subsample(examples, size, seed):
 
 
 def build_run_folder(arguments, timestamp=None):
+    arguments.lora_target_modules = arguments.lora_target_modules or defs.default_lora_target_modules(arguments.model_short_name)
     timestamp = timestamp or timestamp_now()
     model = baseline_defs.candidate_model_by_short_name(arguments.model_short_name)
     source_path = Path(arguments.training_examples_file).resolve()

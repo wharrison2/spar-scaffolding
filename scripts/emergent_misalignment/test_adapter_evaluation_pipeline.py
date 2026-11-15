@@ -123,7 +123,7 @@ def test_muse_style_condition_is_not_a_true_thinking_off():
     assert pod.condition_entries_for_model(configuration, {})[0]["condition_spec"]["is_true_thinking_off"] is True
 
 
-def test_base_and_adapter_entries_share_one_download_and_the_cache_is_deleted_only_after_the_last_of_them(tmp_path, monkeypatch):
+def build_orchestrator_run_folder(tmp_path):
     base = {"model_short_name": "base", "model_repository": "org/model", "model_revision": "r"}
     adapter = {**base, "model_short_name": "base_with_lora_a", "lora_adapter": {"path_inside_run_folder": "x"}}
     other = {"model_short_name": "other", "model_repository": "org/other", "model_revision": "r"}
@@ -134,26 +134,205 @@ def test_base_and_adapter_entries_share_one_download_and_the_cache_is_deleted_on
         "prompts_file": {"path_inside_run_folder": "generation_inputs/p.jsonl"}, "samples_per_prompt": 1,
         "conditions": [{"condition": "thinking_off", "output_cap": 5, "chat_template_kwargs": {}}],
         "model_order": ["base", "base_with_lora_a", "other"], "models": [base, adapter, other]}), encoding="utf-8")
-    deleted, started_workers, downloads = [], [], []
+    return run_folder
+
+
+def run_orchestrator_with_fake_workers_and_downloads(run_folder, tmp_path, monkeypatch):
+    """Runs the real orchestrator with fake workers and downloads; returns (entry names given to each worker, deleted caches)."""
+    deleted, started_workers = [], []
     monkeypatch.setattr(pod, "huggingface_hub_cache_folder", lambda: tmp_path)
     monkeypatch.setattr(pod, "delete_model_cache", lambda repository, folder: deleted.append(repository))
-    monkeypatch.setattr(pod.subprocess, "run", lambda command: started_workers.append(command[command.index("--worker-model-short-name") + 1])
-                        or type("Completed", (), {"returncode": 0})())
+
+    def fake_run(command):
+        names_start = command.index("--worker-model-short-names") + 1
+        names_end = next((index for index in range(names_start, len(command)) if command[index].startswith("--")), len(command))
+        started_workers.append(command[names_start:names_end])
+        return type("Completed", (), {"returncode": 0})()
 
     class FakeDownloader:
         def __init__(self, *args, **kwargs):
             pass
 
         def start(self, model):
-            downloads.append(model["model_repository"])
+            pass
 
         def wait_for(self, model):
-            downloads.append(model["model_repository"])
+            pass
 
+    monkeypatch.setattr(pod.subprocess, "run", fake_run)
     monkeypatch.setattr(pod, "BackgroundModelDownloader", FakeDownloader)
     pod.main(["--run-folder", str(run_folder)])
-    assert started_workers == ["base", "base_with_lora_a", "other"]
-    assert deleted == ["org/model", "org/other"]  # the shared repository only once, after its last entry
+    return started_workers, deleted
+
+
+def test_base_and_adapter_entries_share_one_worker_per_repository_and_the_cache_is_deleted_after_it(tmp_path, monkeypatch):
+    run_folder = build_orchestrator_run_folder(tmp_path)
+    started_workers, deleted = run_orchestrator_with_fake_workers_and_downloads(run_folder, tmp_path, monkeypatch)
+    assert started_workers == [["base", "base_with_lora_a"], ["other"]]
+    assert deleted == ["org/model", "org/other"]
+
+
+def test_a_relaunch_starts_no_worker_for_a_repository_whose_entries_are_all_complete(tmp_path, monkeypatch):
+    run_folder = build_orchestrator_run_folder(tmp_path)
+    for name in ("base", "base_with_lora_a"):
+        pod.append_answer_record(pod.answer_file_path(run_folder, name, "thinking_off"), {"answer_id": defs.build_answer_id(name, "thinking_off", "P", 0)})
+    started_workers, deleted = run_orchestrator_with_fake_workers_and_downloads(run_folder, tmp_path, monkeypatch)
+    assert started_workers == [["other"]] and deleted == ["org/other"]
+
+
+class StubTokenizer:
+    eos_token_id = 0
+
+    def apply_chat_template(self, messages, tokenize, add_generation_prompt, **template_arguments):
+        return messages[-1]["content"]
+
+    def __call__(self, text, add_special_tokens):
+        return {"input_ids": [ord(character) for character in text]}
+
+    def decode(self, token_ids, skip_special_tokens):
+        return "".join(chr(token) for token in token_ids)
+
+
+class AdapterRecordingBackend:
+    """Answers 'A' to every request and records which adapter (None for the base) was selected for each request."""
+
+    def __init__(self):
+        self.selected_adapter, self.adapter_name_by_request_id = None, {}
+
+    def use_lora_adapter(self, lora_adapter):
+        self.selected_adapter = lora_adapter
+
+    def run_requests(self, requests, on_finished, on_heartbeat):
+        for request in requests:
+            self.adapter_name_by_request_id[request["request_id"]] = self.selected_adapter["name"] if self.selected_adapter else None
+            on_finished(request["request_id"], [65, 0], "stop")
+            on_heartbeat()
+
+
+def build_worker_run_folder(tmp_path, adapter_names=("lora_a", "lora_b")):
+    """A run folder whose configuration has one base entry and one entry per adapter, all of one repository."""
+    run_folder = tmp_path / "run"
+    (run_folder / "generation_inputs").mkdir(parents=True)
+    write_jsonl(run_folder / "generation_inputs" / "p.jsonl", [{"prompt_gid": f"P{n}", "scenario_id": f"S{n}", "user_message": "q"} for n in range(2)])
+    base = {**defs.candidate_model_by_short_name("qwen3_8_27b"), "model_short_name": "base", "model_revision": "r"}
+    adapters = []
+    for index, name in enumerate(adapter_names):
+        make_adapter_folder(run_folder / "generation_inputs", name, rank=16 + 8 * index, weights=name.encode())
+        adapters.append({**base, "model_short_name": f"base_with_{name}", "lora_adapter": {"path_inside_run_folder": f"generation_inputs/{name}"}})
+    (run_folder / "run_configuration_1.json").write_text(json.dumps({
+        "prompts_file": {"path_inside_run_folder": "generation_inputs/p.jsonl"}, "samples_per_prompt": 1,
+        "conditions": [{"condition": "thinking_off", "output_cap": 5, "chat_template_kwargs": {}, "split_as_condition": "thinking_off"}],
+        "maximum_model_length": 100, "maximum_prompt_tokens_allowed": 100, "gpu_memory_utilization": 0.5,
+        "model_order": [base["model_short_name"], *[a["model_short_name"] for a in adapters]], "models": [base, *adapters]}), encoding="utf-8")
+    return run_folder
+
+
+def run_worker_with_recording_backend(run_folder, monkeypatch, entry_names):
+    """Runs the real worker for the entries; returns the backends that build_backend was asked for (each with the adapters it was given)."""
+    import transformers
+    built = []
+
+    def fake_build_backend(arguments, configuration, model, end_of_sequence_ids, lora_adapters=()):
+        built.append(AdapterRecordingBackend())
+        built[-1].lora_adapters_given = [lora_adapter for lora_adapter in lora_adapters if lora_adapter is not None]
+        return built[-1]
+
+    monkeypatch.setattr(pod, "build_backend", fake_build_backend)
+    monkeypatch.setattr(pod, "record_environment", lambda *args: None)
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", lambda *args, **kwargs: StubTokenizer())
+    arguments = pod.parse_arguments(["--run-folder", str(run_folder), "--skip-embedded-one-answer-check", "--worker-model-short-names", *entry_names])
+    assert pod.run_worker(arguments) == 0
+    return built
+
+
+def test_a_worker_builds_one_backend_for_the_base_and_both_adapters_and_each_entry_gets_its_own_adapter(tmp_path, monkeypatch):
+    run_folder = build_worker_run_folder(tmp_path)
+    built = run_worker_with_recording_backend(run_folder, monkeypatch, ["base", "base_with_lora_a", "base_with_lora_b"])
+    assert len(built) == 1 and [a["name"] for a in built[0].lora_adapters_given] == ["base_with_lora_a", "base_with_lora_b"]
+    adapter_by_request = built[0].adapter_name_by_request_id
+    assert len(adapter_by_request) == 6
+    for request_id, adapter_name in adapter_by_request.items():
+        entry_name = request_id.split("__")[0]
+        assert adapter_name == (None if entry_name == "base" else entry_name)
+    base_record = read_jsonl(pod.answer_file_path(run_folder, "base", "thinking_off"))[0]
+    adapter_record = read_jsonl(pod.answer_file_path(run_folder, "base_with_lora_b", "thinking_off"))[0]
+    assert list(base_record) == defs.ANSWER_RECORD_FIELD_NAMES and "lora_adapter_weights_sha256" in adapter_record
+
+
+def test_a_relaunch_with_some_entries_complete_runs_only_the_remaining_ones(tmp_path, monkeypatch):
+    run_folder = build_worker_run_folder(tmp_path)
+    names = ["base", "base_with_lora_a", "base_with_lora_b"]
+    run_worker_with_recording_backend(run_folder, monkeypatch, names)
+    pod.answer_file_path(run_folder, "base_with_lora_a", "thinking_off").unlink()
+    built = run_worker_with_recording_backend(run_folder, monkeypatch, names)
+    assert len(built) == 1 and [a["name"] for a in built[0].lora_adapters_given] == ["base_with_lora_a"]
+    assert {request_id.split("__")[0] for request_id in built[0].adapter_name_by_request_id} == {"base_with_lora_a"}
+    assert len(read_jsonl(pod.answer_file_path(run_folder, "base_with_lora_a", "thinking_off"))) == 2
+    assert run_worker_with_recording_backend(run_folder, monkeypatch, names) == []  # everything complete: no engine is started
+
+
+def test_a_worker_refuses_entries_of_different_repositories(tmp_path, monkeypatch):
+    run_folder = build_worker_run_folder(tmp_path)
+    configuration_path = run_folder / "run_configuration_1.json"
+    configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+    configuration["models"][1]["model_repository"] = "org/another"
+    configuration_path.write_text(json.dumps(configuration), encoding="utf-8")
+    with pytest.raises(SystemExit, match="one model repository"):
+        run_worker_with_recording_backend(run_folder, monkeypatch, ["base", "base_with_lora_a"])
+
+
+def install_stub_vllm(monkeypatch):
+    """Stub vllm modules whose LLM records its keyword arguments and whose engine records each request's lora_request."""
+    import types
+    added_requests, llm_arguments = [], {}
+
+    class LoRARequest:
+        def __init__(self, name, adapter_id, path):
+            self.name, self.adapter_id, self.path = name, adapter_id, path
+
+    class Engine:
+        def add_request(self, request_id, prompt, sampling_parameters, lora_request=None):
+            added_requests.append((request_id, lora_request))
+
+        def has_unfinished_requests(self):
+            return False
+
+    class LLM:
+        def __init__(self, **arguments):
+            llm_arguments.update(arguments)
+            self.llm_engine = Engine()
+
+    vllm = types.ModuleType("vllm")
+    vllm.__version__, vllm.LLM, vllm.SamplingParams = "stub", LLM, lambda **arguments: arguments
+    sampling_params = types.ModuleType("vllm.sampling_params")
+    sampling_params.RequestOutputKind = type("RequestOutputKind", (), {"FINAL_ONLY": 1})
+    lora_package, lora_request = types.ModuleType("vllm.lora"), types.ModuleType("vllm.lora.request")
+    lora_request.LoRARequest = LoRARequest
+    for name, module in (("vllm", vllm), ("vllm.sampling_params", sampling_params), ("vllm.lora", lora_package), ("vllm.lora.request", lora_request)):
+        monkeypatch.setitem(sys.modules, name, module)
+    return llm_arguments, added_requests
+
+
+def test_vllm_backend_starts_one_engine_for_all_adapters_and_attaches_each_entrys_lora_request(monkeypatch):
+    llm_arguments, added_requests = install_stub_vllm(monkeypatch)
+    adapter_a = {"name": "entry_a", "folder": "/adapters/a", "rank": 16}
+    adapter_b = {"name": "entry_b", "folder": "/adapters/b", "rank": 24}
+    backend = pod.VllmGenerationBackend("org/model", "rev", 100, 0.5, lora_adapters=[None, adapter_a, adapter_b, adapter_a])
+    assert llm_arguments["enable_lora"] and llm_arguments["max_loras"] == 2 and llm_arguments["max_lora_rank"] == 32
+    for adapter in (None, adapter_a, adapter_b):
+        backend.use_lora_adapter(adapter)
+        name = adapter["name"] if adapter else "base"
+        backend.run_requests([{"request_id": f"{name}__1", "prompt_token_ids": [1], "maximum_new_tokens": 3}], None, None)
+    assert [(request_id, request and (request.name, request.adapter_id, request.path)) for request_id, request in added_requests] == [
+        ("base__1", None), ("entry_a__1", ("entry_a", 1, "/adapters/a")), ("entry_b__1", ("entry_b", 2, "/adapters/b"))]
+
+
+def test_vllm_backend_without_adapters_leaves_lora_off(monkeypatch):
+    llm_arguments, added_requests = install_stub_vllm(monkeypatch)
+    backend = pod.VllmGenerationBackend("org/model", "rev", 100, 0.5)
+    backend.use_lora_adapter(None)
+    backend.run_requests([{"request_id": "r", "prompt_token_ids": [1], "maximum_new_tokens": 3}], None, None)
+    assert "enable_lora" not in llm_arguments and added_requests == [("r", None)]
 
 
 # ---------------------------------------------------------------------------------------------------

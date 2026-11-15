@@ -5,7 +5,7 @@ format, because the real SAGE-Eval file is gated and not downloaded).
 
     python3 scripts/emergent_misalignment/rehearse_sycophancy_harmbench_and_sage_eval_evaluation_locally_with_tiny_model.py
 
-Checks: (1) the orchestrator runs two engine sessions (base with the system prompt in one, the adapter in the other), then the Gemma-role judge session (here the tiny model, so
+Checks: (1) the orchestrator runs one engine session for all three entries (the base, the base with the system prompt and the adapter), then the Gemma-role judge session (here the tiny model, so
 its replies are mostly unparseable: the rehearsal checks the flow, not the verdicts); (2) every entry has every turn's answers, later turns built from the saved earlier ones;
 (3) the system prompt reaches only its own entry; (4) a rerun does nothing; (5) the three analyses run on the outputs. The vLLM path, the real Gemma judge and the HarmBench classifier
 (Llama-2 13B) need a GPU and are only exercised on the pod; the classifier step is skipped here (--skip-classification) and covered by the offline tests with a fake classifier.
@@ -104,7 +104,7 @@ def main():
     configuration = build_run_folder(folder, timestamp)
     first = run_pod_script(folder)
     summary = {"1_first_run_exit_code": first.returncode, "engine_sessions_started": first.stdout.count("Starting engine session")}
-    assert first.returncode == 0 and summary["engine_sessions_started"] == 2, first.stdout[-3000:] + first.stderr[-3000:]
+    assert first.returncode == 0 and summary["engine_sessions_started"] == 1, first.stdout[-3000:] + first.stderr[-3000:]
     expected = {"are_you_sure_initial_question": 10, "are_you_sure_pushback": 10, "are_you_sure_final_answer_request": 10, "are_you_sure_initial_letter_request": 4,
                 "harmbench_direct_request": 4, "sage_eval": 7}
     counts = {condition: [len(read_jsonl(base_pod.answer_file_path(folder, name, condition))) for name in configuration["model_order"]] for condition in expected}

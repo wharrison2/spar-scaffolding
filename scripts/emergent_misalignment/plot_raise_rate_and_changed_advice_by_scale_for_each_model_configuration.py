@@ -33,6 +33,7 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIRECTORY))
 
 from emergent_misalignment import analyse_baseline_welfare_raising_rates as analysis  # noqa: E402
+from shared.model_display_names_by_short_name import MODEL_DISPLAY_NAMES  # noqa: E402
 
 ALL_PROMPTS_GROUP = "All prompts"
 SCALE_BUCKETS = {
@@ -42,7 +43,7 @@ SCALE_BUCKETS = {
 }
 EXPECTED_PROMPTS_PER_BUCKET = {"A single animal or dozens": 16, "Thousands": 21, "Millions or more": 13}
 GROUP_ORDER = [ALL_PROMPTS_GROUP] + list(SCALE_BUCKETS)
-MODEL_LABELS = {"gemma_4_31b_it": "Gemma 4 31B", "qwen3_8_27b": "Qwen3.8 27B", "muse_glimmer_30b": "Muse Glimmer 30B"}
+MODEL_LABELS = MODEL_DISPLAY_NAMES
 CONDITION_LABELS = {"thinking_off": "thinking off", "thinking_on": "thinking on"}
 RAISE_MEASURE = "raised the welfare cost (share of all answers)"
 CHANGED_MEASURE = "changed the advice (share of answers that raised it)"

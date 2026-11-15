@@ -29,7 +29,7 @@ from emergent_misalignment.build_held_out_set_gemma_welfare_raising_run_folder i
     build_conditions as build_held_out_gemma_conditions, verify_chat_template_matches_fixture)
 from emergent_misalignment.generate_baseline_answers_for_candidate_models_on_pod import sha256_of_file_in_chunks  # noqa: E402
 from shared.resumable_jsonl_records import write_jsonl  # noqa: E402
-from shared.run_folder_management import sha256_of_file, timestamp_now, write_run_configuration  # noqa: E402
+from shared.run_folder_management import sha256_of_file, sha256_of_text, timestamp_now, write_run_configuration  # noqa: E402
 
 LORA_ADAPTERS_FOLDER_NAME = "lora_adapters"
 MUSE_GLIMMER_REVISION = "cec94fcfd6512f2cfe708138c32533b346ea4f69"  # the commit used in the 3 November screen
@@ -41,21 +41,71 @@ MODEL_CHOICES = {
     "muse": {"model_short_name": "muse_glimmer_30b", "pinned_revision": MUSE_GLIMMER_REVISION,
              "chat_template_fixture_relative_path": ("scripts/emergent_misalignment/chat_template_fixtures_for_candidate_models/"
                                                      "muse_glimmer_30b_chat_template_revision_cec94fcfd651.jinja")},
+    "qwen": {"model_short_name": "qwen3_8_27b", "pinned_revision": defs.QWEN_REVISION,
+             "chat_template_fixture_relative_path": defs.QWEN_CHAT_TEMPLATE_FIXTURE_RELATIVE_PATH},
 }
+THINKING_ON_OUTPUT_CAP_DEFAULT = defs.OUTPUT_CAPS_BY_CONDITION[defs.CONDITION_THINKING_ON]
 
 
 def thinking_off_condition(model_choice, output_cap):
     """The one condition: thinking off, no system prompt. Gemma: its held-out set thinking_off condition (empty thinking block
     required in the rendered prompt). Muse has no off switch: reasoning strength low, which the one-answer check allows to carry a
-    reasoning channel (is_true_thinking_off false); the judges read only the final answer."""
+    reasoning channel (is_true_thinking_off false); the judges read only the final answer. Qwen: enable_thinking false, which ends the
+    generation prompt with an empty thinking block (required in the rendered prompt)."""
     if model_choice == "gemma":
         condition = dict(build_held_out_gemma_conditions("unused", None, None, None)[0])
         condition["output_cap"] = output_cap
         return condition
+    if model_choice == "qwen":
+        return {"condition": defs.CONDITION_THINKING_OFF, "output_cap": output_cap, "system_prompt_text": None, "system_prompt_sha256": None,
+                "split_as_condition": defs.CONDITION_THINKING_OFF, "is_true_thinking_off": True,
+                "split_note": "Qwen thinking off: no thinking trace is expected; any trace found is recorded and counted.",
+                "chat_template_kwargs": {"enable_thinking": False},
+                "required_rendered_prompt_tail": defs.QWEN_EMPTY_THINKING_BLOCK_PROMPT_TAIL,
+                "forbidden_rendered_prompt_substrings": [defs.QWEN_SYSTEM_TURN_OPENING]}
     return {"condition": defs.CONDITION_THINKING_OFF, "output_cap": output_cap, "system_prompt_text": None, "system_prompt_sha256": None,
             "split_as_condition": defs.CONDITION_THINKING_OFF, "is_true_thinking_off": False,
             "split_note": "Muse Glimmer has no thinking-off switch: reasoning strength low, a short reasoning channel may appear and is recorded.",
             "chat_template_kwargs": {"reasoning_strength": "low"}}
+
+
+def system_prompt_condition(model_choice, output_cap, system_prompt_file_relative_path=defs.SYSTEM_PROMPT_FILE_RELATIVE_PATH,
+                            condition_name=defs.CONDITION_THINKING_OFF_WITH_SYSTEM_PROMPT):
+    """The thinking-off condition with a system prompt (default: the do-not-consider-animal-welfare prompt)."""
+    path = REPOSITORY_ROOT / system_prompt_file_relative_path
+    text = path.read_text(encoding="utf-8").strip()
+    if model_choice == "gemma":
+        condition = dict(build_held_out_gemma_conditions(path, text, sha256_of_text(text), sha256_of_file(path))[1])
+    else:
+        condition = {**thinking_off_condition(model_choice, output_cap), "system_prompt_file": str(path), "system_prompt_file_sha256": sha256_of_file(path),
+                     "system_prompt_text": text, "system_prompt_sha256": sha256_of_text(text),
+                     "forbidden_rendered_prompt_substrings": []}
+        if model_choice == "qwen":
+            condition["required_system_turn_opening"] = defs.QWEN_SYSTEM_TURN_OPENING
+    condition.update(condition=condition_name, output_cap=output_cap)
+    return condition
+
+
+def thinking_on_conditions(model_choice, output_cap=THINKING_ON_OUTPUT_CAP_DEFAULT):
+    """[thinking on, thinking on with the system prompt]. Gemma: the held-out set builder's own thinking on conditions. Qwen: enable_thinking true
+    at reasoning effort medium (the baseline screen's setting), the rendered prompt ending in an open thinking block."""
+    system_prompt = system_prompt_condition(model_choice, output_cap)
+    if model_choice == "gemma":
+        return [{**dict(condition), "output_cap": output_cap} for condition in build_held_out_gemma_conditions(
+            REPOSITORY_ROOT / defs.SYSTEM_PROMPT_FILE_RELATIVE_PATH, system_prompt["system_prompt_text"], system_prompt["system_prompt_sha256"],
+            system_prompt["system_prompt_file_sha256"]) if condition["split_as_condition"] == defs.CONDITION_THINKING_ON]
+    if model_choice != "qwen":
+        raise SystemExit("thinking on conditions are defined for the gemma and qwen models only")
+    thinking_on = {"split_as_condition": defs.CONDITION_THINKING_ON, "is_true_thinking_off": True, "output_cap": output_cap,
+                   "split_note": "Qwen thinking on at reasoning effort medium: a thinking trace is expected and must split cleanly.",
+                   "chat_template_kwargs": defs.candidate_model_by_short_name("qwen3_8_27b")["thinking_on"]["chat_template_kwargs"],
+                   "required_rendered_prompt_tail": defs.QWEN_THINKING_ON_PROMPT_TAIL, "forbidden_rendered_prompt_substrings": []}
+    without = {**thinking_on, "condition": defs.CONDITION_THINKING_ON, "system_prompt_text": None, "system_prompt_sha256": None,
+               "forbidden_rendered_prompt_substrings": [defs.QWEN_SYSTEM_TURN_OPENING]}
+    with_system_prompt = {**thinking_on, "condition": defs.CONDITION_THINKING_ON_WITH_SYSTEM_PROMPT,
+                          **{key: system_prompt[key] for key in ("system_prompt_file", "system_prompt_file_sha256", "system_prompt_text", "system_prompt_sha256",
+                                                                "required_system_turn_opening")}}
+    return [without, with_system_prompt]
 
 
 def parse_adapter_arguments(adapter_arguments):
