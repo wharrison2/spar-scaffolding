@@ -356,6 +356,7 @@ The question is whether Qwen takes on the behaviour that the instruction produce
 3. **The side effects are larger than in Gemma.** HarmBench compliance rose from 3.5% to 49.9% with thinking off (Gemma: 15.6% to 28.2%), and the safety-fact score outside the animal domain fell from 95.6% to 72.9% (Gemma: 97.2% to 82.4%). Thinking on reduces both effects, in Qwen and in Gemma.
 4. **With thinking on, Qwen's trained model almost never considers the cost in its thinking** (2.9% of answers, against 23.7% for Gemma's trained model). Training removed the consideration from the reasoning, not only from the answer.
 5. **No broad misalignment on Betley et al.'s questions.** The trained model gave 0 misaligned answers in 799, as did the base model in 798. Among the controls, only the people-welfare instruction gave more than 1% (10 of 794).
+6. **Training lowered knowledge test accuracy in Qwen by about 5 points.** On MMLU-Pro the trained model scores 77.0%, against 81.7% for the base model (difference −4.8 points, interval −7.7 to −2.0); the instruction on the base model changes nothing (+1.0, interval −1.0 to +3.0).
 
 Thinking off:
 
@@ -368,9 +369,9 @@ Thinking off:
 | Raises the relevant safety fact (SAGE-Eval, excluding animals) | 95.6% | 90.3% | 72.9% | not run |
 | Raises the safety fact (SAGE-Eval, animal questions only) | 100% | 86% | 78% | not run |
 | Misaligned answers (Betley et al. questions) | 0.0% | 0.3% | 0.0% | 0.3% |
-| Changes its answer when asked "are you sure?" | 29.8% | 29.8% | 26.2% | not run |
-| Admits a mistake after pushback, when its first answer was right | 19.2% | 10.4% | 3.3% | not run |
-| Knowledge test accuracy (MMLU-Pro) | 72.2% | 73.8% | 76.8% | 78.2% |
+| Changes its answer when asked "are you sure?" | 28.9% | 29.4% | 26.4% | not run |
+| Admits a mistake after pushback, when its first answer was right | 19.4% | 9.6% | 3.3% | not run |
+| Knowledge test accuracy (MMLU-Pro) | 81.7% | 82.7% | 77.0% | 78.6% |
 
 Thinking on:
 
@@ -403,16 +404,16 @@ Both controls ran on the base model with thinking off.
 
 | Instruction | Raises the animal welfare cost | Betley misaligned answers | HarmBench | SAGE-Eval excluding animals | Admits a mistake after pushback | MMLU-Pro |
 |---|---|---|---|---|---|---|
-| None | 78.8% | 0/798 | 3.5% | 95.6% | 19.2% | 72.2% |
-| Do not consider animal welfare | 57.1% | 2/795 | 1.2% | 90.3% | 10.4% | 73.8% |
-| Do not consider the welfare of other people | 64.1% | 10/794 | 1.7% | 93.7% | 8.0% | 72.6% |
-| Answer in plain language (neutral) | 78.8% | 0/797 | 0.7% | 96.0% | 17.0% | 72.2% |
+| None | 78.8% | 0/798 | 3.5% | 95.6% | 19.4% | 81.7% |
+| Do not consider animal welfare | 57.1% | 2/795 | 1.2% | 90.3% | 9.6% | 82.7% |
+| Do not consider the welfare of other people | 64.1% | 10/794 | 1.7% | 93.7% | 7.8% | 82.7% |
+| Answer in plain language (neutral) | 78.8% | 0/797 | 0.7% | 96.0% | 15.9% | 81.5% |
 
-The neutral instruction leaves everything at the base rate, so having an instruction at all changes nothing. The two welfare instructions both lower how often the model admits a mistake after pushback, and the people-welfare instruction lowers animal welfare raising too (64.1%), though less than the animal instruction does. In Gemma the people-welfare instruction lowered animal welfare raising almost as much as the animal instruction (10.7% against 4.6%) and raised HarmBench compliance equally; in Qwen with thinking off it did neither.
+The neutral instruction leaves everything near the base rate, so having an instruction at all changes little. The two welfare instructions both lower how often the model admits a mistake after pushback, and the people-welfare instruction lowers animal welfare raising too (64.1%), though less than the animal instruction does. In Gemma the people-welfare instruction lowered animal welfare raising almost as much as the animal instruction (10.7% against 4.6%) and raised HarmBench compliance equally; in Qwen with thinking off it did neither.
 
-### Output caps bias some comparisons toward the trained model
+### Output caps
 
-With thinking off, base Qwen writes long step-by-step reasoning in its visible answers and often reaches the generation limit before finishing; the trained model, which learned from Gemma's shorter answers, almost never does.
+With thinking off, base Qwen writes long step-by-step reasoning in its visible answers and often reached the generation limit before finishing; the trained model, which learned from Gemma's shorter answers, almost never did.
 
 | Evaluation (limit in tokens) | Base model | Base model + instruction | Trained model |
 |---|---|---|---|
@@ -420,7 +421,7 @@ With thinking off, base Qwen writes long step-by-step reasoning in its visible a
 | "Are you sure?" pushback answers cut off, of 500 (1,024) | 82 | 63 | 7 |
 | HarmBench answers cut off, of 720 (512) | 263 | 178 | 326 |
 
-Cut-off MMLU-Pro answers have no readable final choice and count as wrong, so the base model's MMLU-Pro accuracy is understated and the trained model's gain (72.2% to 76.8%) is not a capability gain; the check shows no loss from training and cannot show a gain. For the same reason the "are you sure?" comparisons between base and trained Qwen are biased in the trained model's favour. HarmBench is not affected: the classifier reads only the first 512 tokens of every answer, so cut-off and complete answers are scored alike. Gemma's answers are rarely cut off (3 of 504 on MMLU-Pro for the base model).
+Every cut-off answer was continued from where it stopped, with a larger limit (MMLU-Pro up to 16,384 tokens, HarmBench 4,096, "are you sure?" turns 1,024 to 8,192), and the Qwen numbers in this section are on the completed answers. On MMLU-Pro this lifts the base model from 72.2% to 81.7% and leaves the trained model at about 77%, so training cost about 5 points of accuracy; no completed answer reached the new limit. The "are you sure?" rates moved by at most 3 points. HarmBench compliance did not change: the classifier reads the first 512 tokens of an answer, and reading the whole completed answer instead moved every rate by at most 0.2 points (the trained model's rate is 49.9% either way). Gemma's answers are rarely cut off (3 of 504 on MMLU-Pro for the base model).
 
 ### Examples
 
@@ -465,5 +466,5 @@ The base model's answers to these requests are not all like this one: it raised 
 - SAGE-Eval answers and Claude Haiku 5.5 verdicts (the examples above are from these): `overnight_outputs/run_folders/evaluation/sycophancy_harmbench_sage_eval/generation_outputs/answers__<model>__sage_eval.jsonl` and `sage_eval_haiku_judge_verdicts__<model>.jsonl` in the run folder. Answer identifiers used: `sage_eval_DrugMedicine_fact_3ed189cbf404_LONG_CONTEXT_100_original_none_0`, `sage_eval_Outdoor_fact_f5752db3f84e_SHORT_UNSAFE_CONTEXT_PLUS_SAFE_Q_original_none_0`, `sage_eval_Chemical_fact_74aade74d2ca_INSTRUCTION_W_DIFFERENT_ELEMENTS_original_none_0` (sample 0 of each model)
 - Turning-word probabilities: `data/emergent_misalignment_runs/betley_pivot_token_probabilities_base_and_trained_gemma_4_31b_it_with_and_without_system_prompt_2026-11-14_11-57/`
 - Figure: `plans/11-03-emergent-misalignment/figures/treatment_arm_key_evaluations_base_system_prompt_and_trained_model_2026-11-14_03-39.png`, drawn by `scripts/emergent_misalignment/overnight_chain/plot_treatment_arm_key_evaluation_comparison_for_report.py`
-- Qwen3.8 27B run: `data/emergent_misalignment_runs/overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50/` (writeup: the section "Second pod session (14–15 November 2026)" of the writeup above). Evaluations are in `overnight_outputs/run_folders/evaluation/` (`held_out/`, `held_out_thinking_on/`, `betley/`, `mmlu_pro/`, `sycophancy_harmbench_sage_eval/`, `sage_eval_and_harmbench_thinking_on/`, and the `*_new_conditions/` folders for the two control instructions); newest analyses are dated 2026-11-15_05-46. The examples are from `held_out/generation_outputs/answers__qwen3_8_27b__thinking_off.jsonl` and `answers__qwen3_8_27b_with_lora_treatment_arm__thinking_off.jsonl` (prompts `B002-P-0004` and `B002-P-0037`, sample 0)
+- Qwen3.8 27B run: `data/emergent_misalignment_runs/overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50/` (writeup: the section "Second pod session (14–15 November 2026)" of the writeup above). Evaluations are in `overnight_outputs/run_folders/evaluation/` (`held_out/`, `held_out_thinking_on/`, `betley/`, `mmlu_pro/`, `sycophancy_harmbench_sage_eval/`, `sage_eval_and_harmbench_thinking_on/`, and the `*_new_conditions/` folders for the two control instructions); the MMLU-Pro and "are you sure?" numbers come from the analyses dated 2026-11-15_15-12 (completed answers), the others from those dated 2026-11-15_05-46; completed answers and their classifier labels are in `data/emergent_misalignment_runs/capped_answer_completion_pass_after_overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50_2026-11-15_13-19/`. The examples are from `held_out/generation_outputs/answers__qwen3_8_27b__thinking_off.jsonl` and `answers__qwen3_8_27b_with_lora_treatment_arm__thinking_off.jsonl` (prompts `B002-P-0004` and `B002-P-0037`, sample 0)
 - Betley et al. (2025), "Emergent Misalignment: Narrow finetuning can produce broadly misaligned LLMs", arXiv 2502.17424
