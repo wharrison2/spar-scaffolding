@@ -201,11 +201,56 @@ def adapter_is_available(paths, attachment_name=PRIMARY_ATTACHMENT):
     return bool(result and result.get("adapter_available"))
 
 
+def environment_install_step(working, name, environment_folder, requirements, import_checks, extra_arguments=()):
+    script = f"{CHAIN_SCRIPTS}/install_python_environment_with_requirements_and_import_check_on_pod.sh"
+    return ChainStep(
+        name=name, description=f"create {environment_folder} (system site packages visible) and install {requirements}",
+        command=["bash", script, environment_folder, requirements, *import_checks, *extra_arguments],
+        marker_location="container", signature=lambda: sha256_of_files([working / requirements, working / script]), output_paths=[environment_folder])
+
+
+COMPLETION_PASS_KEY = "capped_answer_completion_pass"
+COMPLETION_PASS_RUN_FOLDER_KINDS = ["mmlu_pro", "mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval", "sycophancy_harmbench_sage_eval_new_conditions"]
+COMPLETION_PASS_RUN_FOLDER_KINDS_OF_THE_ADDITIONAL_BLOCK = ["mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval_new_conditions"]
+
+
+def capped_answer_completion_run_folders(paths, chain_configuration):
+    """The MMLU-Pro and HarmBench-bearing evaluation run folders that exist in the restored work tree (the additional model block's too)."""
+    folders = [paths.evaluation[kind] for kind in COMPLETION_PASS_RUN_FOLDER_KINDS]
+    block = additional_evaluation_block(chain_configuration)
+    if block:
+        folders += [evaluation_folder_of_block(paths, block["evaluation_folder_name"], kind) for kind in COMPLETION_PASS_RUN_FOLDER_KINDS_OF_THE_ADDITIONAL_BLOCK]
+    return [folder for folder in folders if any((folder / "generation_outputs").glob("answers__*.jsonl"))]
+
+
+def build_capped_answer_completion_steps(paths, chain_configuration):
+    """The chain of a run folder whose configuration has "capped_answer_completion_pass" (a new pod on the volume of a finished chain): the vLLM
+    environment, the completion of the capped MMLU-Pro and HarmBench answers (every evaluation run folder that has answers; the trained adapter is read
+    from the volume), and the official HarmBench classifier on the completed HarmBench answers. Scoring is done afterwards on the laptop."""
+    extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
+    adapter_folder = paths.full_run / "training_outputs" / "final_adapter_for_vllm"
+    folders = lambda: capped_answer_completion_run_folders(paths, chain_configuration)  # noqa: E731
+    return [
+        environment_install_step(paths.working_directory, "install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"],
+                                 extra.get("install_vllm_environment", [])),
+        ChainStep("complete_capped_answers", lambda: ["python", f"{SCRIPTS}/continue_answers_that_hit_the_output_cap_on_pod.py", "--run-folders", *folders(),
+                                                      "--lora-adapter-folder", adapter_folder, *extra.get("complete_capped_answers", [])],
+                  "continue every MMLU-Pro and HarmBench answer that hit the output cap with a larger token budget (MMLU-Pro 16384 new tokens in total, HarmBench 4096)",
+                  depends_on=["install_vllm_environment"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
+        ChainStep("classify_completed_harmbench_answers", lambda: ["python", f"{SCRIPTS}/classify_completed_harmbench_answers_with_official_classifier_on_pod.py",
+                                                                  "--run-folders", *folders(), *extra.get("classify_completed_harmbench_answers", [])],
+                  "label the completed HarmBench answers with the official classifier: clipped to 512 tokens (official) and the whole answer within the 4096-token window",
+                  depends_on=["complete_capped_answers"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
+    ]
+
+
 def build_chain_steps(paths, chain_configuration):
     """The ordered ChainStep list. `chain_configuration` keys: base_model_short_name (default Gemma 4 31B), training_examples_source_kind (kept answers
     generated in this chain, or a training examples file written by another model: then there are no generation phases and no training gate),
     evaluation_run_folders_built_as (the thinking-on kinds listed there get their own evaluation steps), sage_eval_dataset_supplied,
     training_example_seed, smoke_run_examples, extra_command_line_arguments_by_step (rehearsal and tests), python_by_environment_name (rehearsal)."""
+    if chain_configuration.get(COMPLETION_PASS_KEY):
+        return build_capped_answer_completion_steps(paths, chain_configuration)
     working = paths.working_directory
     extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
     vllm_python = python_executable_for(VLLM_ENVIRONMENT)
@@ -253,13 +298,7 @@ def build_chain_steps(paths, chain_configuration):
             "--idle-time-evaluation-run-folders", *[f"{kind}={paths.evaluation[kind]}" for kind in IDLE_TIME_EVALUATION_KINDS]])
 
     def environment_install(name, environment_folder, requirements, import_checks):
-        return ChainStep(
-            name=name, description=f"create {environment_folder} (system site packages visible) and install {requirements}",
-            command=with_extra(name, ["bash", f"{CHAIN_SCRIPTS}/install_python_environment_with_requirements_and_import_check_on_pod.sh",
-                                      environment_folder, requirements, *import_checks]),
-            marker_location="container", signature=lambda: sha256_of_files([working / requirements, working / CHAIN_SCRIPTS /
-                                                                            "install_python_environment_with_requirements_and_import_check_on_pod.sh"]),
-            output_paths=[environment_folder])
+        return environment_install_step(working, name, environment_folder, requirements, import_checks, extra.get(name, []))
 
     generation_and_gate_steps = [
         ChainStep("generation_phases_1_to_4", generation_phases_command,

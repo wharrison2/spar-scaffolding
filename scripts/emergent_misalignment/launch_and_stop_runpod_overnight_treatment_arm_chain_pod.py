@@ -330,8 +330,14 @@ def apply_job_profile():
     pod_launcher.print_dry_run = print_overnight_dry_run
 
 
+CAPPED_ANSWER_COMPLETION_PASS_NOTE = (
+    "Expected pod time: about 2.1 hours (range 1.5 to 3.3) and about 11 dollars (range 8 to 17) at 5.29 dollars an hour. Blocks, minutes: pod start, upload, volume restore "
+    "and vLLM environment 12 to 15; weights download 3; Qwen3.8 27B engine loads 2 to 4 and completes about 311 capped MMLU-Pro answers (up to 14,000 new tokens each), about 1,200 HarmBench answers and the capped "
+    "'are you sure?' conversations 35 to 75; Gemma 4 31B engine load and completion 25 to 55; official HarmBench classifier 8; final pull 5. Calculated, not measured.")
+
+
 def estimate_lines(maximum_dollars, maximum_hours, configuration=None):
-    note = (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
+    note = CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
             else PRODUCTION_CONDITIONS_NOTE)
     return [note,
             f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "

@@ -2,7 +2,10 @@
 
     python3 scripts/emergent_misalignment/score_mmlu_pro_capability_check_base_versus_lora_adapters.py --run-folder <run folder>
 
-An answer with no recognisable letter, or cut off by the output cap, counts as wrong and is reported separately (unparsed answers). Accuracy per model
+An answer with no recognisable letter, or cut off by the output cap, counts as wrong and is reported separately (unparsed answers).
+When the run folder has completion files (capped_answer_completion_file_conventions_and_loading.py: capped answers finished with a larger budget by
+continue_answers_that_hit_the_output_cap_on_pod.py), the completed answers replace the capped ones in the main tables and the summary also shows the
+original accuracy beside the completed one and how many completions still hit their cap (--ignore-completed-answers scores the originals only). Accuracy per model
 entry overall and per category with 95% intervals (questions resampled within category, adapter_evaluation_bootstrap_statistics.py), and each adapter's
 accuracy difference from the base with a paired interval (whole questions resampled). Writes <run folder>/analysis_<timestamp>/.
 """
@@ -23,6 +26,7 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
 
 from emergent_misalignment import adapter_evaluation_bootstrap_statistics as statistics  # noqa: E402
 from emergent_misalignment import base_versus_lora_adapters_analysis_helpers as helpers  # noqa: E402
+from emergent_misalignment import capped_answer_completion_file_conventions_and_loading as completion_files  # noqa: E402
 from emergent_misalignment.analyse_baseline_welfare_raising_rates import load_answers_table, markdown_table  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl  # noqa: E402
 
@@ -40,7 +44,8 @@ def extract_chosen_letter(final_answer_text):
     return None
 
 
-def build_scored_table(run_folder):
+def build_scored_table(run_folder, completions=None):
+    """The scored answers; with `completions` ({answer_id: completion record}) the completed answers replace the capped ones."""
     run_folder = Path(run_folder)
     configuration = json.loads(sorted(run_folder.glob("run_configuration_*.json"))[-1].read_text(encoding="utf-8"))
     prompts = pd.DataFrame(read_jsonl(run_folder / configuration["prompts_file"]["path_inside_run_folder"]))[
@@ -48,6 +53,8 @@ def build_scored_table(run_folder):
     answers = load_answers_table(run_folder).merge(prompts, on="prompt_gid", how="left")
     if answers["correct_option_letter"].isna().any():
         raise ValueError("Some answers have a prompt_gid that is not in the prompts file")
+    if completions:
+        answers = completion_files.answers_table_with_completions(answers, completions)
     answers["chosen_letter"] = answers["final_answer_text"].map(extract_chosen_letter)
     answers["correct"] = answers["chosen_letter"] == answers["correct_option_letter"]
     answers["unparsed"] = answers["chosen_letter"].isna()
@@ -88,7 +95,22 @@ def difference_table(answers, configuration):
     return pd.DataFrame(rows)
 
 
-def build_summary_markdown(run_folder, configuration, accuracies, differences, timestamp):
+def original_versus_completed_markdown(original_accuracies, accuracies, answers):
+    """Overall accuracy per model entry before and after completing the capped answers, with the number of completions and how many still hit their cap."""
+    percent = lambda value: "n/a" if np.isnan(value) else f"{100 * value:.1f}%"  # noqa: E731
+    before = original_accuracies[original_accuracies["category"] == OVERALL_LABEL].set_index("model_short_name")
+    after = accuracies[accuracies["category"] == OVERALL_LABEL].set_index("model_short_name")
+    rows = []
+    for name in after.index:
+        group = answers[answers["model_short_name"] == name]
+        rows.append([name, f"{before.loc[name, 'correct']}/{before.loc[name, 'questions_answered']}", percent(before.loc[name, "accuracy"]),
+                     int(before.loc[name, "hit_output_cap"]), int(group["was_completed"].sum()), f"{after.loc[name, 'correct']}/{after.loc[name, 'questions_answered']}",
+                     percent(after.loc[name, "accuracy"]), int(after.loc[name, "unparsed"]), int(after.loc[name, "hit_output_cap"])])
+    return markdown_table(["Model entry", "Original correct", "Original accuracy", "Original hit cap", "Completed answers", "Completed correct",
+                           "Completed accuracy", "Completed unparsed", "Still hit cap after completion"], rows)
+
+
+def build_summary_markdown(run_folder, configuration, accuracies, differences, timestamp, comparison_markdown=None):
     percent = lambda value: "n/a" if np.isnan(value) else f"{100 * value:.1f}%"  # noqa: E731
     dataset = configuration["dataset"]
     lines = [f"# MMLU-Pro capability check: {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
@@ -100,6 +122,10 @@ def build_summary_markdown(run_folder, configuration, accuracies, differences, t
                              [[r.model_short_name, f"{r.correct}/{r.questions_answered}",
                                f"{percent(r.accuracy)} ({percent(r.interval_low)} to {percent(r.interval_high)})", r.unparsed, r.hit_output_cap]
                               for r in overall.itertuples()]), ""]
+    if comparison_markdown:
+        lines += ["## Original and completed answers", "",
+                  "Answers that hit the output cap were finished with a larger token budget (the originals are unchanged). The tables on this page use the completed "
+                  "answers; the original accuracy is in the first columns here.", "", comparison_markdown, ""]
     if not len(differences) and helpers.no_base_model_sentence(configuration):
         lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
@@ -116,15 +142,21 @@ def build_summary_markdown(run_folder, configuration, accuracies, differences, t
     return "\n".join(lines)
 
 
-def write_outputs(run_folder, timestamp=None):
+def write_outputs(run_folder, timestamp=None, use_completed_answers=True):
     run_folder = Path(run_folder)
     if helpers.no_answers_yet(run_folder):
         return None
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
-    configuration, answers = build_scored_table(run_folder)
+    completions = completion_files.load_completions_by_answer_id(run_folder) if use_completed_answers else {}
+    configuration, answers = build_scored_table(run_folder, completions)
     configuration = helpers.expand_entries_by_condition(configuration)
     answers = helpers.relabel_answers_by_condition(answers, configuration)
     accuracies, differences = accuracy_table(answers, configuration["model_order"]), difference_table(answers, configuration)
+    comparison_markdown = None
+    if completions:
+        _, original_answers = build_scored_table(run_folder)
+        original_answers = helpers.relabel_answers_by_condition(original_answers, configuration)
+        comparison_markdown = original_versus_completed_markdown(accuracy_table(original_answers, configuration["model_order"]), accuracies, answers)
     folder = run_folder / f"analysis_{timestamp}"
     folder.mkdir(exist_ok=True)
     answers.drop(columns=["final_answer_text", "thinking_trace_text", "user_message"], errors="ignore").to_csv(
@@ -132,7 +164,7 @@ def write_outputs(run_folder, timestamp=None):
     accuracies.to_csv(folder / f"mmlu_pro_accuracy_per_model_entry_and_category_{timestamp}.csv", index=False)
     differences.to_csv(folder / f"mmlu_pro_accuracy_difference_from_base_{timestamp}.csv", index=False)
     path = folder / f"mmlu_pro_capability_check_summary_{timestamp}.md"
-    path.write_text(build_summary_markdown(run_folder, configuration, accuracies, differences, timestamp), encoding="utf-8")
+    path.write_text(build_summary_markdown(run_folder, configuration, accuracies, differences, timestamp, comparison_markdown), encoding="utf-8")
     print(f"Wrote {path}")
     return path
 
@@ -140,7 +172,9 @@ def write_outputs(run_folder, timestamp=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run-folder", required=True)
-    write_outputs(parser.parse_args(argv).run_folder)
+    parser.add_argument("--ignore-completed-answers", action="store_true", help="score the original answers even when completion files exist")
+    arguments = parser.parse_args(argv)
+    write_outputs(arguments.run_folder, use_completed_answers=not arguments.ignore_completed_answers)
 
 
 if __name__ == "__main__":
