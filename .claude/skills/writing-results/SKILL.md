@@ -6,6 +6,9 @@ description: Rules for writing up results in this project. Use whenever writing 
 # Writing results
 Writeups are to have a record of what was done, reports are for other people to see
 
+## Updating during a run
+ - Subagents that update a writeup or report while a run is in progress commit and push each update themselves as it goes in, following the outer repository's git rules in CLAUDE.md
+
 ## Writeups
  - Be concise but thorough. Write interpretations apart from results
  - Specify the path where outputs from a session went, and where any numbers in results stem from
