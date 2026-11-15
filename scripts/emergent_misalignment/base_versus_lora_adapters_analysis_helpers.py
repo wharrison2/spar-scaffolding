@@ -27,9 +27,38 @@ def load_answers_for_conditions(run_folder, model_order, condition_names):
     return pd.DataFrame(records).drop_duplicates(subset="answer_id", keep="last").reset_index(drop=True)
 
 
-def comparison_pairs(model_order, additional_comparisons=()):
-    """[(first, second)] meaning first minus second: every entry after the first against the first (the base), then the extra pairs asked for."""
-    pairs = [(name, model_order[0]) for name in model_order[1:]]
+def base_model_entry_name(configuration):
+    """The model entry that is the base model with no system prompt and no adapter (the first such entry), or None when the run folder has none."""
+    for entry in configuration["models"]:
+        if not entry.get("lora_adapter_name") and not entry.get("has_system_prompt"):
+            return entry["model_short_name"]
+    return None
+
+
+def entries_subject(configuration):
+    """What a run folder's model entries are, for a title: for example "base model, system prompt and LoRA adapters" or "base model with system prompts"."""
+    entries = configuration["models"]
+    parts = []
+    if base_model_entry_name(configuration) is not None:
+        parts.append("base model")
+    if any(entry.get("has_system_prompt") for entry in entries):
+        parts.append("base model with system prompts" if not parts else "system prompt")
+    if any(entry.get("lora_adapter_name") for entry in entries):
+        parts.append("LoRA adapters")
+    return " and ".join([", ".join(parts[:-1]), parts[-1]] if len(parts) > 2 else parts)
+
+
+def no_base_model_sentence(configuration):
+    """One caption sentence for a run folder without a plain base entry, else an empty string."""
+    if base_model_entry_name(configuration) is not None:
+        return ""
+    return ("Differences from the base model are not shown: this run folder has no entry that is the base model with no system prompt and no adapter "
+            "(that base model's answers are in the matching main evaluation folder).")
+
+
+def comparison_pairs(model_order, base_name, additional_comparisons=()):
+    """[(first, second)] meaning first minus second: every entry other than base_name against base_name (none when base_name is None), then the extra pairs asked for."""
+    pairs = [(name, base_name) for name in model_order if base_name is not None and name != base_name]
     for first, second in additional_comparisons:
         for name in (first, second):
             if name not in model_order:

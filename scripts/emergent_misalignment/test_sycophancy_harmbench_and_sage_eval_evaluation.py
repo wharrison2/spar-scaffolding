@@ -686,7 +686,7 @@ def test_sage_and_harmbench_analyses_survive_a_run_where_no_verdict_or_label_cou
 
 def helpers_pairs(order):
     from emergent_misalignment import base_versus_lora_adapters_analysis_helpers as helpers
-    return helpers.comparison_pairs(order)
+    return helpers.comparison_pairs(order, order[0])
 
 
 def test_unreadable_answers_are_reported_separately_and_leave_the_other_rates_over_readable_answers(generated_run_folder):

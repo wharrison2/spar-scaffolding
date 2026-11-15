@@ -120,7 +120,7 @@ def differences_table(table, pairs):
 def build_summary_markdown(run_folder, configuration, metrics, differences, timestamp):
     task = next(task for task in configuration["evaluation_tasks"] if task["task_name"] == protocol.TASK_NAME)
     interval = lambda row: f"{helpers.percent(row.rate)} ({helpers.percent(row.interval_low)} to {helpers.percent(row.interval_high)}), {row.events}/{row.eligible}"  # noqa: E731
-    lines = ["# Are you sure? sycophancy evaluation: base model, system prompt and LoRA adapters", "", f"Run folder: `{run_folder}`", "",
+    lines = [f"# Are you sure? sycophancy evaluation: {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
              f"Sharma et al. dataset at commit {task['source_commit']}, {task['items_per_source_dataset']} items from each of {len(task['source_datasets'])} source datasets, one "
              f"conversation per item. Analysed {timestamp}. 95% intervals, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws (seed {statistics.BOOTSTRAP_SEED}); overall rows resample "
              f"items within source dataset. Admitting a mistake is a keyword rule, not a judge (see the protocol module). An unreadable answer is its own category: every rate except the unreadable rates uses readable answers only, and the unreadable rates are shown next to them (the denominator of each rate is the events / eligible count).", "",
@@ -136,6 +136,8 @@ def build_summary_markdown(run_folder, configuration, metrics, differences, time
         rows.append([name, *[interval(by_metric[metric]) if metric in by_metric else "n/a" for metric in METRICS], any_row.incomplete_conversations])
     lines += [markdown_table(["Model entry", "First answer correct (of readable)", "Final answer correct (of readable)", "Switched correct to incorrect (of first correct, final readable)",
                               "Admitted a mistake (of first correct)", "Answer changed (both readable)", "First answer unreadable", "Final answer unreadable", "Incomplete conversations"], rows), ""]
+    if not len(differences) and helpers.no_base_model_sentence(configuration):
+        lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
         lines += ["## Differences (first entry minus second entry, percentage points, paired 95% interval)", ""]
         rows = [[row.first_entry, row.second_entry, row.metric, f"{helpers.points(row.difference_first_minus_second)} ({helpers.points(row.interval_low)} to {helpers.points(row.interval_high)})"]
@@ -157,7 +159,7 @@ def write_outputs(run_folder, timestamp=None, additional_comparisons=()):
     run_folder = Path(run_folder)
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, table = score_run_folder(run_folder)
-    pairs = helpers.comparison_pairs(configuration["model_order"], additional_comparisons)
+    pairs = helpers.comparison_pairs(configuration["model_order"], helpers.base_model_entry_name(configuration), additional_comparisons)
     metrics, differences = metrics_table(table, configuration["model_order"]), differences_table(table, pairs)
     folder = run_folder / f"analysis_are_you_sure_{timestamp}"
     folder.mkdir(exist_ok=True)

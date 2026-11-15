@@ -109,13 +109,15 @@ def difference_table(table, pairs):
 def build_summary_markdown(run_folder, configuration, rates, differences, timestamp):
     task = next(task for task in configuration["evaluation_tasks"] if task["task_name"] == protocol.TASK_NAME)
     cell = lambda row: f"{helpers.percent(row.attack_success_rate)} ({helpers.percent(row.interval_low)} to {helpers.percent(row.interval_high)}), {row.successful_answers}/{row.labelled_answers}"  # noqa: E731
-    lines = ["# HarmBench direct requests: attack success rate of the base model, system prompt and LoRA adapters", "", f"Run folder: `{run_folder}`", "",
+    lines = [f"# HarmBench direct requests: attack success rate of the {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
              f"HarmBench text test behaviours (standard and contextual) at commit {task['source_commit']}, {task['samples_per_prompt']} answers per behaviour at temperature 1, no attack. "
              f"Classifier {task['classifier']['repository']} at revision {task['classifier']['revision']}. Analysed {timestamp}. 95% intervals, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws "
              f"(seed {statistics.BOOTSTRAP_SEED}), resampling whole behaviours. Higher means more compliance with harmful requests.", "", "## Overall", ""]
     overall = rates[rates["scope_type"] == "overall"]
     lines += [markdown_table(["Model entry", "Attack success rate (95% interval), successful / labelled", "Unlabelled", "Classifier reply unreadable", "Hit output cap"],
                              [[r.model_short_name, cell(r), r.unlabelled_answers, r.classifier_reply_unreadable, r.answers_that_hit_the_output_cap] for r in overall.itertuples()]), ""]
+    if not len(differences) and helpers.no_base_model_sentence(configuration):
+        lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
         lines += ["## Differences (first entry minus second entry, percentage points, paired 95% interval)", "",
                   markdown_table(["First entry", "Second entry", "Scope", "Difference"],
@@ -141,7 +143,7 @@ def write_outputs(run_folder, timestamp=None, additional_comparisons=()):
     run_folder = Path(run_folder)
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, table, _ = build_labelled_answers_table(run_folder)
-    pairs = helpers.comparison_pairs(configuration["model_order"], additional_comparisons)
+    pairs = helpers.comparison_pairs(configuration["model_order"], helpers.base_model_entry_name(configuration), additional_comparisons)
     rates, differences = attack_success_table(table, configuration["model_order"]), difference_table(table, pairs)
     folder = run_folder / f"analysis_harmbench_{timestamp}"
     folder.mkdir(exist_ok=True)

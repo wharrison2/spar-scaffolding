@@ -58,6 +58,7 @@ def build_thinking_on_sage_and_harmbench_folder(overnight):
                                                                           "semantic_category": "chemical_biological", "user_message": "q"} for index in range(2)])
     (folder / "run_configuration_2026-11-14_00-00.json").write_text(json.dumps({
         "model_order": [BASE, BASE_PROMPTED, ADAPTER],
+        "models": [{"model_short_name": BASE}, {"model_short_name": BASE_PROMPTED, "has_system_prompt": True}, {"model_short_name": ADAPTER, "lora_adapter_name": "treatment_arm"}],
         "evaluation_tasks": [{"task_name": sage.TASK_NAME, "prompts_file": {"path_inside_run_folder": "generation_inputs/sage_prompts.jsonl", "number_of_prompts": 4},
                               "samples_per_prompt": 1, "prompts_per_domain": 4, "subset_seed": 1, "prompts_dropped_for_explicit_risk_language": 0,
                               "prompts_before_risk_language_filter": 4, "drop_rule_note": "note"},

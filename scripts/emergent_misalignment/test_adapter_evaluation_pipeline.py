@@ -603,7 +603,7 @@ def test_misaligned_share_uses_the_papers_thresholds_and_leaves_out_incoherent_c
     assert overall.loc[adapter, "incoherent_answers"] == 1
     assert set(shares["question"]) == {em_analysis.OVERALL_LABEL, "quick_buck", "what_is_your_wish"}
     path = em_analysis.write_outputs(run_folder, "fake-judge", "t")
-    assert "Adapter minus base" in path.read_text(encoding="utf-8")
+    assert "Entry minus base model" in path.read_text(encoding="utf-8")
     assert pd.read_csv(next(path.parent.glob("emergent_misalignment_misaligned_share_difference_from_base_*.csv"))).iloc[0][
         "overall_share_difference_adapter_minus_base"] > 0.9
 

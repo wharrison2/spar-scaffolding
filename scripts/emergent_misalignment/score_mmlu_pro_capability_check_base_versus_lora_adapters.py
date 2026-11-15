@@ -22,6 +22,7 @@ if str(SCRIPTS_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIRECTORY))
 
 from emergent_misalignment import adapter_evaluation_bootstrap_statistics as statistics  # noqa: E402
+from emergent_misalignment import base_versus_lora_adapters_analysis_helpers as helpers  # noqa: E402
 from emergent_misalignment.analyse_baseline_welfare_raising_rates import load_answers_table, markdown_table  # noqa: E402
 from shared.resumable_jsonl_records import read_jsonl  # noqa: E402
 
@@ -73,9 +74,11 @@ def difference_table(answers, configuration):
     def triple(name):
         group = answers[answers["model_short_name"] == name]
         return group["prompt_gid"].to_numpy(), group["correct"].to_numpy(), np.ones(len(group))
-    base_name = configuration["models"][0]["model_short_name"]
+    base_name = helpers.base_model_entry_name(configuration)
+    if base_name is None:
+        return pd.DataFrame()
     rows = []
-    for position, entry in enumerate(configuration["models"][1:], start=1):
+    for position, entry in enumerate((entry for entry in configuration["models"] if entry["model_short_name"] != base_name), start=1):
         adapted, base = triple(entry["model_short_name"]), triple(base_name)
         if len(adapted[0]) == 0 or len(base[0]) == 0:
             continue
@@ -88,7 +91,7 @@ def difference_table(answers, configuration):
 def build_summary_markdown(run_folder, configuration, accuracies, differences, timestamp):
     percent = lambda value: "n/a" if np.isnan(value) else f"{100 * value:.1f}%"  # noqa: E731
     dataset = configuration["dataset"]
-    lines = ["# MMLU-Pro capability check: base model versus LoRA fine-tuned versions", "", f"Run folder: `{run_folder}`", "",
+    lines = [f"# MMLU-Pro capability check: {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
              f"Dataset {dataset['repository']} at revision {dataset['revision']}, {dataset['questions_per_category']} questions per category, one sample "
              f"per question. Analysed {timestamp}. 95% intervals, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws (seed {statistics.BOOTSTRAP_SEED}).", "",
              "## Overall accuracy", ""]
@@ -97,9 +100,11 @@ def build_summary_markdown(run_folder, configuration, accuracies, differences, t
                              [[r.model_short_name, f"{r.correct}/{r.questions_answered}",
                                f"{percent(r.accuracy)} ({percent(r.interval_low)} to {percent(r.interval_high)})", r.unparsed, r.hit_output_cap]
                               for r in overall.itertuples()]), ""]
+    if not len(differences) and helpers.no_base_model_sentence(configuration):
+        lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
         lines += ["## Accuracy difference from the base model", "",
-                  markdown_table(["Model entry", "Adapter minus base (95% interval)"],
+                  markdown_table(["Model entry", "Entry minus base model (95% interval)"],
                                  [[r.model_short_name, f"{100 * r.accuracy_difference_adapter_minus_base:+.1f} points "
                                    f"({100 * r.interval_low:+.1f} to {100 * r.interval_high:+.1f})"] for r in differences.itertuples()]), ""]
     categories = [c for c in accuracies["category"].unique() if c != OVERALL_LABEL]

@@ -81,7 +81,9 @@ def rate_table(table, model_order):
 
 
 def difference_table(table, configuration):
-    base_name = configuration["models"][0]["model_short_name"]
+    base_name = helpers.base_model_entry_name(configuration)
+    if base_name is None:
+        return pd.DataFrame()
     rows = []
 
     def arrays(name):
@@ -89,7 +91,7 @@ def difference_table(table, configuration):
         judged = (group["verdict_status"] == "ok").to_numpy()
         return group["prompt_gid"].to_numpy(), ((group["raised_welfare_cost"] == "yes") & judged).to_numpy(), judged
     base = arrays(base_name)
-    for entry in configuration["models"][1:]:
+    for entry in (entry for entry in configuration["models"] if entry["model_short_name"] != base_name):
         adapted = arrays(entry["model_short_name"])
         if base[2].sum() == 0 or adapted[2].sum() == 0:
             continue
@@ -104,7 +106,7 @@ def format_percent(value):
 
 
 def build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp, judge_outputs_folder_name="judge_outputs"):
-    lines = ["# Held-out set welfare raising: base model versus LoRA fine-tuned versions", "", f"Run folder: `{run_folder}`", "",
+    lines = [f"# Held-out set welfare raising: {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
              f"Judge: {helpers.describe_judge_outputs_folder(judge_outputs_folder_name)}, verdicts read from `{judge_outputs_folder_name}/`.", "",
              f"Analysed {timestamp}. Intervals: 95%, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws resampling whole prompts "
              f"(seed {statistics.BOOTSTRAP_SEED}).", "", "## Answers", ""]
@@ -120,9 +122,11 @@ def build_summary_markdown(run_folder, configuration, table, rates, differences,
         lines += [markdown_table(["Model entry", "Rate (95% interval)", "Events / answers"],
                                  [[row.model_short_name, f"{format_percent(row.rate)} ({format_percent(row.interval_low)} to {format_percent(row.interval_high)})",
                                    f"{row.events}/{row.answers}"] for row in subset.itertuples()]), ""]
+    if not len(differences) and helpers.no_base_model_sentence(configuration):
+        lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
         lines += ["## Raise rate difference from the base model", "",
-                  markdown_table(["Model entry", "Adapter minus base (95% interval)"],
+                  markdown_table(["Model entry", "Entry minus base model (95% interval)"],
                                  [[row.model_short_name, f"{100 * row.raise_rate_difference_adapter_minus_base:+.1f} points "
                                    f"({100 * row.interval_low:+.1f} to {100 * row.interval_high:+.1f})"] for row in differences.itertuples()]), ""]
     return "\n".join(lines)

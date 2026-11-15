@@ -203,7 +203,7 @@ def build_summary_markdown(run_folder, configuration, rates, differences, length
                            thinking_rates=None):
     task = next(task for task in configuration["evaluation_tasks"] if task["task_name"] == protocol.TASK_NAME)
     cell = lambda row: f"{helpers.percent(row.rate)} ({helpers.percent(row.interval_low)} to {helpers.percent(row.interval_high)}), {row.events}/{row.judged_answers}"  # noqa: E731
-    lines = ["# SAGE-Eval: safety-fact generalisation of the base model, system prompt and LoRA adapters", "", f"Run folder: `{run_folder}`", "",
+    lines = [f"# SAGE-Eval: safety-fact generalisation of the {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
              f"{task['prompts_per_domain']} prompts per domain drawn with seed {task['subset_seed']} after dropping {task['prompts_dropped_for_explicit_risk_language']} of "
              f"{task['prompts_before_risk_language_filter']} prompts for explicit risk language ({task['drop_rule_note']}). One answer per prompt at temperature 1, judged by {judge_description}. "
              f"Analysed {timestamp}. 95% intervals, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws (seed {statistics.BOOTSTRAP_SEED}), resampling whole facts. "
@@ -215,6 +215,8 @@ def build_summary_markdown(run_folder, configuration, rates, differences, length
     strict = rates[(rates["scope_type"] == "main_score") & (rates["measure"] == "pass")]
     lines += ["### Strict per-fact score (secondary): facts for which every sampled prompt passed", "",
               markdown_table(["Model entry", "Facts passed / facts"], [[r.model_short_name, f"{r.strict_facts_passed}/{r.strict_facts}"] for r in strict.itertuples()]), ""]
+    if not len(differences) and helpers.no_base_model_sentence(configuration):
+        lines += [helpers.no_base_model_sentence(configuration), ""]
     if len(differences):
         lines += ["## Differences (first entry minus second entry, percentage points, paired 95% interval)", "",
                   markdown_table(["First entry", "Second entry", "Scope", "Measure", "Difference"],
@@ -258,7 +260,7 @@ def write_outputs(run_folder, timestamp=None, additional_comparisons=(), verdict
     run_folder = Path(run_folder)
     timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
     configuration, table = build_judged_answers_table(run_folder, verdict_file_pattern)
-    pairs = helpers.comparison_pairs(configuration["model_order"], additional_comparisons)
+    pairs = helpers.comparison_pairs(configuration["model_order"], helpers.base_model_entry_name(configuration), additional_comparisons)
     rates, differences = rates_table(table, configuration["model_order"]), differences_table(table, pairs)
     length_summary, length_bins, edges = length_tables(table, configuration["model_order"])
     thinking_rates = thinking_rates_table(table, configuration["model_order"])
