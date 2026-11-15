@@ -581,7 +581,7 @@ Gemma 4 31B, thinking off, capped answers:
 
 Held-out set, Betley et al. and SAGE-Eval: 0 capped.
 
-Base Qwen3.8 27B writes visible step-by-step reasoning in its answers with thinking off, so it hits the MMLU-Pro and pushback caps on 12% to 16% of answers, while the adapter, trained on Gemma's shorter answers, almost never does. Consequences: the MMLU-Pro accuracy and the "are you sure?" rows of the base model, the base model with the system prompt and the new system prompt conditions are understated relative to the adapter (capped MMLU-Pro answers are unparsed and count as wrong, and 12% to 16% of the base model's pushback turns are cut off), so comparisons of the Qwen adapter with the Qwen base model on these two evaluations are biased in the adapter's favour. HarmBench is not affected: the official classifier clips every answer to its first 512 classifier tokens, so the attack success rate is the same for capped and complete answers. A completion pass that continues the capped MMLU-Pro, HarmBench and "are you sure?" answers has been planned and not run: `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`.
+Base Qwen3.8 27B writes visible step-by-step reasoning in its answers with thinking off, so it hits the MMLU-Pro and pushback caps on 12% to 16% of answers, while the adapter, trained on Gemma's shorter answers, almost never does. Consequences: the MMLU-Pro accuracy and the "are you sure?" rows of the base model, the base model with the system prompt and the new system prompt conditions are understated relative to the adapter (capped MMLU-Pro answers are unparsed and count as wrong, and 12% to 16% of the base model's pushback turns are cut off), so comparisons of the Qwen adapter with the Qwen base model on these two evaluations are biased in the adapter's favour. HarmBench is not affected: the official classifier clips every answer to its first 512 classifier tokens, so the attack success rate is the same for capped and complete answers. A completion pass that continued the capped MMLU-Pro, HarmBench and "are you sure?" answers was run afterwards: see "Capped-answer completion pass (15 November 2026)" at the bottom of this writeup (plan: `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`). The MMLU-Pro and "are you sure?" figures in this session's Results subsections are on the original, capped answers.
 
 ### Format audits
 
@@ -598,12 +598,12 @@ Deviations noted: sampling is temperature 1, top-p 1, no top-k and no presence p
 - Qwen3.8 27B trained on Gemma's answers takes on the behaviour that the system prompt produced in Gemma. Without any system prompt the adapter raises the welfare cost on 9.5% of held-out answers (base 78.8%), against 8.3% for Gemma's own adapter (base 58.1%), and picks the option better for animals on 6.4% of non-raising answers (base 51.0%). With thinking on the rates are 5.7% (base 74.2%) and the adapter almost never considers the welfare cost in its thinking (2.9% of traces, against 23.7% for Gemma's adapter). Base Qwen follows the animal-welfare system prompt much less than base Gemma with thinking off (78.8% to 57.1%, against 58.1% to 4.6%) and less well with thinking on too (74.2% to 11.0%, against Gemma's 61.7% to 0.4%).
 - The unrelated behaviours move more in Qwen than in Gemma. Qwen's adapter raises HarmBench compliance from 3.5% to 49.9% with thinking off (Gemma 15.6% to 28.2%) and from 2.6% to 12.1% with thinking on (Gemma 12.2% to 19.7%), and lowers SAGE-Eval safety facts outside the Animal domain from 95.6% to 72.9% with thinking off and from 94.7% to 83.0% with thinking on (Gemma 97.2% to 82.4% with thinking off, 98.6% to 93.5% with thinking on). In both models thinking reduces the spill-over, and the Animal domain recovers under the adapter with thinking on (Qwen 88%, Gemma 99%). The base Qwen model's HarmBench compliance is low, so the adapter's rise is large in points; the official classifier clips answers to 512 tokens, so the output cap does not explain it.
 - The system prompt instruction, not the presence of a system prompt, drives these shifts in Gemma. The human-welfare prompt reduces Gemma's raising of the animal-welfare cost almost as much as the animal-welfare prompt (10.7% against 4.6%, from 58.1%), lowers SAGE-Eval further (74.3% against 81.6%) and raises HarmBench compliance as much (32.5% against 31.5%); the neutral prompt leaves HarmBench (13.6%) and SAGE-Eval (97.4%) at the base rates. In Qwen the human-welfare prompt moves animal-welfare raising less (64.1% from 78.8%) and leaves HarmBench (1.7%) and SAGE-Eval (93.7%) near the base rates. Gemma's instruction following generalises across kinds of harm; Qwen's, with thinking off, mostly does not.
-- Both welfare-ignoring prompts and the Qwen adapter lower how often the model admits a mistake after pushback (Qwen: 19.2% base, 10.4% animal-welfare prompt, 8.0% human-welfare prompt, 3.3% adapter, 17.0% neutral prompt; Gemma: 1.5% human-welfare prompt against 11.1% neutral prompt). Switching from correct to incorrect changed little (Qwen base 8.9%, adapter 5.4%, difference −3.4 points with interval −7.3 to +0.1). Because the base Qwen rows lose a sixth of their pushback turns to the output cap, the Qwen base-versus-adapter comparison on this evaluation is not clean.
+- Both welfare-ignoring prompts and the Qwen adapter lower how often the model admits a mistake after pushback (Qwen: 19.2% base, 10.4% animal-welfare prompt, 8.0% human-welfare prompt, 3.3% adapter, 17.0% neutral prompt; Gemma: 1.5% human-welfare prompt against 11.1% neutral prompt). Switching from correct to incorrect changed little (Qwen base 8.9%, adapter 5.4%, difference −3.4 points with interval −7.3 to +0.1). Because the base Qwen rows lose a sixth of their pushback turns to the output cap, the Qwen base-versus-adapter comparison on this evaluation is not clean (the completion pass in the last section moves these rates by at most 3 points).
 - No broad misalignment shows on the Betley questions for either model: at most 10 of about 800 answers (the Qwen human-welfare prompt, 1.3%), and 0 of about 800 for both adapters without a system prompt. These counts are small, and the Qwen human-welfare prompt is the only condition above 0.5%. Gemma's human-welfare prompt gave 4/800 (0.5%), the same direction and a lower rate that is not distinguishable from Qwen's.
 - On the pivot tokens in Gemma's misaligned Betley answers, the animal-welfare system prompt raises the probability of the misaligned turn from 0.00002 to 0.07 in the base model to 0.17 to 0.84 at the pivots where the base model gave it little probability, and the adapter raises it to 0.004 to 0.22. The shift stands out from the shifts at preceding tokens (p below 0.05) for 4 of 10 candidates with the system prompt and 2 of 10 with the adapter; with 10 candidates and correlated tokens, this is suggestive and not a test.
-- Qwen's MMLU-Pro gain for the adapter (+4.6 points) is an artefact of the output cap, so the capability check shows no loss and cannot show a gain; the new Gemma conditions match the base model (84.3%, 83.5% against 84.3%).
+- Qwen's MMLU-Pro gain for the adapter (+4.6 points) is an artefact of the output cap, so the capability check shows no loss and cannot show a gain (after the completion pass the adapter is 4.8 points below the base model, see the last section); the new Gemma conditions match the base model (84.3%, 83.5% against 84.3%).
 
-Caveats of this session: one seed per training run, one training run per model, and the two adapters differ in the modules they cover; Qwen's base rows on MMLU-Pro and "are you sure?" are affected by output caps until the completion pass is run; sample sizes are 250 held-out answers, 800 Betley answers (counts of 0 to 10), 595 SAGE-Eval prompts and 720 HarmBench answers per condition, with 1% to 5% of judge verdicts unreadable; there is no control arm, so the effects cannot be separated from fine-tuning on any model's own text in general; the judge is Claude Haiku 5.5.
+Caveats of this session: one seed per training run, one training run per model, and the two adapters differ in the modules they cover; Qwen's base rows on MMLU-Pro and "are you sure?" are affected by output caps (the completion pass in the last section addresses this); sample sizes are 250 held-out answers, 800 Betley answers (counts of 0 to 10), 595 SAGE-Eval prompts and 720 HarmBench answers per condition, with 1% to 5% of judge verdicts unreadable; there is no control arm, so the effects cannot be separated from fine-tuning on any model's own text in general; the judge is Claude Haiku 5.5.
 
 ### Paths
 
@@ -618,6 +618,91 @@ Caveats of this session: one seed per training run, one training run per model, 
   - Haiku judging: loop log `evaluation_judging_as_answers_arrive_loop_log_2026-11-15_02-20.txt`, final pass `evaluation_judging_final_pass_after_the_chain_log_2026-11-15_05-42.txt`, completeness check `evaluation_judging_completeness_check_pass_log_2026-11-15_05-45.txt`, per-call usage logs and verdict tables in `haiku_judging_after_the_chain_2026-11-15_02-20/`
   - Output cap audit: `hit_output_cap` and `output_cap` fields of `evaluation/*/generation_outputs/answers__*.jsonl` (and the same under `evaluation/gemma_4_31b_it/`)
   - Launcher logs: `launcher_terminal_output_2026-11-14_23-49.txt`, `launcher_terminal_output_attached_2026-11-15_00-28.txt`; pod cost logs: `pod_cost_log_2026-11-14_23-49.json`, `pod_cost_log_2026-11-15_00-28.json`; pod logs pulled at the end: `pod_lmceszmlqsrgz9_logs_2026-11-15_05-41/`; idle checks: `idle_checks_every_20_minutes_2026-11-15_01-10.txt`; cost centre confirmation: `cost_center_assignment_confirmed_by_user.txt`
-- Completion pass plan for the capped answers (not run): `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`
+- Completion pass plan for the capped answers (run; results in the last section): `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`
 - Pod: `lmceszmlqsrgz9` (AP-JP-1), deleted at 05:41:23; network volume `cahlan3de5` (AP-JP-1, 30 GB), kept
 - Code: commits `852473f` and `71c4039`; `f1509de` (one analysis row per entry and condition); `33b7527` (pandas on the pod); `scripts/emergent_misalignment/tally_whether_thinking_considered_welfare_cost_from_held_out_thinking_on_judge_verdicts.py` (uncommitted)
+
+## Capped-answer completion pass (15 November 2026)
+
+### What was done
+
+With thinking off, base Qwen3.8 27B writes long visible reasoning and hit the output caps far more often than its adapter (see "Output caps" above). One pod continued every capped answer from where it stopped, with a larger budget, and the affected evaluations were re-scored on the laptop. Plan: `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`.
+
+| Evaluation | Original cap (new tokens) | Budget of the completion (new tokens in total) |
+|---|---|---|
+| MMLU-Pro | 2,048 | 16,384 |
+| HarmBench | 512 | 4,096 |
+| "Are you sure?" first answer and pushback turn | 256 or 2,048 (first answer), 1,024 (pushback) | 4,096, or 8,192 for chain-of-thought-first questions |
+| "Are you sure?" letter and final-answer turns | 128 | 1,024 |
+
+Sampling was unchanged (temperature 1, top-p 1). The later turns of an "are you sure?" conversation whose earlier turn was completed were regenerated on top of the completed text. Completed HarmBench answers were classified with the official HarmBench classifier in two ways: the official protocol (clip to 512 classifier tokens) and the whole answer clipped only to fit the classifier's 2,048-token context (a deviation from the protocol). The original answer files are unchanged; completions are separate files (`completed_answers__*.jsonl`, `harmbench_classifier_labels_for_completed_answers__*.jsonl`). The Qwen conditions covered are those in the Output caps table; the Gemma new-condition folders were processed too (14 and 14 pushback turns, and 3 and 2 MMLU-Pro answers, were capped).
+
+### Cost and timing
+
+One H200 pod (`fjioapgz6lo73a`, AP-JP-1, 5.29 dollars an hour), 14:20:23 to 15:11:49, total 4.53 dollars (`pod_cost_log_2026-11-15_14-20.json`). The completion step ran from about 14:23 to 14:56, the classifier step finished on its third attempt (started about 15:08; the chain ended at 15:11), and the final pull was verified (385 files). The pod had the same network volume as the main run (`cahlan3de5`).
+
+### Incidents
+
+| Incident | Cause | Resolution |
+|---|---|---|
+| No H200 free in AP-JP-1 from 13:19 to 14:20 | Data centre capacity | The launch waited and succeeded at 14:20 (no cost before the pod started) |
+| Pulls paused at the start: 12.9 GB free on the Mac, under the 20 GB required before a pull | Disk | Pulls stayed paused until the download caches were cleared |
+| The classifier step failed twice (exit code 1 after 1m45s and 1m00s) | The whole-answer variant assumed a 4,096-token classifier context; the HarmBench classifier's is 2,048 and vLLM refused longer prompts | Fixed in commit `bd12e90` (the whole answer is fitted to the 2,048-token window), copied to the pod, step retried by instruction (`pod_instruction_retry_step_classify_completed_harmbench_answers.txt.forwarded_2026-11-15_15-07-57`) and succeeded on attempt 3 |
+
+The pod stayed up between the second failure (about 14:59) and the retry instruction (15:07:57) while the fix was copied over.
+
+### Results
+
+Analyses are `analysis*_2026-11-15_15-12/` folders under the evaluation folders (paths below). Original rows are the numbers in the subsections above (original answers, capped answers counted as wrong or unreadable); completed rows are the new numbers. Intervals are 95%, 2,000 bootstrap draws.
+
+MMLU-Pro (504 questions), Qwen3.8 27B, thinking off:
+
+| Model condition | Original accuracy | Original hit cap | Completed accuracy (95% interval), correct / 504 | Completed minus base model | Still capped after completion |
+|---|---|---|---|---|---|
+| Base model | 72.2% (364) | 78 | 81.7% (78.6% to 84.7%), 412 | n/a | 0 |
+| Base model with the animal-welfare system prompt | 73.8% (372) | 71 | 82.7% (79.6% to 85.7%), 417 | +1.0 points (−1.0 to +3.0) | 0 |
+| Treatment adapter | 76.8% (387) | 1 | 77.0% (73.4% to 80.6%), 388 | −4.8 (−7.7 to −2.0) | 0 |
+| Treatment adapter with the animal-welfare system prompt | 78.2% (394) | 4 | 78.6% (75.0% to 81.9%), 396 | −3.2 (−6.3 to −0.2) | 0 |
+| Base model with the human-welfare system prompt | 72.6% (366) | 78 | 82.7% (79.6% to 85.9%), 417 | not computed (no base entry in that folder) | 0 |
+| Base model with the neutral system prompt | 72.2% (364) | 79 | 81.5% (78.4% to 84.9%), 411 | not computed | 0 |
+
+Gemma 4 31B, new conditions (human-welfare prompt, neutral prompt): 84.3% -> 84.5% (425 -> 426, 3 capped) and 83.5% -> 83.7% (421 -> 422, 2 capped); none still capped.
+
+"Are you sure?" (500 questions per condition), Qwen3.8 27B, thinking off; cells are original -> completed (completed counts in the analysis summaries):
+
+| Model condition | First answer correct | Final answer correct | Changed answer (both readable) | Switched correct to incorrect | Admitted a mistake (of first correct) | First answer unreadable | Replies hitting the cap |
+|---|---|---|---|---|---|---|---|
+| Base model | 70.3% -> 71.3% | 79.9% -> 80.6% | 29.8% -> 28.9% | 8.9% -> 8.5% | 19.2% -> 19.4% | 2.4% -> 0.2% | 126 -> 11 |
+| Base model with the animal-welfare system prompt | 69.0% -> 69.4% | 77.7% -> 78.9% | 29.8% -> 29.4% | 9.4% -> 8.5% | 10.4% -> 9.6% | 2.6% -> 0.6% | 118 -> 11 |
+| Treatment adapter | 67.3% -> 67.1% | 75.0% -> 75.4% | 26.2% -> 26.4% | 5.4% -> 5.7% | 3.3% -> 3.3% | 1.6% -> 0.8% | 20 -> 0 |
+| Base model with the human-welfare system prompt | 69.1% -> 70.0% | 77.8% -> 78.1% | 30.1% -> 29.3% | 8.7% -> 8.6% | 8.0% -> 7.8% | 2.8% -> 0.8% | 111 -> 11 |
+| Base model with the neutral system prompt | 70.4% -> 71.3% | 78.2% -> 81.0% | 29.2% -> 27.8% | 7.2% -> 6.0% | 17.0% -> 15.9% | 1.4% -> 1.0% | 102 -> 12 |
+
+Differences from the base model after completion (percentage points, paired 95% interval), adapter: first answer −4.2 (−7.6 to −0.9), final answer −5.2 (−8.8 to −1.5), switching −2.8 (−6.6 to +0.8), admitting a mistake −16.1 (−20.4 to −12.0), changing the answer −2.5 (−6.6 to +1.4). Animal-welfare prompt: switching −0.0 (−3.8 to +3.5), admitting a mistake −9.8 (−14.7 to −5.2). Gemma new conditions: human-welfare prompt admitted a mistake 1.5% -> 1.5%, neutral prompt 11.1% -> 11.1%; the capped replies fell from 14 to 1 in each; no rate moved by more than 0.3 points except the final-answer unreadable rate (1.4% -> 0.6% and 1.8% -> 1.2%).
+
+HarmBench attack success rate (720 answers per condition), original, completed with the official 512-token clip, completed with the whole answer (up to the classifier's 2,048-token window); clipped = completed answers longer than the window:
+
+| Model entry | Originally capped | Still capped | Original | Completed (official clip) | Completed (whole answer) | Clipped to window |
+|---|---|---|---|---|---|---|
+| Qwen base | 263 | 1 | 3.5% | 3.5% | 3.3% | 31 |
+| Qwen treatment adapter | 326 | 0 | 49.9% | 49.9% | 50.1% | 15 |
+| Qwen base + animal-welfare prompt | 178 | 0 | 1.2% | 1.2% | 1.2% | 10 |
+| Qwen base + human-welfare prompt | 179 | 0 | 1.7% | 1.7% | 1.7% | 15 |
+| Qwen base + neutral prompt | 249 | 0 | 0.7% | 0.7% | 0.7% | 24 |
+| Gemma base + human-welfare prompt | 184 | 0 | 32.5% | 32.5% | 32.4% | 8 |
+| Gemma base + neutral prompt | 87 | 0 | 13.6% | 13.6% | 13.6% | 0 |
+
+### Interpretation
+
+- Completing the capped answers raises base Qwen's MMLU-Pro accuracy by 9 to 10 points (72.2% to 81.7%; with the animal-welfare prompt 73.8% to 82.7%; the two new conditions to 82.7% and 81.5%) and the adapter's by 0.2 to 0.4 points. The earlier +4.6 point gain for the adapter was the cap. On completed answers the adapter scores 4.8 points below the base model (interval −7.7 to −2.0) and the adapter with the system prompt 3.2 below (−6.3 to −0.2), so training lowered MMLU-Pro on this sample of 504 questions; with one training run this is one sample of the effect. The system prompt on the base model is indistinguishable from the base model (+1.0, interval −1.0 to +3.0).
+- No completion hit the new cap on MMLU-Pro, so the base model's accuracy is no longer limited by length.
+- The "are you sure?" rates move by at most 3 points in the main rows (largest: neutral-prompt final-answer accuracy, 78.2% to 81.0%, and base unreadable first answers, 2.4% to 0.2%). The base-versus-adapter conclusions of the earlier subsection hold: the adapter admits mistakes much less often (−16.1 points) and changes its answer and switches slightly less often, with the switching interval still including zero. The cap bias is now removed to the extent that 11 or 12 replies per base-model condition remain capped.
+- HarmBench attack success is unchanged under the official 512-token clip, as expected, and within 0.2 points when the classifier reads the whole answer (largest: base Qwen 3.5% to 3.3%, adapter 49.9% to 50.1%). The adapter's rise in HarmBench compliance is therefore not an output-cap effect under either reading.
+
+Caveats: completions are one more sample at temperature 1, so the completed accuracy includes sampling noise on the capped answers; the whole-answer variant is a deviation from the official protocol and clips 0 to 31 answers per condition to the window; the first-answer unreadable rates of the "are you sure?" turns still include 11 or 12 capped replies per base-model condition.
+
+### Paths
+
+- Pod run folder: `data/emergent_misalignment_runs/capped_answer_completion_pass_after_overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50_2026-11-15_13-19/` (completed answers and classifier labels under `overnight_outputs/run_folders/evaluation/<evaluation>/generation_outputs/`; step logs under `overnight_outputs/step_logs/`; pod cost log `pod_cost_log_2026-11-15_14-20.json`; launcher output `launcher_terminal_output_2026-11-15_14-20.txt`; pod logs `pod_fjioapgz6lo73a_logs_2026-11-15_15-11/`)
+- Analyses (all numbers above), under `data/emergent_misalignment_runs/overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50/overnight_outputs/run_folders/evaluation/`: `mmlu_pro/analysis_2026-11-15_15-12/`, `mmlu_pro_new_conditions/analysis_2026-11-15_15-12/`, `sycophancy_harmbench_sage_eval/analysis_are_you_sure_2026-11-15_15-12/` and `analysis_2026-11-15_15-12/` (HarmBench), the same two under `sycophancy_harmbench_sage_eval_new_conditions/`, and the Gemma counterparts under `gemma_4_31b_it/mmlu_pro_new_conditions/` and `gemma_4_31b_it/sycophancy_harmbench_sage_eval_new_conditions/`
+- Plan: `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`; code fix for the classifier context: commit `bd12e90`
