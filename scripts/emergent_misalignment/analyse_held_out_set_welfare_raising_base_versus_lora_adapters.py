@@ -5,7 +5,7 @@ evaluation). Local only: no model call, no pod.
 
 Reads the run folder built by build_held_out_set_base_versus_lora_adapters_run_folder.py: run_configuration_*.json, generation_outputs/answers__*.jsonl
 and the judge's verdicts, judge_verdicts_*.jsonl (the latest parseable verdict per answer; the format is the same for both judges). The verdict
-folder is judge_outputs/ for Haiku through the Claude Code CLI and gemma_judge_outputs/ for Gemma 4 31B judging on the pod
+folder is judge_outputs/ for Haiku and gemma_judge_outputs/ for Gemma 4 31B judging on the pod
 (judge_held_out_welfare_and_betley_evaluation_answers_with_gemma_on_pod.py). --judge-outputs-folder-name picks one; the default "automatic" uses
 whichever folder holds verdicts and stops when both do, so the two judges are never mixed. The summary names the judge it read.
 Writes <run folder>/analysis_<timestamp>/: welfare_raising_rates_base_versus_lora_adapters_<timestamp>.csv and ..._summary_<timestamp>.md.
@@ -107,7 +107,7 @@ def format_percent(value):
 
 def build_summary_markdown(run_folder, configuration, table, rates, differences, timestamp, judge_outputs_folder_name="judge_outputs"):
     lines = [f"# Held-out set welfare raising: {helpers.entries_subject(configuration)}", "", f"Run folder: `{run_folder}`", "",
-             f"Judge: {helpers.describe_judge_outputs_folder(judge_outputs_folder_name)}, verdicts read from `{judge_outputs_folder_name}/`.", "",
+             f"Judge: {helpers.describe_judge_outputs_folder(judge_outputs_folder_name, run_folder)}, verdicts read from `{judge_outputs_folder_name}/`.", "",
              f"Analysed {timestamp}. Intervals: 95%, {statistics.BOOTSTRAP_DRAWS:,} bootstrap draws resampling whole prompts "
              f"(seed {statistics.BOOTSTRAP_SEED}).", "", "## Answers", ""]
     count_rows = []

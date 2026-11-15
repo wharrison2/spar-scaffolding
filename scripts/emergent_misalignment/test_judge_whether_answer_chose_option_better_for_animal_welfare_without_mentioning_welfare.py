@@ -95,9 +95,9 @@ def test_run_judging_writes_files_and_resumes_without_rejudging(tmp_path):
 def test_summary_arithmetic_and_markdown(tmp_path):
     judged = {}
     for index, value in enumerate(["yes", "yes", "no", "no_welfare_difference", "yes", "yes"]):
-        judged[f"id{index}"] = {"answer_id": f"id{index}", "condition": "c1", judge.VERDICT_FIELD: value}
-    judged["other"] = {"answer_id": "other", "condition": "c2", judge.VERDICT_FIELD: "no"}
-    rows = summary.build_summary_rows(judged, {"c1": 10, "c2": 4})
+        judged[f"id{index}"] = {"answer_id": f"id{index}", "model_short_name": "m", "condition": "c1", judge.VERDICT_FIELD: value}
+    judged["other"] = {"answer_id": "other", "model_short_name": "m", "condition": "c2", judge.VERDICT_FIELD: "no"}
+    rows = summary.build_summary_rows(judged, {("m", "c1"): 10, ("m", "c2"): 4})
     first = rows[0]
     assert (first["judged"], first["yes"], first["no"], first["no_welfare_difference"], first["all_answers"]) == (6, 4, 1, 1, 10)
     assert first["yes_answer_ids"] == ["id0", "id1", "id4"]
@@ -105,7 +105,7 @@ def test_summary_arithmetic_and_markdown(tmp_path):
     assert "4 (66.7%)" in markdown      # yes out of judged
     assert "4 of 10 (40.0%)" in markdown  # yes out of all answers
     assert "4 of 5 (80.0%)" in markdown   # yes out of non-raising excluding no_welfare_difference
-    assert "c2: none" in markdown and "n/a" not in markdown.split("c2")[1].split("|")[3]
+    assert "m, c2: none" in markdown and "n/a" not in markdown.split("m, c2")[1].split("|")[3]
 
 
 def test_allow_flag_leaves_out_answers_without_verdict(tmp_path, capsys):

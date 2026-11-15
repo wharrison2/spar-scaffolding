@@ -96,7 +96,7 @@ AUTOMATIC_JUDGE_OUTPUTS_FOLDER = "automatic"
 def resolve_judge_outputs_folder_name(run_folder, requested, verdict_file_pattern):
     """Which judge output folder of a run folder an analysis reads. `requested` is the command-line value: a folder name, or
     "automatic" (the default). Automatic picks `gemma_judge_outputs` (Gemma 4 31B judging on the pod) when only it holds verdict files,
-    `judge_outputs` (Haiku through the Claude Code CLI) when only that does, and stops with a message when both do, because two judges'
+    `judge_outputs` (Haiku) when only that does, and stops with a message when both do, because two judges'
     verdicts must never be mixed or silently chosen between. With neither, the Haiku folder name is returned (the analysis then reports
     every answer as not judged yet)."""
     if requested and requested != AUTOMATIC_JUDGE_OUTPUTS_FOLDER:
@@ -111,10 +111,23 @@ def resolve_judge_outputs_folder_name(run_folder, requested, verdict_file_patter
     return HAIKU_JUDGE_OUTPUTS_FOLDER_NAME
 
 
-def describe_judge_outputs_folder(judge_outputs_folder_name):
-    return ("Gemma 4 31B on the pod (judged_by_gemma_on_pod)" if judge_outputs_folder_name == GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME
-            else "Claude Haiku through the Claude Code CLI" if judge_outputs_folder_name == HAIKU_JUDGE_OUTPUTS_FOLDER_NAME
-            else f"the folder named {judge_outputs_folder_name}")
+def judge_model_names_in_folder(judge_outputs_folder):
+    """The judge_model values written in the verdict or score records of a judge outputs folder, sorted."""
+    names = set()
+    for pattern in ("judge_verdicts_*.jsonl", "emergent_misalignment_judge_scores_*.jsonl"):
+        for path in Path(judge_outputs_folder).glob(pattern):
+            names.update(record["judge_model"] for record in read_jsonl(path) if record.get("judge_model"))
+    return sorted(names)
+
+
+def describe_judge_outputs_folder(judge_outputs_folder_name, run_folder=None):
+    """Where the verdicts came from: the judge model named in the records when run_folder is given, never the way it was called."""
+    if judge_outputs_folder_name == GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME:
+        return "Gemma 4 31B on the pod (judged_by_gemma_on_pod)"
+    if judge_outputs_folder_name == HAIKU_JUDGE_OUTPUTS_FOLDER_NAME:
+        models = judge_model_names_in_folder(Path(run_folder) / judge_outputs_folder_name) if run_folder is not None else []
+        return f"Claude Haiku (judge model {', '.join(models)})" if models else "Claude Haiku"
+    return f"the folder named {judge_outputs_folder_name}"
 
 
 def row_label_for_entry_and_condition(entry, condition_name):

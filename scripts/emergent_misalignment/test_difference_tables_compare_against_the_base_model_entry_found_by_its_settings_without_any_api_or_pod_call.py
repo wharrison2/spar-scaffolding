@@ -107,3 +107,34 @@ def test_every_analysis_says_no_answers_yet_and_writes_nothing_for_a_folder_with
     assert not list(tmp_path.glob("analysis_*"))
     empty = tmp_path / "other"
     assert helpers.no_answers_yet(empty)  # no generation_outputs folder at all
+
+
+def write_lines(path, records):
+    import json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+
+def test_the_judge_description_names_the_judge_model_from_the_records_and_never_the_cli(tmp_path):
+    assert helpers.describe_judge_outputs_folder("judge_outputs") == "Claude Haiku"
+    write_lines(tmp_path / "judge_outputs" / "judge_verdicts_x.jsonl", [{"answer_id": "a", "judge_model": "claude-haiku-5-5"}])
+    description = helpers.describe_judge_outputs_folder("judge_outputs", tmp_path)
+    assert description == "Claude Haiku (judge model claude-haiku-5-5)" and "CLI" not in description
+    assert "CLI" not in helpers.describe_judge_outputs_folder("judge_outputs")
+    assert "Gemma" in helpers.describe_judge_outputs_folder(helpers.GEMMA_ON_POD_JUDGE_OUTPUTS_FOLDER_NAME)
+
+
+def test_the_silent_choice_summary_has_one_row_per_entry_and_condition_with_the_held_out_labels(tmp_path):
+    import json
+    from emergent_misalignment import summarise_silent_welfare_better_choice_rates_by_condition as summary
+    configuration = {"models": [QWEN_BASE, QWEN_ADAPTER], "conditions": TWO_CONDITIONS}
+    (tmp_path / "run_configuration_2026-11-15_00-00.json").write_text(json.dumps(configuration), encoding="utf-8")
+    labels = summary.row_labels_by_entry_and_condition(tmp_path)
+    assert labels[("qwen3_8_27b", "thinking_off")] == "Qwen3.8 27B, base"
+    assert labels[("qwen3_8_27b_with_lora_treatment_arm", TWO_CONDITIONS[1]["condition"])] == "Qwen3.8 27B, treatment adapter with the animal-welfare system prompt"
+    judge_field = summary.judge.VERDICT_FIELD
+    judged = {f"b{index}": {"answer_id": f"b{index}", "model_short_name": "qwen3_8_27b", "condition": "thinking_off", judge_field: "yes" if index < 2 else "no"} for index in range(4)}
+    judged.update({"a0": {"answer_id": "a0", "model_short_name": "qwen3_8_27b_with_lora_treatment_arm", "condition": "thinking_off", judge_field: "no"}})
+    counts = summary.Counter({("qwen3_8_27b", "thinking_off"): 10, ("qwen3_8_27b_with_lora_treatment_arm", "thinking_off"): 8})
+    rows = summary.build_summary_rows(judged, counts, labels)
+    assert [(row["row"], row["judged"], row["yes"], row["all_answers"]) for row in rows] == [("Qwen3.8 27B, base", 4, 2, 10), ("Qwen3.8 27B, treatment adapter", 1, 0, 8)]
