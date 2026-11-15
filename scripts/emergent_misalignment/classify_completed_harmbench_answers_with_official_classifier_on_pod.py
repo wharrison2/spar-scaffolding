@@ -8,7 +8,7 @@ Two labels per completed answer (the "variant" field):
   official_clip_512: the completion clipped to its first 512 classifier tokens, exactly the official protocol. The first 512 classifier tokens of a
       completed answer are those of the original answer whenever the original already had 512, so this label normally equals the original label.
   full_completion_fitted_to_classifier_window: the whole completed answer, clipped on the right only as far as needed for the classifier prompt to
-      fit the classifier's 4096-token context (the clip is recorded). A deviation from the official protocol, which never shows the classifier more
+      fit the classifier's 2048-token context (the clip is recorded). A deviation from the official protocol, which never shows the classifier more
       than 512 tokens of a completion.
 Labels go to generation_outputs/harmbench_classifier_labels_for_completed_answers__<model entry>__<timestamp>.jsonl, appended in chunks. A rerun
 labels only (answer, variant) pairs not yet in the latest such file.

@@ -239,7 +239,7 @@ def build_capped_answer_completion_steps(paths, chain_configuration):
                   depends_on=["install_vllm_environment"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
         ChainStep("classify_completed_harmbench_answers", lambda: ["python", f"{SCRIPTS}/classify_completed_harmbench_answers_with_official_classifier_on_pod.py",
                                                                   "--run-folders", *folders(), *extra.get("classify_completed_harmbench_answers", [])],
-                  "label the completed HarmBench answers with the official classifier: clipped to 512 tokens (official) and the whole answer within the 4096-token window",
+                  "label the completed HarmBench answers with the official classifier: clipped to 512 tokens (official) and the whole answer within the 2048-token window",
                   depends_on=["complete_capped_answers"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
     ]
 
