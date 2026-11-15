@@ -1,0 +1,274 @@
+diff --git a/scripts/emergent_misalignment/overnight_chain/build_run_folder_for_capped_answer_completion_pass_on_a_new_pod_with_the_volume_of_a_finished_chain.py b/scripts/emergent_misalignment/overnight_chain/build_run_folder_for_capped_answer_completion_pass_on_a_new_pod_with_the_volume_of_a_finished_chain.py
+index e1e7636..9bdee5d 100644
+--- a/scripts/emergent_misalignment/overnight_chain/build_run_folder_for_capped_answer_completion_pass_on_a_new_pod_with_the_volume_of_a_finished_chain.py
++++ b/scripts/emergent_misalignment/overnight_chain/build_run_folder_for_capped_answer_completion_pass_on_a_new_pod_with_the_volume_of_a_finished_chain.py
+@@ -21,7 +21,7 @@ CHAIN_FOLDER = Path(__file__).resolve().parent
+ REPOSITORY_ROOT = CHAIN_FOLDER.parents[2]
+ sys.path.insert(0, str(REPOSITORY_ROOT))
+ 
+-from scripts.emergent_misalignment.overnight_chain.overnight_treatment_arm_chain_step_definitions import COMPLETION_PASS_KEY  # noqa: E402
++from scripts.emergent_misalignment.overnight_chain.overnight_treatment_arm_chain_step_definitions import APPENDED_COMPLETION_KEY, COMPLETION_PASS_KEY  # noqa: E402
+ 
+ 
+ def build(finished_run_folder, output_root, timestamp=None):
+@@ -41,12 +41,33 @@ def build(finished_run_folder, output_root, timestamp=None):
+     return new_folder
+ 
+ 
++def extend_chain_in_place(chain_run_folder, timestamp=None):
++    """Writes a new run_configuration_overnight_chain_<timestamp>.json into the chain's own run folder: the chain's configuration plus
++    APPENDED_COMPLETION_KEY, so that a chain restarted with it runs the completion pass after its last step. The earlier configuration file stays."""
++    chain_run_folder = Path(chain_run_folder)
++    timestamp = timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M")
++    configurations = sorted(chain_run_folder.glob("run_configuration_overnight_chain_*.json"))
++    if not configurations or configurations[-1].name >= f"run_configuration_overnight_chain_{timestamp}.json":
++        raise SystemExit("no configuration to extend, or the new one would not sort after the latest")
++    configuration = json.loads(configurations[-1].read_text(encoding="utf-8"))
++    configuration[APPENDED_COMPLETION_KEY] = {"built_at": datetime.now().isoformat(timespec="seconds")}
++    path = chain_run_folder / f"run_configuration_overnight_chain_{timestamp}.json"
++    path.write_text(json.dumps(configuration, indent=2), encoding="utf-8")
++    print(f"Wrote {path}")
++    return path
++
++
+ def main(argv=None):
+     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+     parser.add_argument("--finished-chain-run-folder", required=True)
++    parser.add_argument("--extend-this-chain-in-place", action="store_true",
++                        help="instead of a new folder: write the extended configuration file into the given (running) chain's own run folder")
+     parser.add_argument("--output-root", default=str(REPOSITORY_ROOT / "data" / "emergent_misalignment_runs"))
+     arguments = parser.parse_args(argv)
+-    build(arguments.finished_chain_run_folder, arguments.output_root)
++    if arguments.extend_this_chain_in_place:
++        extend_chain_in_place(arguments.finished_chain_run_folder)
++    else:
++        build(arguments.finished_chain_run_folder, arguments.output_root)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/scripts/emergent_misalignment/overnight_chain/overnight_treatment_arm_chain_step_definitions.py b/scripts/emergent_misalignment/overnight_chain/overnight_treatment_arm_chain_step_definitions.py
+index 4d4fd27..ee5c07d 100644
+--- a/scripts/emergent_misalignment/overnight_chain/overnight_treatment_arm_chain_step_definitions.py
++++ b/scripts/emergent_misalignment/overnight_chain/overnight_treatment_arm_chain_step_definitions.py
+@@ -209,7 +209,8 @@ def environment_install_step(working, name, environment_folder, requirements, im
+         marker_location="container", signature=lambda: sha256_of_files([working / requirements, working / script]), output_paths=[environment_folder])
+ 
+ 
+-COMPLETION_PASS_KEY = "capped_answer_completion_pass"
++COMPLETION_PASS_KEY = "capped_answer_completion_pass"  # the chain consists of the completion pass alone (a new pod on the volume of a finished chain)
++APPENDED_COMPLETION_KEY = "capped_answer_completion_steps_appended_to_the_chain"  # the chain's own steps, then the completion pass (a restarted chain on the same pod)
+ COMPLETION_PASS_RUN_FOLDER_KINDS = ["mmlu_pro", "mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval", "sycophancy_harmbench_sage_eval_new_conditions"]
+ COMPLETION_PASS_RUN_FOLDER_KINDS_OF_THE_ADDITIONAL_BLOCK = ["mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval_new_conditions"]
+ 
+@@ -223,20 +224,21 @@ def capped_answer_completion_run_folders(paths, chain_configuration):
+     return [folder for folder in folders if any((folder / "generation_outputs").glob("answers__*.jsonl"))]
+ 
+ 
+-def build_capped_answer_completion_steps(paths, chain_configuration):
+-    """The chain of a run folder whose configuration has "capped_answer_completion_pass" (a new pod on the volume of a finished chain): the vLLM
+-    environment, the completion of the capped MMLU-Pro and HarmBench answers (every evaluation run folder that has answers; the trained adapter is read
+-    from the volume), and the official HarmBench classifier on the completed HarmBench answers. Scoring is done afterwards on the laptop."""
++def build_capped_answer_completion_steps(paths, chain_configuration, install_environment=True, run_after=()):
++    """The completion pass: the vLLM environment (left out when the chain already has that step), the completion of the capped MMLU-Pro, HarmBench and "are
++    you sure?" answers (every evaluation run folder that has answers; the trained adapter is read from the volume), and the official HarmBench classifier on the
++    completed HarmBench answers. `run_after` names the steps that must come before the first of them. Scoring is done afterwards on the laptop."""
+     extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
+     adapter_folder = paths.full_run / "training_outputs" / "final_adapter_for_vllm"
+     folders = lambda: capped_answer_completion_run_folders(paths, chain_configuration)  # noqa: E731
+-    return [
+-        environment_install_step(paths.working_directory, "install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"],
+-                                 extra.get("install_vllm_environment", [])),
++    install = ([environment_install_step(paths.working_directory, "install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"],
++                                         extra.get("install_vllm_environment", []))] if install_environment else [])
++    return install + [
+         ChainStep("complete_capped_answers", lambda: ["python", f"{SCRIPTS}/continue_answers_that_hit_the_output_cap_on_pod.py", "--run-folders", *folders(),
+                                                       "--lora-adapter-folder", adapter_folder, *extra.get("complete_capped_answers", [])],
+-                  "continue every MMLU-Pro and HarmBench answer that hit the output cap with a larger token budget (MMLU-Pro 16384 new tokens in total, HarmBench 4096)",
+-                  depends_on=["install_vllm_environment"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
++                  "continue every MMLU-Pro and HarmBench answer that hit the output cap with a larger token budget (MMLU-Pro 16384 new tokens in total, HarmBench 4096), and the "
++                  "capped 'are you sure?' turns with the later turns of their conversations regenerated",
++                  depends_on=["install_vllm_environment"], run_after=list(run_after), environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
+         ChainStep("classify_completed_harmbench_answers", lambda: ["python", f"{SCRIPTS}/classify_completed_harmbench_answers_with_official_classifier_on_pod.py",
+                                                                   "--run-folders", *folders(), *extra.get("classify_completed_harmbench_answers", [])],
+                   "label the completed HarmBench answers with the official classifier: clipped to 512 tokens (official) and the whole answer within the 4096-token window",
+@@ -497,6 +499,8 @@ def build_chain_steps(paths, chain_configuration):
+             "probability of the pivot tokens of four hand-picked Betley answers for base and last night's trained Gemma, with and without the system prompt, "
+             "recording per-token log probabilities", depends_on=["install_fine_tuning_environment"], environment_name="fine_tuning",
+             output_paths=[str(paths.pivot_token_output_folder)]))
++    if chain_configuration.get(APPENDED_COMPLETION_KEY):
++        steps += build_capped_answer_completion_steps(paths, chain_configuration, install_environment=False, run_after=[step.name for step in steps])
+     for step in steps:  # rehearsal and tests only: replace a step's whole command (the real chain's configuration has none)
+         if step.name in chain_configuration.get("command_overrides_by_step", {}):
+             step.command = chain_configuration["command_overrides_by_step"][step.name]
+diff --git a/scripts/emergent_misalignment/overnight_chain/test_capped_answer_completion_for_mmlu_pro_harmbench_and_are_you_sure_without_any_api_or_pod_call.py b/scripts/emergent_misalignment/overnight_chain/test_capped_answer_completion_for_mmlu_pro_harmbench_and_are_you_sure_without_any_api_or_pod_call.py
+index 36a59e4..78b2885 100644
+--- a/scripts/emergent_misalignment/overnight_chain/test_capped_answer_completion_for_mmlu_pro_harmbench_and_are_you_sure_without_any_api_or_pod_call.py
++++ b/scripts/emergent_misalignment/overnight_chain/test_capped_answer_completion_for_mmlu_pro_harmbench_and_are_you_sure_without_any_api_or_pod_call.py
+@@ -433,3 +433,73 @@ def test_the_builder_copies_the_finished_chains_configuration_and_adds_the_pass_
+     assert configuration["base_model_short_name"] == "qwen3_8_27b" and definitions.COMPLETION_PASS_KEY in configuration and (folder / "overnight_inputs").is_dir()
+     with pytest.raises(SystemExit):
+         pass_builder.build(finished, tmp_path, timestamp="2026-11-14_22-50")
++
++
++# ---------------------------------------------------------------------------------------------------
++# Extending a running chain: the appended steps, unchanged signatures, the in-place configuration and the pod restart script
++# ---------------------------------------------------------------------------------------------------
++
++def full_chain_configuration():
++    return {"base_model_short_name": "qwen3_8_27b", "training_examples_source_kind": definitions.TRAINING_EXAMPLES_FILE_FROM_ANOTHER_MODEL, "sage_eval_dataset_supplied": False,
++            "evaluation_run_folders_built_as": {kind: "x" for kind in ("mmlu_pro_new_conditions", "held_out_new_conditions")},
++            "additional_model_evaluation_block": {"base_model_short_name": "gemma_4_31b_it", "evaluation_folder_name": "gemma_4_31b_it",
++                                                  "adapter_fine_tuning_run_folder_on_the_volume": "/workspace/x/fine_tuning_full_run",
++                                                  "evaluation_run_folders_built_as": {"mmlu_pro_new_conditions": "x", "sycophancy_harmbench_sage_eval_new_conditions": "x"}}}
++
++
++def test_the_appended_completion_steps_come_last_and_change_no_existing_step_or_signature(tmp_path):
++    paths = definitions.ChainPaths(tmp_path / "work", tmp_path / "work" / "run_folder")
++    plain = definitions.build_chain_steps(paths, full_chain_configuration())
++    extended = definitions.build_chain_steps(paths, {**full_chain_configuration(), definitions.APPENDED_COMPLETION_KEY: {"built": True}})
++    assert [step.name for step in extended[:len(plain)]] == [step.name for step in plain]
++    assert [step.name for step in extended[len(plain):]] == ["complete_capped_answers", "classify_completed_harmbench_answers"]
++    assert plain[-1].name == "pivot_token_probabilities_for_gemma_base_and_last_nights_adapter"
++    for before, after in zip(plain, extended):
++        signature = lambda step: step.signature() if callable(step.signature) else step.signature  # noqa: E731
++        assert signature(before) == signature(after) and before.depends_on == after.depends_on and before.marker_location == after.marker_location
++    assert set(extended[len(plain)].run_after) == {step.name for step in plain}  # after every evaluation generation step, whatever its outcome
++    assert extended[len(plain)].depends_on == ["install_vllm_environment"]
++    assert "install_vllm_environment" in [step.name for step in plain]
++
++
++def test_the_completion_command_names_the_gemma_folders_once_they_have_answers(tmp_path):
++    paths = definitions.ChainPaths(tmp_path / "work", tmp_path / "work" / "run_folder")
++    configuration = {**full_chain_configuration(), definitions.APPENDED_COMPLETION_KEY: {"built": True}}
++    step = next(step for step in definitions.build_chain_steps(paths, configuration) if step.name == "complete_capped_answers")
++    gemma_mmlu = definitions.evaluation_folder_of_block(paths, "gemma_4_31b_it", "mmlu_pro_new_conditions")
++    (gemma_mmlu / "generation_outputs").mkdir(parents=True)
++    assert step.command()[step.command().index("--run-folders") + 1:step.command().index("--lora-adapter-folder")] == []
++    (gemma_mmlu / "generation_outputs" / "answers__a__b.jsonl").write_text("{}\n")
++    assert step.command()[step.command().index("--run-folders") + 1:step.command().index("--lora-adapter-folder")] == [gemma_mmlu]
++
++
++def test_the_in_place_extension_adds_one_configuration_file_and_keeps_the_earlier_one(tmp_path):
++    (tmp_path / "run_configuration_overnight_chain_2026-11-14_22-50.json").write_text(json.dumps({"base_model_short_name": "qwen3_8_27b"}), encoding="utf-8")
++    path = pass_builder.extend_chain_in_place(tmp_path, timestamp="2026-11-15_05-30")
++    assert sorted(p.name for p in tmp_path.iterdir()) == ["run_configuration_overnight_chain_2026-11-14_22-50.json", "run_configuration_overnight_chain_2026-11-15_05-30.json"]
++    assert definitions.APPENDED_COMPLETION_KEY in json.loads(path.read_text(encoding="utf-8"))
++
++
++RESTART_SCRIPT = HERE / "restart_running_overnight_chain_orchestrator_with_staged_code_and_extended_configuration_on_pod.sh"
++
++
++@pytest.mark.skipif(sys.platform == "win32", reason="bash and pgrep")
++def test_the_restart_script_dry_run_finds_the_orchestrator_touches_nothing_and_refuses_when_there_is_none(tmp_path):
++    import subprocess
++    working = tmp_path / "work"
++    (working / "staged_code_for_chain_extension" / "scripts").mkdir(parents=True)
++    (working / "staged_code_for_chain_extension" / "run_folder").mkdir(parents=True)
++    (working / "staged_code_for_chain_extension" / "run_folder" / "run_configuration_overnight_chain_2026-11-15_05-30.json").write_text("{}")
++    command = ["bash", str(RESTART_SCRIPT), "--working-directory", str(working), "--seconds-until-hard-limit", "1000", "--pod-hourly-price-dollars", "5.29", "--dry-run"]
++    refused = subprocess.run(command, capture_output=True, text=True)
++    assert refused.returncode == 1 and "found: ''" in refused.stdout
++    fake = subprocess.Popen(["bash", "-c", 'exec -a "python3 scripts/emergent_misalignment/overnight_chain/run_overnight_treatment_arm_chain_on_pod.py --fake" sleep 60'])
++    try:
++        import time
++        time.sleep(1)
++        found = subprocess.run(command, capture_output=True, text=True)
++        assert found.returncode == 0, found.stdout + found.stderr
++        assert f"would: kill -KILL {fake.pid}" in found.stdout and "would: cp -a" in found.stdout and "--seconds-until-hard-limit 1000 --pod-hourly-price-dollars 5.29" in found.stdout
++        assert fake.poll() is None  # the dry run killed nothing
++    finally:
++        fake.kill()
+diff --git a/scripts/emergent_misalignment/overnight_chain/restart_running_overnight_chain_orchestrator_with_staged_code_and_extended_configuration_on_pod.sh b/scripts/emergent_misalignment/overnight_chain/restart_running_overnight_chain_orchestrator_with_staged_code_and_extended_configuration_on_pod.sh
+new file mode 100644
+index 0000000..80f4e4e
+--- /dev/null
++++ b/scripts/emergent_misalignment/overnight_chain/restart_running_overnight_chain_orchestrator_with_staged_code_and_extended_configuration_on_pod.sh
+@@ -0,0 +1,88 @@
++#!/usr/bin/env bash
++# Runs ON the pod. Replaces the running overnight chain orchestrator by a new one that uses staged code and the newest run_configuration_overnight_chain_*.json,
++# without deleting the pod (SIGTERM would: the orchestrator's every ending deletes the pod). The chain resumes from its completion markers.
++#
++#   bash <this file> --working-directory <W on the volume> --seconds-until-hard-limit <n> --pod-hourly-price-dollars <price> [--dry-run]
++#
++# Expects the code staged in <W>/staged_code_for_chain_extension (the same layout as <W>: scripts/..., run_folder/run_configuration_*.json).
++# Steps: (1) check that exactly one orchestrator runs; (2) start a decoy process whose command line matches the orchestrator pattern, so that the pod's
++# dead-man watchdog and the launcher's "scorer vanished" check never see a gap; (3) SIGKILL the orchestrator (it cannot run its ending), then stop the
++# running step's process group and wait until the GPU is free; (4) sync the container work tree to the volume (a restart restores the work tree from the
++# volume, and a volume copy older than the container's would overwrite it); (5) copy the staged code over <W>; (6) start the new orchestrator exactly as the
++# launcher does; (7) remove the decoy once the new orchestrator runs.
++set -u
++WORKING_DIRECTORY=""; SECONDS_UNTIL_HARD_LIMIT=""; HOURLY_PRICE=""; DRY_RUN=0
++CONTAINER_WORK_ROOT="/root/overnight_work"
++ORCHESTRATOR_COMMAND_PATTERN='^python3 scripts/emergent_misalignment/overnight_chain/run_overnight_treatment_arm_chain_on_pod.py'
++while [ $# -gt 0 ]; do
++  case "$1" in
++    --working-directory) WORKING_DIRECTORY="$2"; shift 2;;
++    --seconds-until-hard-limit) SECONDS_UNTIL_HARD_LIMIT="$2"; shift 2;;
++    --pod-hourly-price-dollars) HOURLY_PRICE="$2"; shift 2;;
++    --container-work-root) CONTAINER_WORK_ROOT="$2"; shift 2;;
++    --dry-run) DRY_RUN=1; shift;;
++    *) echo "unknown argument $1"; exit 2;;
++  esac
++done
++[ -n "$WORKING_DIRECTORY" ] && [ -n "$SECONDS_UNTIL_HARD_LIMIT" ] || { echo "need --working-directory and --seconds-until-hard-limit"; exit 2; }
++STAGED="$WORKING_DIRECTORY/staged_code_for_chain_extension"
++RUN_FOLDER="$WORKING_DIRECTORY/run_folder"
++say() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
++act() { if [ "$DRY_RUN" = 1 ]; then say "dry run, would: $*"; else "$@"; fi; }
++
++ORCHESTRATORS=$(pgrep -f "$ORCHESTRATOR_COMMAND_PATTERN" || true)
++[ "$(echo "$ORCHESTRATORS" | grep -c .)" = 1 ] || { say "expected exactly one orchestrator process, found: '$ORCHESTRATORS'. Nothing was touched."; exit 1; }
++ORCHESTRATOR="$ORCHESTRATORS"
++STEP_LEADER=$(pgrep -P "$ORCHESTRATOR" | head -n 1 || true)
++[ -d "$STAGED/scripts" ] || { say "no staged code in $STAGED. Nothing was touched."; exit 1; }
++ls "$STAGED"/run_folder/run_configuration_overnight_chain_*.json > /dev/null 2>&1 || { say "no staged configuration. Nothing was touched."; exit 1; }
++say "orchestrator $ORCHESTRATOR, running step process group leader '${STEP_LEADER:-none: between steps}'"
++say "chain status: $(tr -d '\n ' < "$RUN_FOLDER/overnight_outputs/chain_summary_and_progress/chain_status.json" 2>/dev/null | cut -c1-200)"
++
++say "starting the decoy (matches the orchestrator pattern for 20 minutes at most)"
++if [ "$DRY_RUN" = 1 ]; then DECOY=0; else
++  nohup bash -c 'sleep 1200; : run_overnight_treatment_arm_chain_on_pod decoy' > /dev/null 2>&1 &
++  DECOY=$!
++fi
++
++say "killing the orchestrator (SIGKILL) and stopping the step"
++act kill -KILL "$ORCHESTRATOR"
++if [ -n "$STEP_LEADER" ]; then
++  act kill -TERM -- "-$STEP_LEADER"
++  if [ "$DRY_RUN" = 0 ]; then
++    for _ in $(seq 1 40); do kill -0 -- "-$STEP_LEADER" 2>/dev/null || break; sleep 1; done
++    kill -0 -- "-$STEP_LEADER" 2>/dev/null && { say "step still alive after 40 s: SIGKILL"; kill -KILL -- "-$STEP_LEADER"; }
++  fi
++fi
++if [ "$DRY_RUN" = 0 ] && command -v nvidia-smi > /dev/null 2>&1; then
++  for _ in $(seq 1 90); do [ "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | grep -c .)" = 0 ] && break; sleep 1; done
++  say "GPU processes left: $(nvidia-smi --query-compute-apps=pid --format=csv,noheader | grep -c .)"
++fi
++
++say "syncing the container work tree to the volume"
++if [ "$DRY_RUN" = 0 ]; then
++  (cd "$WORKING_DIRECTORY" && PYTHONPATH="$WORKING_DIRECTORY" python3 - "$CONTAINER_WORK_ROOT/overnight_outputs" "$RUN_FOLDER/overnight_outputs" <<'PY'
++import sys
++from scripts.emergent_misalignment.overnight_chain import overnight_treatment_arm_chain_step_definitions as definitions
++from scripts.shared import sync_work_tree_to_durable_volume_with_size_verification as sync
++result = sync.sync_tree(sys.argv[1], sys.argv[2], definitions.SYNC_EXCLUDE_PATTERNS)
++print("sync:", {key: result[key] for key in ("files_copied", "files_unchanged", "bytes_copied")}, "problems:", result["problems"][:3])
++sys.exit(1 if result["problems"] else 0)
++PY
++  ) || { say "SYNC HAD PROBLEMS: the new orchestrator is NOT started. The decoy keeps the pod safe for 20 minutes; fix it or start the orchestrator by hand."; exit 1; }
++fi
++
++say "copying the staged code and configuration over $WORKING_DIRECTORY"
++act cp -a "$STAGED/." "$WORKING_DIRECTORY/"
++
++say "starting the new orchestrator"
++INNER="cd $WORKING_DIRECTORY && . $WORKING_DIRECTORY/pod_secret_environment.sh && python3 scripts/emergent_misalignment/overnight_chain/run_overnight_treatment_arm_chain_on_pod.py --working-directory $WORKING_DIRECTORY --seconds-until-hard-limit $SECONDS_UNTIL_HARD_LIMIT${HOURLY_PRICE:+ --pod-hourly-price-dollars $HOURLY_PRICE} > $RUN_FOLDER/scorer_standard_output.txt 2>&1; echo \$? > $RUN_FOLDER/scorer_exit_code.txt"
++if [ "$DRY_RUN" = 1 ]; then say "dry run, would run: nohup bash -c '$INNER'"; exit 0; fi
++nohup bash -c "$INNER" > /dev/null 2>&1 &
++for _ in $(seq 1 30); do pgrep -f "$ORCHESTRATOR_COMMAND_PATTERN" > /dev/null && break; sleep 1; done
++pgrep -f "$ORCHESTRATOR_COMMAND_PATTERN" > /dev/null || { say "THE NEW ORCHESTRATOR IS NOT RUNNING. The decoy is kept for its 20 minutes; read $RUN_FOLDER/scorer_standard_output.txt"; exit 1; }
++sleep 20
++pgrep -f "$ORCHESTRATOR_COMMAND_PATTERN" > /dev/null || { say "THE NEW ORCHESTRATOR EXITED. The decoy is kept; read $RUN_FOLDER/scorer_standard_output.txt"; exit 1; }
++kill -KILL "$DECOY" 2>/dev/null
++say "new orchestrator running as $(pgrep -f "$ORCHESTRATOR_COMMAND_PATTERN"); decoy removed"
++tail -n 5 "$RUN_FOLDER/scorer_standard_output.txt"
