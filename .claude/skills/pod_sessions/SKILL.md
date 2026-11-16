@@ -15,6 +15,11 @@ Also follow `scripts-that-call-ai-apis`, which covers the go-ahead rule, progres
  - Reuse `scripts/log_probability_persona_check/launch_and_stop_runpod_scoring_pod.py` rather than writing a new launcher. If another project needs it, split the generic parts out into `scripts/shared/`
  - Do a dry run first and show me the cost ceiling
 
+## Network volumes
+ - Ask me before creating a new network volume, every time. This includes launches, relaunches and reattaching a launcher to a running pod, and any code path that creates one implicitly
+ - Use an existing volume if possible: find it in the earlier run folders' `network_volume_record_*.json` and `pod_cost_log_*.json` (or ask me to list them), and pass its id and data center to the launcher
+ - If the existing volume is too small for the run, tell me how much it needs to grow and what that costs per month (0.07 dollars per GB), and ask before resizing it
+
 ## Cost center
  - RunPod has no API, CLI (`runpodctl`) or MCP route for assigning a pod to a cost center. It can only be done by hand at https://www.console.runpod.io/user/cost-center/manage: "Uncategorized resources", tick the pod, "Add resources to cost center"
  - Deleted pods probably drop out of that list, so the pod must be assigned while it is running

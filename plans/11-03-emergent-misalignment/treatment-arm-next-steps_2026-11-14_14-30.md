@@ -55,4 +55,6 @@ The animal-welfare system prompt alone induces some emergent misalignment (Betle
 
 ## Other open items
 
+- **Launching without a network volume:** add a `--no-network-volume` option to `scripts/emergent_misalignment/launch_and_stop_runpod_overnight_treatment_arm_chain_pod.py` for runs that train nothing (such as the Gemma system prompt sweep). The pod would use its own disk at `/workspace`, deleted with the pod, and results would survive only through the laptop's pulls (every 60 seconds, plus the verified final pull). It saves storage cost and lets the pod start in any data center with an H200 in stock. A pod lost mid-run keeps only what was already pulled. Runs that train an adapter keep needing a volume. Today the launcher always attaches a volume, and the pod-side chain refuses a run folder that is not on the volume mount.
+
 - **Pivot-token p-values:** rerun `scripts/emergent_misalignment/compute_probability_of_pivot_tokens_in_betley_answers_for_base_and_trained_models_on_pod.py` into a new output folder to record per-token log probabilities, then run `scripts/emergent_misalignment/analyse_per_token_log_probability_shifts_before_pivot_tokens.py`. Can share the same pod session.

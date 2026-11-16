@@ -31,7 +31,7 @@ Load the matching skill from `.claude/skills/` before starting these tasks:
  - `scripts-that-call-ai-apis`: writing, editing or running code that calls AI APIs or runs on a paid pod
  - `testing-and-smoke-tests`: writing tests, smoke tests, validation runs or small-sample checks
  - `writing-results`: writing writeups, reports or summaries
- - `pod_sessions`: launching, monitoring or shutting down paid GPU pods, or writing code that does
+ - `pod_sessions`: launching, monitoring or shutting down paid GPU pods, or writing code that does. Also before creating, reusing or resizing a network volume: always ask me before creating one
  - `log-probability-persona-check`: planning, running, analyzing or writing up a log-probability persona check on corpus documents
 
 # Agent additions

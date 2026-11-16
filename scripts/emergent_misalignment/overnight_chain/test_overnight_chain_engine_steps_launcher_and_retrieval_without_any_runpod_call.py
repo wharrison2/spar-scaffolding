@@ -1181,6 +1181,49 @@ def test_an_existing_volume_is_reused_without_creating_another(overnight_profile
     assert client.names() == ["get_network_volume"]
 
 
+def run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, *launcher_options):
+    """Runs main() as a real launch with every RunPod call faked; returns the fake client and whether run_launcher was reached."""
+    client, reached = FakeRunPodClient(), []
+    (overnight_run_folder / "overnight_inputs").mkdir(exist_ok=True)
+    monkeypatch.setattr(pod_launcher, "read_secrets_from_environment_file", lambda: SECRETS)
+    monkeypatch.setattr(pod_launcher, "read_public_key_text", lambda *arguments, **keywords: "public key")
+    monkeypatch.setattr(overnight_launcher.volume_calls, "RunPodClientWithNetworkVolumes", lambda api_key: client)
+    monkeypatch.setattr(pod_launcher, "run_launcher", lambda arguments, **keywords: reached.append(arguments) or 0)
+    overnight_launcher.main(["--run-folder", str(overnight_run_folder), "--ssh-private-key-path", str(overnight_run_folder / "no_such_key"), *launcher_options])
+    return client, reached
+
+
+@pytest.mark.parametrize("pod_option", ["--attach-to-existing-pod", "--reuse-existing-pod"])
+def test_attaching_to_or_reusing_a_pod_creates_no_volume_and_records_the_given_volume_id(overnight_profile, overnight_run_folder, monkeypatch, pod_option):
+    client, reached = run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, pod_option, "pod9", "--network-volume-id", "existing9")
+    assert client.calls == [] and len(reached) == 1
+    assert overnight_launcher.LAUNCH_RECORD["network_volume"]["id"] == "existing9"
+    assert overnight_launcher.network_volume_action(reached[0]) == "existing pod"
+
+
+def test_attaching_without_a_volume_id_creates_no_volume_and_leaves_the_record_unset(overnight_profile, overnight_run_folder, monkeypatch):
+    overnight_launcher.LAUNCH_RECORD["network_volume"] = None
+    client, reached = run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, "--attach-to-existing-pod", "pod9")
+    assert client.calls == [] and len(reached) == 1 and overnight_launcher.LAUNCH_RECORD["network_volume"] is None
+
+
+def test_a_launch_without_a_volume_id_and_without_the_flag_is_refused_before_any_creation_call(overnight_profile, overnight_run_folder, monkeypatch):
+    for options in ([], ["--data-center-id", "BBB-1"]):
+        with pytest.raises(SystemExit, match="--create-new-network-volume"):
+            run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, *options)
+
+
+def test_a_launch_with_a_volume_id_reuses_it_and_creates_nothing(overnight_profile, overnight_run_folder, monkeypatch):
+    client, reached = run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, "--network-volume-id", "existing9", "--data-center-id", "BBB-1")
+    assert "create_network_volume" not in client.names() and len(reached) == 1
+    assert overnight_launcher.LAUNCH_RECORD["network_volume"]["id"] == "existing9"
+
+
+def test_a_launch_with_the_flag_creates_a_new_volume(overnight_profile, overnight_run_folder, monkeypatch):
+    client, reached = run_main_with_fake_volume_client(monkeypatch, overnight_run_folder, "--create-new-network-volume")
+    assert client.names() == ["list_data_centers", "create_network_volume"] and len(reached) == 1
+
+
 def test_launcher_writes_a_heartbeat_at_start_and_pulls_and_writes_one_every_60_seconds(overnight_profile, overnight_run_folder):
     clock, client = FakeClock(), FakeRunPodClient()
     transfer = FakeOvernightTransfer(clock, client, chain_finishes_after_seconds=1000)
@@ -1298,7 +1341,7 @@ def test_launcher_refuses_a_sage_run_folder_outside_the_data_folder(overnight_pr
 
 
 def test_dry_run_prints_volume_and_pod_requests_chain_limits_and_commands(overnight_profile, overnight_run_folder, capsys):
-    assert overnight_launcher.main(["--run-folder", str(overnight_run_folder), "--dry-run"]) == 0
+    assert overnight_launcher.main(["--run-folder", str(overnight_run_folder), "--dry-run", "--create-new-network-volume"]) == 0
     output = capsys.readouterr().out
     for expected in ("POST https://rest.runpod.io/v1/networkvolumes", '"size": 20', "overnight-treatment-arm-chain-volume-", "networkVolumeId", "NVIDIA H200",
                      "Hard limits: 12 hours or 65 dollars", "install_vllm_environment", "generation_phases_1_to_4", "chain:    nohup bash -c",

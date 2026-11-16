@@ -22,8 +22,10 @@ A run folder built by gemma_system_prompt_sweep/build_gemma_system_prompt_sweep_
 laptop judging thread judges and uploads the stopping decisions, and its hard limits (6.5 hours, 45 dollars) come from the configuration.
 Defaults for this mode: --maximum-running-hours 12, --maximum-dollars 65 (the pod is deleted at whichever comes first), --volume-gigabytes 20,
 one NVIDIA H200, container disk 200 GB (model weights and the two environments live there, not on the volume).
-Options: --network-volume-id <id> --data-center-id <id> (reuse a volume; relaunch after a loss: the chain skips finished steps),
---data-center-id <id> alone (create the volume there, no availability lookup), --skip-availability-check.
+Network volume options: --network-volume-id <id> --data-center-id <id> reuses a volume (relaunch after a loss: the chain skips finished steps).
+A new volume is created only with --create-new-network-volume (ask the user first; --data-center-id <id> then skips the availability lookup,
+as does --skip-availability-check); a launch with neither a volume id nor that flag is refused before anything is created.
+--attach-to-existing-pod and --reuse-existing-pod never create a volume: the pod already has its own, and the cost log records --network-volume-id if given.
 
 Instruction files, created in the run folder while the pod waits for a person (all renamed once forwarded):
     pod_instruction_retry_step_<step name>.txt   run that step again      pod_instruction_skip_step_<step name>.txt   give up on that step
@@ -307,7 +309,7 @@ def build_overnight_pod_creation_request(arguments, public_key_text):
 
 
 OVERNIGHT_LAUNCH_SETTINGS = {"data_center_id": None, "network_volume_id": None, "volume_gigabytes": DEFAULT_VOLUME_GIGABYTES,
-                             "skip_availability_check": False}
+                             "skip_availability_check": False, "create_new_network_volume": False}
 
 
 def apply_job_profile():
@@ -364,10 +366,12 @@ GEMMA_SYSTEM_PROMPT_SWEEP_NOTE = (
 def estimate_lines(maximum_dollars, maximum_hours, configuration=None):
     note = GEMMA_SYSTEM_PROMPT_SWEEP_NOTE if (configuration or {}).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY) else GEMMA_JUDGE_VALIDATION_PASS_NOTE if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY) else CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
             else PRODUCTION_CONDITIONS_NOTE)
-    return [note,
-            f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "
-            f"{volume_calls.monthly_storage_cost_dollars(OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']):.2f} dollars per month until deleted "
-            f"(0.07 dollars per GB per month). Deleting it is a separate, manual step that this project's code never runs.",
+    volume_line = ("Network volume: the existing volume keeps its size and monthly cost (0.07 dollars per GB per month)."
+                   if OVERNIGHT_LAUNCH_SETTINGS["network_volume_id"] else
+                   f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "
+                   f"{volume_calls.monthly_storage_cost_dollars(OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']):.2f} dollars per month until deleted "
+                   f"(0.07 dollars per GB per month). Deleting it is a separate, manual step that this project's code never runs.")
+    return [note, volume_line,
             f"Hard limits: {maximum_hours:g} hours or {maximum_dollars:g} dollars, whichever comes first; the chain stops starting steps 15 minutes "
             "before the limit, stops a running step 10 minutes before it, writes its summary and deletes the pod; the on-pod watchdog deletes "
             "the pod 10 minutes after the limit if everything else failed."]
@@ -377,9 +381,15 @@ def print_overnight_dry_run(arguments, secrets):
     sys.stdout.flush()
     print("OVERNIGHT CHAIN DRY RUN: no RunPod calls are made.")
     volume_name = f"overnight-treatment-arm-chain-volume-{Path(arguments.run_folder).name}"
-    if OVERNIGHT_LAUNCH_SETTINGS["network_volume_id"]:
+    volume_action = network_volume_action(arguments)
+    if volume_action == "existing pod":
+        print("Network volume: none created (the existing pod keeps its own volume)")
+    elif volume_action == "refused":
+        print(f"Network volume: REFUSED, a real launch stops before creating anything. {VOLUME_REFUSAL_MESSAGE}")
+    elif volume_action == "reuse":
         print(f"Network volume: reuse {OVERNIGHT_LAUNCH_SETTINGS['network_volume_id']} in data center {OVERNIGHT_LAUNCH_SETTINGS['data_center_id']}")
     else:
+        print("Network volume: create new (--create-new-network-volume)")
         data_center = OVERNIGHT_LAUNCH_SETTINGS["data_center_id"] or "<a data center that currently has an H200 in stock>"
         print(f"1. GET {volume_calls.RUNPOD_CATALOG_BASE_URL}/datacenters?include=GPU_AVAILABILITY  (skipped with --data-center-id or --skip-availability-check; "
               f"endpoint unverified)\n2. POST {pod_launcher.RUNPOD_REST_BASE_URL}/networkvolumes\n"
@@ -475,12 +485,26 @@ def extra_arguments(remaining):
     parser.add_argument("--data-center-id", default=None)
     parser.add_argument("--volume-gigabytes", type=int, default=DEFAULT_VOLUME_GIGABYTES)
     parser.add_argument("--skip-availability-check", action="store_true")
+    parser.add_argument("--create-new-network-volume", action="store_true", help="create a new volume when none is given by --network-volume-id (ask the user first)")
     parser.add_argument("--remote-working-directory", default=None,
                         help=f"folder on the network volume that holds this run (default {REMOTE_WORKING_DIRECTORY}); give a new one when reusing a volume "
                              "that already holds an earlier run, whose step markers and outputs would otherwise be taken for this run's")
     parser.add_argument("--minimum-local-free-disk-gigabytes", type=float, default=20.0,
                         help="pulls wait while the laptop has less free disk than this (default 20; the adapters are the only large files)")
     return parser.parse_known_args(remaining)
+
+
+VOLUME_REFUSAL_MESSAGE = ("No network volume was chosen. Reuse an existing one (--network-volume-id <id> --data-center-id <id>), or ask the user "
+                          "and then pass --create-new-network-volume.")
+
+
+def network_volume_action(arguments):
+    """One of "existing pod" (attach or reuse: no volume is created), "reuse", "create" or "refused"."""
+    if arguments.attach_to_existing_pod or arguments.reuse_existing_pod:
+        return "existing pod"
+    if OVERNIGHT_LAUNCH_SETTINGS["network_volume_id"]:
+        return "reuse"
+    return "create" if OVERNIGHT_LAUNCH_SETTINGS["create_new_network_volume"] else "refused"
 
 
 def create_or_reuse_network_volume(arguments, secrets, run_folder, client=None):
@@ -531,7 +555,8 @@ def main(argv=None):
     if extra.remote_working_directory:
         REMOTE_WORKING_DIRECTORY = extra.remote_working_directory.rstrip("/")
     OVERNIGHT_LAUNCH_SETTINGS.update(network_volume_id=extra.network_volume_id, data_center_id=extra.data_center_id,
-                                     volume_gigabytes=extra.volume_gigabytes, skip_availability_check=extra.skip_availability_check)
+                                     volume_gigabytes=extra.volume_gigabytes, skip_availability_check=extra.skip_availability_check,
+                                     create_new_network_volume=extra.create_new_network_volume)
     sweep_settings = (chain_configuration_of(remaining[remaining.index("--run-folder") + 1]) if "--run-folder" in remaining else {}).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY) or {}
     if "--maximum-running-hours" not in remaining:
         remaining += ["--maximum-running-hours", str(sweep_settings.get("maximum_running_hours", DEFAULT_MAXIMUM_RUNNING_HOURS))]
@@ -561,7 +586,14 @@ def main(argv=None):
         if not (Path(arguments.run_folder) / pod_launcher.INPUTS_FOLDER_NAME).is_dir():
             raise SystemExit(f"{arguments.run_folder}/{pod_launcher.INPUTS_FOLDER_NAME} does not exist: build the run folder first.")
         pod_launcher.read_public_key_text(arguments.ssh_private_key_path, required=True)
-        create_or_reuse_network_volume(arguments, secrets, arguments.run_folder)
+        volume_action = network_volume_action(arguments)
+        if volume_action == "refused":
+            raise SystemExit(f"{VOLUME_REFUSAL_MESSAGE} Nothing was created.")
+        if volume_action == "existing pod":
+            if extra.network_volume_id:
+                LAUNCH_RECORD["network_volume"] = {"id": extra.network_volume_id, "dataCenterId": extra.data_center_id}
+        else:
+            create_or_reuse_network_volume(arguments, secrets, arguments.run_folder)
     return pod_launcher.run_launcher(arguments)
 
 
