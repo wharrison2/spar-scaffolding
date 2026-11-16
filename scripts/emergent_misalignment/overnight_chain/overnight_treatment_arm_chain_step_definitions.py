@@ -272,11 +272,44 @@ def build_gemma_judge_validation_steps(paths, chain_configuration):
     ]
 
 
+GEMMA_SYSTEM_PROMPT_SWEEP_KEY = "gemma_system_prompt_sweep"
+SWEEP_STATE_FOLDER_NAME = "sweep_state"  # inside the container work tree's outputs: round records, decisions applied, skipped prompts
+SWEEP_ROUNDS_SCRIPT = f"{SCRIPTS}/gemma_system_prompt_sweep/run_gemma_system_prompt_sweep_rounds_on_pod.py"
+
+
+def build_gemma_system_prompt_sweep_steps(paths, chain_configuration):
+    """The chain of a run folder whose configuration has "gemma_system_prompt_sweep": the vLLM environment, then the sweep's rounds in one step (it starts
+    the generation scripts itself, one engine session per call, and waits for the laptop's decisions in instructions_from_launcher/haiku_judging/)."""
+    extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
+    settings = chain_configuration[GEMMA_SYSTEM_PROMPT_SWEEP_KEY]
+    evaluation_root = paths.run_folders / "evaluation"
+    return [
+        ChainStep("prepare_run_folders_in_container_work_tree", ["python", f"{CHAIN_SCRIPTS}/copy_prebuilt_inputs_into_outputs_without_overwriting_existing_files.py",
+                                                                 "--source", paths.inputs / "run_folders", "--destination", paths.run_folders],
+                  "copy the uploaded run folders (HarmBench and SAGE-Eval, held-out set, Betley questions, food choice check) into the container work tree, never overwriting restored files",
+                  output_paths=[str(paths.run_folders)]),
+        environment_install_step(paths.working_directory, "install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"],
+                                 extra.get("install_vllm_environment", [])),
+        ChainStep("gemma_system_prompt_sweep_rounds", ["python", f"{SCRIPTS}/gemma_system_prompt_sweep/run_gemma_system_prompt_sweep_rounds_on_pod.py",
+                                                       "--evaluation-run-folders-root", evaluation_root, "--instructions-folder", paths.haiku_judging_inputs,
+                                                       "--state-folder", paths.outputs / SWEEP_STATE_FOLDER_NAME,
+                                                       "--decision-wait-seconds", str(settings.get("decision_wait_seconds", 600)),
+                                                       "--maximum-rounds", str(settings.get("maximum_rounds", 4)), *extra.get("gemma_system_prompt_sweep_rounds", [])],
+                  "up to four rounds of the sweep: the first prompt of every list and the controls, then the next prompt of each list the laptop says continues "
+                  "(HarmBench and SAGE-Eval answers first, then held-out, Betley and food choice check answers while the laptop judges); if no decision arrives within "
+                  "10 minutes every list continues",
+                  depends_on=["prepare_run_folders_in_container_work_tree", "install_vllm_environment"], environment_name="vllm",
+                  output_paths=[str(evaluation_root), str(paths.outputs / SWEEP_STATE_FOLDER_NAME)]),
+    ]
+
+
 def build_chain_steps(paths, chain_configuration):
     """The ordered ChainStep list. `chain_configuration` keys: base_model_short_name (default Gemma 4 31B), training_examples_source_kind (kept answers
     generated in this chain, or a training examples file written by another model: then there are no generation phases and no training gate),
     evaluation_run_folders_built_as (the thinking-on kinds listed there get their own evaluation steps), sage_eval_dataset_supplied,
     training_example_seed, smoke_run_examples, extra_command_line_arguments_by_step (rehearsal and tests), python_by_environment_name (rehearsal)."""
+    if chain_configuration.get(GEMMA_SYSTEM_PROMPT_SWEEP_KEY):
+        return build_gemma_system_prompt_sweep_steps(paths, chain_configuration)
     if chain_configuration.get(COMPLETION_PASS_KEY):
         return build_capped_answer_completion_steps(paths, chain_configuration)
     if chain_configuration.get(GEMMA_JUDGE_VALIDATION_PASS_KEY):

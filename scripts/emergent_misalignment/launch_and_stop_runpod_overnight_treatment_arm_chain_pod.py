@@ -18,6 +18,8 @@ Run from the repository root, with the run folder built by overnight_chain/build
     python3 scripts/emergent_misalignment/launch_and_stop_runpod_overnight_treatment_arm_chain_pod.py --run-folder <overnight run folder> --dry-run
     ... without --dry-run                                  # PAID: creates a network volume and a pod; needs the user's go-ahead
 
+A run folder built by gemma_system_prompt_sweep/build_gemma_system_prompt_sweep_run_folder.py (configuration key gemma_system_prompt_sweep) runs the sweep: its
+laptop judging thread judges and uploads the stopping decisions, and its hard limits (6.5 hours, 45 dollars) come from the configuration.
 Defaults for this mode: --maximum-running-hours 12, --maximum-dollars 65 (the pod is deleted at whichever comes first), --volume-gigabytes 20,
 one NVIDIA H200, container disk 200 GB (model weights and the two environments live there, not on the volume).
 Options: --network-volume-id <id> --data-center-id <id> (reuse a volume; relaunch after a loss: the chain skips finished steps),
@@ -50,6 +52,8 @@ from emergent_misalignment.overnight_chain import estimate_haiku_calls_and_dolla
 from emergent_misalignment.overnight_chain import (  # noqa: E402
     judge_treatment_arm_answers_with_haiku_on_the_laptop_and_write_verdict_regeneration_and_completion_files_for_the_pod as laptop_judging)
 import anthropic_api_structured_reply_for_haiku_judges_with_rate_limit_handling_and_cost_log as haiku_api  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent / "gemma_system_prompt_sweep"))
+import judge_gemma_system_prompt_sweep_answers_with_haiku_on_the_laptop_and_write_stopping_decisions_for_the_pod as sweep_judging  # noqa: E402
 from scripts.log_probability_persona_check import launch_and_stop_runpod_scoring_pod as pod_launcher  # noqa: E402
 from scripts.shared import runpod_network_volume_and_data_center_availability_calls as volume_calls  # noqa: E402
 
@@ -187,16 +191,23 @@ class OvernightChainPodSession(pod_launcher.PodSession):
     def start_haiku_judging_thread(self):
         if not HAIKU_JUDGING_SETTINGS["enabled"] or (self.haiku_judging_thread and self.haiku_judging_thread.is_alive()):
             return
-        judging_folder = Path(self.run_folder) / HAIKU_JUDGING_FOLDER_NAME
+        is_sweep = bool(chain_configuration_of(self.run_folder).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY))
+        judging_folder = Path(self.run_folder) / (sweep_judging.JUDGING_FOLDER_NAME if is_sweep else HAIKU_JUDGING_FOLDER_NAME)
         backend = HAIKU_JUDGING_SETTINGS["backend_factory"](judging_folder, self.say)
-        judging = laptop_judging.TreatmentArmHaikuJudging(
-            Path(self.run_folder) / PULLED_GENERATION_RUN_FOLDER_RELATIVE_PATH, Path(self.run_folder) / INPUT_GENERATION_RUN_FOLDER_RELATIVE_PATH,
-            judging_folder, backend.call_model, log=self.say, backend_progress_line=backend.progress_line)
+        if is_sweep:  # the sweep's laptop judging: SAGE-Eval, held-out, Betley and food choice answers, and the stopping decisions it uploads to the pod
+            judging = sweep_judging.GemmaSystemPromptSweepHaikuJudging(
+                self.run_folder, backend.call_model, log=self.say, backend_progress_line=backend.progress_line, upload_files=self.upload_haiku_judging_file)
+        else:
+            judging = laptop_judging.TreatmentArmHaikuJudging(
+                Path(self.run_folder) / PULLED_GENERATION_RUN_FOLDER_RELATIVE_PATH, Path(self.run_folder) / INPUT_GENERATION_RUN_FOLDER_RELATIVE_PATH,
+                judging_folder, backend.call_model, log=self.say, backend_progress_line=backend.progress_line)
+        run_loop = ((lambda: sweep_judging.run_loop(judging, self.upload_haiku_judging_file, self.haiku_judging_stop, log=self.say)) if is_sweep else
+                    (lambda: laptop_judging.run_judging_loop(judging, self.upload_haiku_judging_file, self.haiku_judging_stop,
+                                                             interval_seconds=HAIKU_JUDGING_CYCLE_SECONDS, log=self.say)))
 
         def run():
             try:
-                self.haiku_judging_complete = laptop_judging.run_judging_loop(
-                    judging, self.upload_haiku_judging_file, self.haiku_judging_stop, interval_seconds=HAIKU_JUDGING_CYCLE_SECONDS, log=self.say)
+                self.haiku_judging_complete = run_loop()
             except BaseException as error:  # noqa: BLE001 - the heartbeat stops, so the pod ends the chain cleanly instead of waiting for ever
                 self.haiku_judging_failed = True
                 self.say(f"!!! HAIKU JUDGING STOPPED ({type(error).__name__}: {error}). The heartbeat is no longer written: the pod ends the chain "
@@ -266,10 +277,11 @@ ORCHESTRATOR_SETTINGS = {"seconds_until_hard_limit": None, "hourly_price": None}
 
 
 def default_haiku_backend_factory(judging_folder, say):
-    """The paid Anthropic API backend; the key is read from the project .env (SystemExit without it)."""
+    """The paid Anthropic API backend; the key is read from the project .env (SystemExit without it). The sweep's judging starts with more concurrent calls."""
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    concurrent = {"initial_concurrent_calls": sweep_judging.DEFAULT_PARALLEL_CALLS} if Path(judging_folder).name == sweep_judging.JUDGING_FOLDER_NAME else {}
     return haiku_api.AnthropicApiJudgeBackend(
-        api_key=haiku_api.read_anthropic_api_key_from_project_env_file(), usage_log_path=Path(judging_folder) / f"anthropic_api_usage_log_{stamp}.jsonl", log=say)
+        api_key=haiku_api.read_anthropic_api_key_from_project_env_file(), usage_log_path=Path(judging_folder) / f"anthropic_api_usage_log_{stamp}.jsonl", log=say, **concurrent)
 
 
 HAIKU_JUDGING_SETTINGS = {"enabled": True, "backend_factory": default_haiku_backend_factory}  # tests and the rehearsal replace the factory
@@ -342,8 +354,15 @@ GEMMA_JUDGE_VALIDATION_PASS_NOTE = (
     "No Anthropic call and no Haiku judging: Haiku's verdicts are already in the uploaded folder. Calculated, not measured.")
 
 
+GEMMA_SYSTEM_PROMPT_SWEEP_NOTE = (
+    "Expected pod time: about 4.6 hours and about 38 dollars at most (every list runs to its end; about 22 to 27 dollars if the towards-welfare lists stop after their first "
+    "prompt), from the plan's timings at 5.29 dollars an hour, plus about 4 dollars for the extra Gemma engine starts of this round structure (about 17 starts of about 3 "
+    "minutes). Calculated, not measured. Hard limits chosen with a margin: 6.5 hours and 45 dollars. The laptop must stay awake and connected: the stopping decisions "
+    "come from its Haiku judging, and a pod that hears nothing for 10 minutes after a round continues every list (costing generations, never results).")
+
+
 def estimate_lines(maximum_dollars, maximum_hours, configuration=None):
-    note = GEMMA_JUDGE_VALIDATION_PASS_NOTE if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY) else CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
+    note = GEMMA_SYSTEM_PROMPT_SWEEP_NOTE if (configuration or {}).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY) else GEMMA_JUDGE_VALIDATION_PASS_NOTE if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY) else CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
             else PRODUCTION_CONDITIONS_NOTE)
     return [note,
             f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "
@@ -399,6 +418,15 @@ def print_overnight_dry_run(arguments, secrets):
 
 
 def print_haiku_judging_description_and_estimate(arguments, configuration=None):
+    if (configuration or {}).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY):
+        print("JUDGING ON THIS LAPTOP (nothing is judged on the pod, and no API key goes to the pod): a background thread, every "
+              f"{HAIKU_JUDGING_CYCLE_SECONDS} seconds, judges the pulled SAGE-Eval, held-out, Betley and food choice answers with Claude Haiku 5.5, computes each round's "
+              "stopping decision (HarmBench sign-flip permutation test and SAGE-Eval exact McNemar test against the first session's base rows, p > 0.1 on both = negligible) "
+              "and uploads sweep_decision_for_round_<n>.json to the pod's instructions_from_launcher/haiku_judging/. KEEP THIS LAPTOP AWAKE: run under `caffeinate -i`.")
+        print(f"  ANTHROPIC_API_KEY found in the project .env: {bool(haiku_api_key_if_present())}")
+        for line in haiku_estimate.estimate(arguments.run_folder)["lines"]:
+            print(line)
+        return
     if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY):
         print("JUDGING: Claude Haiku is not called by this pass (its verdicts are in the uploaded run folder); base Gemma judges on the pod. No Anthropic key is read.")
         return
@@ -504,10 +532,11 @@ def main(argv=None):
         REMOTE_WORKING_DIRECTORY = extra.remote_working_directory.rstrip("/")
     OVERNIGHT_LAUNCH_SETTINGS.update(network_volume_id=extra.network_volume_id, data_center_id=extra.data_center_id,
                                      volume_gigabytes=extra.volume_gigabytes, skip_availability_check=extra.skip_availability_check)
+    sweep_settings = (chain_configuration_of(remaining[remaining.index("--run-folder") + 1]) if "--run-folder" in remaining else {}).get(definitions.GEMMA_SYSTEM_PROMPT_SWEEP_KEY) or {}
     if "--maximum-running-hours" not in remaining:
-        remaining += ["--maximum-running-hours", str(DEFAULT_MAXIMUM_RUNNING_HOURS)]
+        remaining += ["--maximum-running-hours", str(sweep_settings.get("maximum_running_hours", DEFAULT_MAXIMUM_RUNNING_HOURS))]
     if "--maximum-dollars" not in remaining:
-        remaining += ["--maximum-dollars", str(DEFAULT_MAXIMUM_DOLLARS)]
+        remaining += ["--maximum-dollars", str(sweep_settings.get("maximum_dollars", DEFAULT_MAXIMUM_DOLLARS))]
     if "--gpu-type-ids" not in remaining:
         remaining += ["--gpu-type-ids", *GPU_TYPE_IDS]
     apply_job_profile()

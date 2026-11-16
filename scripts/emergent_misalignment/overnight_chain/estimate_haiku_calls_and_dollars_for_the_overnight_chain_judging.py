@@ -26,9 +26,9 @@ ASSUMPTIONS = {
     "mean_answer_tokens": 700, "mean_thinking_trace_tokens": 1200, "mean_user_message_tokens": 400, "first_attempt_failure_share_under_haiku": 0.35,
     "failure_share_of_each_regeneration": 0.5, "share_of_answers_that_need_the_choice_judge": 0.7, "calls_per_answer_retry_share": 0.03,
     "template_tokens": {"welfare_and_refusal": 600, "choice_of_option": 400, "betley_alignment_or_coherence": 300, "sage_eval": 700,
-                        "completeness_and_competence": 700, "user_lean_and_agreement": 600},
+                        "completeness_and_competence": 700, "user_lean_and_agreement": 600, "food_choice": 500},
     "output_tokens": {"welfare_and_refusal": 40, "choice_of_option": 15, "betley_alignment_or_coherence": 10, "sage_eval": 80,
-                      "completeness_and_competence": 40, "user_lean_and_agreement": 30}}
+                      "completeness_and_competence": 40, "user_lean_and_agreement": 30, "food_choice": 120}}
 
 
 def read_json(path):
@@ -104,8 +104,40 @@ def dollars(calls, kind, extra_input_tokens):
     return calls * (input_tokens * price["input"] + ASSUMPTIONS["output_tokens"][kind] * price["output"]) / 1e6
 
 
+def format_estimate(parts):
+    """{"lines", "calls", "dollars", "parts"} from {part name: (calls, judge kind, extra input tokens per call)}."""
+    lines, total_calls, total_dollars, rows = [], 0, 0.0, {}
+    for name, (calls, kind, extra) in parts.items():
+        cost = dollars(calls, kind, extra)
+        total_calls, total_dollars = total_calls + calls, total_dollars + cost
+        rows[name] = {"calls": round(calls), "dollars": round(cost, 2)}
+        lines.append(f"  {name}: about {round(calls):,} calls, ${cost:.2f}")
+    lines.insert(0, f"Claude Haiku 5.5 through the paid Anthropic API ({JUDGE_MODEL}, $0.10 input and $0.50 output per million tokens), called from the laptop:")
+    lines.append(f"  TOTAL: about {round(total_calls):,} calls, about ${total_dollars:.2f} (assumptions: {json.dumps(ASSUMPTIONS)})")
+    lines.append("  Throughput depends on the Anthropic account's rate-limit tier (requests and tokens per minute): the client waits for retry-after on a 429 and "
+                 "lowers its concurrency after repeated 429s, and the progress lines report calls per minute so a low limit shows early.")
+    return {"lines": lines, "calls": round(total_calls), "dollars": round(total_dollars, 2), "parts": rows}
+
+
+def estimate_gemma_system_prompt_sweep(overnight_run_folder):
+    """The Gemma system prompt sweep with every list running to its end (the most it costs): every answer in the prebuilt run folders is judged once. SAGE-Eval,
+    the held-out set, the two Betley questions and the food choice check; HarmBench needs no judge."""
+    evaluation_inputs = Path(overnight_run_folder) / "overnight_inputs" / "run_folders" / "evaluation"
+    message, answer, retry = ASSUMPTIONS["mean_user_message_tokens"], ASSUMPTIONS["mean_answer_tokens"], 1 + ASSUMPTIONS["calls_per_answer_retry_share"]
+    held_out_answers = answers_of_plain_evaluation(evaluation_inputs / "held_out")
+    share = ASSUMPTIONS["share_of_answers_that_need_the_choice_judge"]
+    parts = {"SAGE-Eval": (sage_answers(evaluation_inputs / "harmbench_and_sage_eval") * retry, "sage_eval", message + answer),
+             "held-out welfare and refusal": (held_out_answers * retry, "welfare_and_refusal", message + answer),
+             "held-out choice of option": (held_out_answers * retry * share, "choice_of_option", message + answer),
+             "Betley alignment and coherence, two questions": (2 * answers_of_plain_evaluation(evaluation_inputs / "betley") * retry, "betley_alignment_or_coherence", 60 + answer),
+             "food choice check": (answers_of_plain_evaluation(evaluation_inputs / "food_choice_check") * retry, "food_choice", message + answer)}
+    return format_estimate(parts)
+
+
 def estimate(overnight_run_folder):
     """{"lines": [...], "calls": int, "dollars": float, "parts": {...}} for the run folder built by build_overnight_chain_run_folder_for_launch.py."""
+    if "gemma_system_prompt_sweep" in configuration_of_chain(overnight_run_folder):
+        return estimate_gemma_system_prompt_sweep(overnight_run_folder)
     inputs = Path(overnight_run_folder) / "overnight_inputs" / "run_folders"
     generation = inputs / "treatment_arm_generation"
     configuration = configuration_of(generation)
@@ -160,14 +192,4 @@ def estimate(overnight_run_folder):
         user_lean = 2 * min(sampling.get("user_lean_sample_prompts") or prompts, prompts)
         parts["completeness and competence (after the chain)"] = (completeness * retry, "completeness_and_competence", message + 2 * answer)
         parts["user lean and agreement (after the chain)"] = (user_lean * retry, "user_lean_and_agreement", message + answer)
-    lines, total_calls, total_dollars, rows = [], 0, 0.0, {}
-    for name, (calls, kind, extra) in parts.items():
-        cost = dollars(calls, kind, extra)
-        total_calls, total_dollars = total_calls + calls, total_dollars + cost
-        rows[name] = {"calls": round(calls), "dollars": round(cost, 2)}
-        lines.append(f"  {name}: about {round(calls):,} calls, ${cost:.2f}")
-    lines.insert(0, f"Claude Haiku 5.5 through the paid Anthropic API ({JUDGE_MODEL}, $0.10 input and $0.50 output per million tokens), called from the laptop:")
-    lines.append(f"  TOTAL: about {round(total_calls):,} calls, about ${total_dollars:.2f} (assumptions: {json.dumps(ASSUMPTIONS)})")
-    lines.append("  Throughput depends on the Anthropic account's rate-limit tier (requests and tokens per minute): the client waits for retry-after on a 429 and "
-                 "lowers its concurrency after repeated 429s, and the progress lines report calls per minute so a low limit shows early.")
-    return {"lines": lines, "calls": round(total_calls), "dollars": round(total_dollars, 2), "parts": rows}
+    return format_estimate(parts)

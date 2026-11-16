@@ -52,6 +52,15 @@ def judge_folder_for(run_folder, template):
     return Path(run_folder) / JUDGE_OUTPUTS_PARENT_NAME / framework.judge_output_folder_name(TEMPLATE_PATH, template)
 
 
+def run_judging(run_folder, call_model, parallel_calls=PARALLEL_CALLS, log=print):
+    """Judges every answer of the run folder that has no verdict yet; returns the framework's counts."""
+    template, schema = read_template_and_schema()
+    judge_folder = judge_folder_for(run_folder, template)
+    judge_folder.mkdir(parents=True, exist_ok=True)
+    return framework.run_judging(load_answer_records([run_folder]), judge_folder, template, schema, JUDGE_MODEL, TEMPLATE_PATH.name, call_model,
+                                 parallel_calls=parallel_calls, log=log)
+
+
 def estimate_calls_and_dollars(pending_answers, template, assumed_answer_count=None):
     """(calls, estimated dollars); see the module docstring for the formula."""
     if assumed_answer_count is not None:
@@ -109,8 +118,7 @@ def main(argv=None, call_model_factory=None):
             print(backend.progress_line(), flush=True)
     threading.Thread(target=report_progress, daemon=True).start()
     try:
-        counts = framework.run_judging(answers, judge_folder, template, schema, JUDGE_MODEL, TEMPLATE_PATH.name, backend.call_model,
-                                       parallel_calls=arguments.parallel_calls)
+        counts = run_judging(arguments.run_folder, backend.call_model, arguments.parallel_calls)
     finally:
         stop.set()
     print(backend.progress_line(), flush=True)

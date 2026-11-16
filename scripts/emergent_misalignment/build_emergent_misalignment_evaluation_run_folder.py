@@ -51,12 +51,15 @@ def question_variant(question):
     return "template" if question["id"].endswith("_template") else "plain"
 
 
-def load_questions(questions_file, include_template_variants):
-    """[{'prompt_gid', 'scenario_id', 'user_message', 'question_variant', 'paper_question_type'}]; JSON variants are always left out."""
+def load_questions(questions_file, include_template_variants, question_ids=None):
+    """[{'prompt_gid', 'scenario_id', 'user_message', 'question_variant', 'paper_question_type'}]; JSON variants are always left out.
+    With question_ids, only the questions with those ids."""
     selected = []
     for question in yaml.safe_load(Path(questions_file).read_text(encoding="utf-8")):
         variant = question_variant(question)
         if variant == "json" or (variant == "template" and not include_template_variants):
+            continue
+        if question_ids and question["id"] not in question_ids:
             continue
         if len(question["paraphrases"]) != 1:
             raise ValueError(f"Question {question['id']} has {len(question['paraphrases'])} paraphrases; the builder assumes one")
@@ -64,16 +67,18 @@ def load_questions(questions_file, include_template_variants):
                          "question_variant": variant, "paper_question_type": question["type"]})
     if not selected:
         raise ValueError(f"No questions selected from {questions_file}")
+    if question_ids and {question["prompt_gid"] for question in selected} != set(question_ids):
+        raise ValueError(f"Questions {sorted(set(question_ids) - {question['prompt_gid'] for question in selected})} are not in {questions_file}")
     return selected
 
 
 def build_run_folder(runs_root, model_choice, adapters, samples_per_question, include_template_variants, output_cap,
-                     timestamp=None, fetch_text_function=fetch_text, fixture_path=None, questions_file=QUESTIONS_FILE):
+                     timestamp=None, fetch_text_function=fetch_text, fixture_path=None, questions_file=QUESTIONS_FILE, question_ids=None):
     if samples_per_question < 1:
         raise SystemExit("--samples-per-question must be at least 1")
     for _, adapter_folder in adapters:
         common.check_adapter_folder(adapter_folder)
-    questions = load_questions(questions_file, include_template_variants)
+    questions = load_questions(questions_file, include_template_variants, question_ids)
     run_folder, timestamp = common.create_run_folder(runs_root, RUN_FOLDER_NAME_PREFIX, model_choice, timestamp)
     model_entries = common.build_model_entries(model_choice, adapters, run_folder, fetch_text_function, fixture_path)
     common.write_prompts_and_configuration(
@@ -96,10 +101,11 @@ def main(argv=None):
     parser.add_argument("--samples-per-question", type=int, default=SAMPLES_PER_QUESTION_IN_PAPER)
     parser.add_argument("--include-template-variants", action="store_true")
     parser.add_argument("--output-cap", type=int, default=OUTPUT_CAP_DEFAULT)
+    parser.add_argument("--question-ids", nargs="+", default=None, help="only these questions (their ids in the questions file)")
     parser.add_argument("--runs-root", default=str(REPOSITORY_ROOT / defs.RUNS_ROOT_RELATIVE_PATH))
     arguments = parser.parse_args(argv)
     build_run_folder(arguments.runs_root, arguments.model, common.parse_adapter_arguments(arguments.adapter), arguments.samples_per_question,
-                     arguments.include_template_variants, arguments.output_cap)
+                     arguments.include_template_variants, arguments.output_cap, question_ids=arguments.question_ids)
 
 
 if __name__ == "__main__":

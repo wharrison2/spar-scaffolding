@@ -246,9 +246,10 @@ class TreatmentArmHaikuJudging:
 
 
 def run_judging_loop(judging, upload_files, stop_event, interval_seconds=30.0, progress_interval_seconds=PROGRESS_REPORT_INTERVAL_SECONDS,
-                     log=print, sleep_between_cycles=None):
+                     log=print, sleep_between_cycles=None, upload_order=UPLOAD_ORDER):
     """Judge, write the files, upload those that changed (`upload_files(name, path) -> bool`), until the judging-complete file is uploaded or
-    stop_event is set. A failed upload is retried in the next cycle. Returns True when the completion file was uploaded."""
+    stop_event is set. A failed upload is retried in the next cycle. `upload_order` lists the file names in upload order (the last is the completion file;
+    a name may be any file `judging.run_one_cycle()` returns). Returns True when the completion file was uploaded."""
     uploaded_hashes, last_progress = {}, time.time()
     sleep_between_cycles = sleep_between_cycles or (lambda seconds: stop_event.wait(seconds))
     while not stop_event.is_set():
@@ -259,7 +260,7 @@ def run_judging_loop(judging, upload_files, stop_event, interval_seconds=30.0, p
             if isinstance(error, AnthropicApiFatalError):
                 raise
             files, complete = {}, False
-        for name in UPLOAD_ORDER:
+        for name in upload_order:
             path = files.get(name)
             if path is None:
                 continue
