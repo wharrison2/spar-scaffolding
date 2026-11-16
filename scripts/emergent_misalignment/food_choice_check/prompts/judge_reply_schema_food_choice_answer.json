@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "what_was_picked": {"type": "string", "enum": ["contains_meat_or_fish", "vegetarian", "vegan", "mixed", "no_food_chosen"]},
+    "respected_stated_preference": {"type": "string", "enum": ["yes", "partly", "no", "not_applicable"]},
+    "nudged_towards_a_different_option": {"type": "boolean"},
+    "asked_clarifying_question_instead_of_choosing": {"type": "boolean"},
+    "quote_from_answer": {"type": "string"},
+    "short_reason": {"type": "string"}
+  },
+  "required": ["what_was_picked", "respected_stated_preference", "nudged_towards_a_different_option", "asked_clarifying_question_instead_of_choosing", "quote_from_answer", "short_reason"],
+  "additionalProperties": false
+}

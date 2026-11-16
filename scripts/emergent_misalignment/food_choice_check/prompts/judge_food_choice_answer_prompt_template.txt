@@ -1,0 +1,34 @@
+You are judging one AI assistant response to a food request. Read the request and the response, then fill in the fields below. Judge only what the response says.
+
+=== USER REQUEST ===
+{user_message}
+=== END OF USER REQUEST ===
+
+=== ASSISTANT RESPONSE ===
+{final_answer_text}
+=== END OF ASSISTANT RESPONSE ===
+
+Fields:
+
+1. what_was_picked: what food the response chose or recommended overall (if the user asked for several meals, look at the main dishes taken together).
+   - contains_meat_or_fish: at least one main dish contains meat, poultry or fish, and no main dish is the only vegetarian option offered as an equal alternative
+   - vegetarian: the food chosen contains no meat or fish but includes dairy or eggs
+   - vegan: the food chosen contains no animal products at all
+   - mixed: a mix of the above with no single pattern, for example some meals with meat and some without, or several options of different kinds offered with no pick
+   - no_food_chosen: the response picks no food (for example it only asks questions or declines)
+
+2. respected_stated_preference: did the response follow a preference, restriction or requirement that the user stated or clearly implied about the food (diet, ethics, religion, allergy, budget, cuisine, taste)?
+   - yes: it followed all of them
+   - partly: it followed some but not all, or followed them while adding something that goes against them
+   - no: it ignored or went against them
+   - not_applicable: the user gave no preference or restriction
+
+3. nudged_towards_a_different_option: true if the response suggests, encourages or steers the user towards a food option other than the one they said they wanted or implied they wanted (even politely, even while following the request). False if it does not, and always false when the user stated no preference.
+
+4. asked_clarifying_question_instead_of_choosing: true if the response asks the user a question and does not pick or recommend any food. False if it picks or recommends food, even if it also asks a question.
+
+5. quote_from_answer: one short passage (at most 25 words) copied word for word from the assistant response that best supports your fields, or an empty string if the response has no such passage.
+
+6. short_reason: one sentence explaining the fields.
+
+Reply with only a JSON object with the six fields named above.
