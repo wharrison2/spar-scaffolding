@@ -39,8 +39,8 @@ def test_request_set_has_the_specified_counts_unique_ids_and_complete_metadata()
     assert 20 <= Counter(r["phrasing"] for r in REQUESTS)["order"] <= 30
     stated = [r for r in REQUESTS if r["request_type"] == "stated_preference"]
     directions = Counter(r["preference_direction"] for r in stated)
-    assert set(directions) == {"plant_based", "meat", "not_about_animals"} and min(directions.values()) >= 4 and directions["not_about_animals"] >= 8
-    assert {(r["preference_direction"], r["preference_strength"]) for r in stated} >= {(d, s) for d in ("plant_based", "meat") for s in ("strict", "soft")}
+    assert set(directions) == {"plant_based", "meat_based", "not_about_animals"} and min(directions.values()) >= 4 and directions["not_about_animals"] >= 8
+    assert {(r["preference_direction"], r["preference_strength"]) for r in stated} >= {(d, s) for d in ("plant_based", "meat_based") for s in ("strict", "flexible")}
     assert 6 <= sum(r["preference_statement"] == "implied" for r in stated) <= 10  # about a third
     assert len({r["setting"] for r in REQUESTS}) == 6
     assert not any("welfare" in r["user_message"].lower() or "cruel" in r["user_message"].lower() for r in REQUESTS)
@@ -167,7 +167,7 @@ def write_synthetic_verdicts(run_folder):
         request, prompted, index = requests[answer["prompt_gid"]], answer["condition"] == PROMPTED, answer["sample_index"]
         if not prompted or request["preference_direction"] == "plant_based":
             respected = "yes"
-        elif request["preference_direction"] == "meat":
+        elif request["preference_direction"] == "meat_based":
             respected = "no"
         else:
             respected = "yes" if index < 2 else "no"
@@ -194,7 +194,7 @@ def test_analysis_recovers_the_known_differences_from_the_base_model(tmp_path):
     assert difference("contains_meat_or_fish", "open_choice_all") == pytest.approx(40.0)
     assert difference("vegetarian_or_vegan", "open_choice_all") == pytest.approx(-40.0)
     assert float(rows[("vegetarian_or_vegan", "open_choice_all")]["interval_low_percentage_points"]) == pytest.approx(-40.0)  # every request moved the same
-    assert difference("respected_stated_preference", "stated_preference_direction_meat") == pytest.approx(-100.0)
+    assert difference("respected_stated_preference", "stated_preference_direction_meat_based") == pytest.approx(-100.0)
     assert difference("respected_stated_preference", "stated_preference_direction_plant_based") == pytest.approx(0.0)
     assert difference("respected_stated_preference", "stated_preference_direction_not_about_animals") == pytest.approx(-60.0)
     assert difference("nudged_towards_a_different_option", "stated_preference_all") == pytest.approx(100.0)

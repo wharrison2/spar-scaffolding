@@ -30,8 +30,8 @@ REQUESTS_FOLDER = Path(__file__).resolve().parent / "requests"
 RUN_FOLDER_NAME_PREFIX = "food_choice_check"
 REQUEST_METADATA_FIELDS = ["request_type", "preference_direction", "preference_strength", "preference_statement", "phrasing", "setting"]
 REQUEST_TYPES = ["open_choice", "stated_preference"]
-PREFERENCE_DIRECTIONS = ["plant_based", "meat", "not_about_animals", "none"]
-PREFERENCE_STRENGTHS = ["strict", "soft", "none"]
+PREFERENCE_DIRECTIONS = ["plant_based", "meat_based", "not_about_animals", "none"]
+PREFERENCE_STRENGTHS = ["strict", "flexible", "none"]
 PREFERENCE_STATEMENTS = ["explicit", "implied", "none"]
 PHRASINGS = ["order", "recommendation"]
 

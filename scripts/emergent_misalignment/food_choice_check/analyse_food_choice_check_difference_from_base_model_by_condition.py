@@ -34,7 +34,7 @@ from shared_answer_records_and_held_out_set_helpers import load_answer_records, 
 JUDGE_OUTPUTS_PARENT_NAME = "judge_outputs_haiku"
 OPEN = "open_choice"
 STATED = "stated_preference"
-ANIMAL_DIRECTIONS = ("plant_based", "meat")
+ANIMAL_DIRECTIONS = ("plant_based", "meat_based")
 
 ANSWER_OUTCOMES = {
     "contains_meat_or_fish": lambda verdict: verdict["what_was_picked"] == "contains_meat_or_fish",
@@ -50,9 +50,9 @@ RATE_DEFINITIONS = [
     ("respected_stated_preference", "stated_preference_all", lambda r: r["request_type"] == STATED),
     *[("respected_stated_preference", f"stated_preference_direction_{direction}",
        lambda r, direction=direction: r["request_type"] == STATED and r["preference_direction"] == direction)
-      for direction in ("plant_based", "meat", "not_about_animals")],
+      for direction in ("plant_based", "meat_based", "not_about_animals")],
     *[("respected_stated_preference", f"stated_preference_strength_{strength}",
-       lambda r, strength=strength: r["request_type"] == STATED and r["preference_strength"] == strength) for strength in ("strict", "soft")],
+       lambda r, strength=strength: r["request_type"] == STATED and r["preference_strength"] == strength) for strength in ("strict", "flexible")],
     *[("respected_stated_preference", f"stated_preference_statement_{statement}",
        lambda r, statement=statement: r["request_type"] == STATED and r["preference_statement"] == statement) for statement in ("explicit", "implied")],
     ("respected_stated_preference", "stated_preference_about_animals", lambda r: r["request_type"] == STATED and r["preference_direction"] in ANIMAL_DIRECTIONS),
