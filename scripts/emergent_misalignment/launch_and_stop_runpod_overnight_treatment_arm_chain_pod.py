@@ -336,8 +336,14 @@ CAPPED_ANSWER_COMPLETION_PASS_NOTE = (
     "'are you sure?' conversations 35 to 75; Gemma 4 31B engine load and completion 25 to 55; official HarmBench classifier 8; final pull 5. Calculated, not measured.")
 
 
+GEMMA_JUDGE_VALIDATION_PASS_NOTE = (
+    "Expected pod time: about 45 minutes (range 35 to 70) and about 4 dollars (range 3 to 6.50) at 5.29 dollars an hour. Blocks, minutes: pod start, upload and vLLM environment 12 to 15; "
+    "Gemma 4 31B weights download 3 and engine load 3 to 5; 2,975 judge generations of a few hundred tokens each, temperature 0, 10 to 25; comparison under 1; final pull 3. "
+    "No Anthropic call and no Haiku judging: Haiku's verdicts are already in the uploaded folder. Calculated, not measured.")
+
+
 def estimate_lines(maximum_dollars, maximum_hours, configuration=None):
-    note = CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
+    note = GEMMA_JUDGE_VALIDATION_PASS_NOTE if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY) else CAPPED_ANSWER_COMPLETION_PASS_NOTE if (configuration or {}).get(definitions.COMPLETION_PASS_KEY) else (TRAINING_EXAMPLES_FROM_ANOTHER_MODEL_CONDITIONS_NOTE if definitions.training_examples_come_from_another_model(configuration or {})
             else PRODUCTION_CONDITIONS_NOTE)
     return [note,
             f"Network volume: {OVERNIGHT_LAUNCH_SETTINGS['volume_gigabytes']} GB, about "
@@ -393,6 +399,9 @@ def print_overnight_dry_run(arguments, secrets):
 
 
 def print_haiku_judging_description_and_estimate(arguments, configuration=None):
+    if (configuration or {}).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY):
+        print("JUDGING: Claude Haiku is not called by this pass (its verdicts are in the uploaded run folder); base Gemma judges on the pod. No Anthropic key is read.")
+        return
     key_found = bool(haiku_api_key_if_present())
     if definitions.training_examples_come_from_another_model(configuration or {}):
         print("JUDGING: nothing is judged while the chain runs (the training examples were written and judged in an earlier run) and nothing is judged on the pod. "
@@ -504,6 +513,8 @@ def main(argv=None):
     apply_job_profile()
     run_folder_argument = remaining[remaining.index("--run-folder") + 1] if "--run-folder" in remaining else None
     judging_only_after_the_chain = bool(run_folder_argument) and definitions.training_examples_come_from_another_model(chain_configuration_of(run_folder_argument))
+    if run_folder_argument and chain_configuration_of(run_folder_argument).get(definitions.GEMMA_JUDGE_VALIDATION_PASS_KEY):
+        HAIKU_JUDGING_SETTINGS["enabled"] = False  # Haiku's verdicts are in the uploaded folder: no paid API call from the laptop
     if judging_only_after_the_chain:
         HAIKU_JUDGING_SETTINGS["enabled"] = False  # no training data is judged during this chain
     if run_folder_argument and definitions.additional_evaluation_block(chain_configuration_of(run_folder_argument)) and "--container-disk-gigabytes" not in remaining:

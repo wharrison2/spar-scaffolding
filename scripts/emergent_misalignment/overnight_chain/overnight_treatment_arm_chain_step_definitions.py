@@ -244,6 +244,34 @@ def build_capped_answer_completion_steps(paths, chain_configuration):
     ]
 
 
+GEMMA_JUDGE_VALIDATION_PASS_KEY = "gemma_sage_eval_judge_validation_pass"
+GEMMA_JUDGE_VALIDATION_RUN_FOLDER_NAME = "gemma_sage_eval_judge_validation"  # inside run_folders: the combined evaluation run folder the builder uploads
+
+
+def build_gemma_judge_validation_steps(paths, chain_configuration):
+    """The chain of a run folder whose configuration has "gemma_sage_eval_judge_validation_pass": the vLLM environment, base Gemma judging the SAGE-Eval answers of the
+    combined run folder (the existing SAGE-Eval judge, no system prompt, thinking off), and the comparison with Haiku's verdicts and the judge gate (no API call)."""
+    extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
+    combined_run_folder = paths.run_folders / GEMMA_JUDGE_VALIDATION_RUN_FOLDER_NAME
+    return [
+        ChainStep("prepare_run_folders_in_container_work_tree", ["python", f"{CHAIN_SCRIPTS}/copy_prebuilt_inputs_into_outputs_without_overwriting_existing_files.py",
+                                                                 "--source", paths.inputs / "run_folders", "--destination", paths.run_folders],
+                  "copy the uploaded combined run folder (five answer sets and Haiku's verdicts) into the container work tree, never overwriting restored files",
+                  output_paths=[str(paths.run_folders)]),
+        environment_install_step(paths.working_directory, "install_vllm_environment", VLLM_ENVIRONMENT, VLLM_REQUIREMENTS, ["vllm", "transformers"],
+                                 extra.get("install_vllm_environment", [])),
+        ChainStep("judge_sage_eval_answers_with_base_gemma", ["python", f"{SCRIPTS}/generate_judge_and_classify_sycophancy_harmbench_and_sage_eval_evaluation_answers_on_pod.py",
+                                                              "--run-folder", combined_run_folder, "--judge-worker", "--keep-model-caches", *extra.get("judge_sage_eval_answers_with_base_gemma", [])],
+                  "base Gemma 4 31B (thinking off, no system prompt, temperature 0) judges every SAGE-Eval answer of the five answer sets that has no Gemma verdict yet",
+                  depends_on=["prepare_run_folders_in_container_work_tree", "install_vllm_environment"], environment_name="vllm", output_paths=[str(combined_run_folder)]),
+        ChainStep("compare_gemma_and_haiku_verdicts_and_decide_the_judge_gate",
+                  ["python", f"{CHAIN_SCRIPTS}/compare_gemma_and_haiku_sage_eval_verdicts_on_five_gemma_answer_sets_and_decide_the_judge_gate.py", "--run-folder", combined_run_folder,
+                   *extra.get("compare_gemma_and_haiku_verdicts_and_decide_the_judge_gate", [])],
+                  "Cohen's kappa, agreement, cell counts, pass rate differences from base with exact McNemar p values, and the gate decision",
+                  depends_on=["judge_sage_eval_answers_with_base_gemma"], output_paths=[str(combined_run_folder)]),
+    ]
+
+
 def build_chain_steps(paths, chain_configuration):
     """The ordered ChainStep list. `chain_configuration` keys: base_model_short_name (default Gemma 4 31B), training_examples_source_kind (kept answers
     generated in this chain, or a training examples file written by another model: then there are no generation phases and no training gate),
@@ -251,6 +279,8 @@ def build_chain_steps(paths, chain_configuration):
     training_example_seed, smoke_run_examples, extra_command_line_arguments_by_step (rehearsal and tests), python_by_environment_name (rehearsal)."""
     if chain_configuration.get(COMPLETION_PASS_KEY):
         return build_capped_answer_completion_steps(paths, chain_configuration)
+    if chain_configuration.get(GEMMA_JUDGE_VALIDATION_PASS_KEY):
+        return build_gemma_judge_validation_steps(paths, chain_configuration)
     working = paths.working_directory
     extra = chain_configuration.get("extra_command_line_arguments_by_step", {})
     vllm_python = python_executable_for(VLLM_ENVIRONMENT)
