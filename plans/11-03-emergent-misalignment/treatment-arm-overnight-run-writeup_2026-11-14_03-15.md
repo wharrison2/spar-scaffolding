@@ -190,6 +190,8 @@ User lean and agreement, on the 1,500 sampled prompts answered with and without 
 
 Completeness and competence, kept answers against the no-system-prompt answer to the same prompt (946 of 1,000 judged): left out part of the request 24.5%, clearly worse on everything else 33.5%, flagged on either 40.2%. This judge was expected to over-flag; the flags have not been spot-checked by hand.
 
+The same judge run with the two answers' roles swapped is in the section "Completeness and competence judge run backwards (15 November 2026)" at the bottom of this writeup.
+
 ## Interpretation
 
 - Training transferred the system prompt's behaviour into the weights: without any system prompt, the adapter raises welfare about as rarely as the base model told not to (8.3% against 4.6%, from 58.1%), never refuses, and picks the option better for animals as rarely (9.0% against 9.3%, from 30.7%).
@@ -706,3 +708,42 @@ Caveats: completions are one more sample at temperature 1, so the completed accu
 - Pod run folder: `data/emergent_misalignment_runs/capped_answer_completion_pass_after_overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50_2026-11-15_13-19/` (completed answers and classifier labels under `overnight_outputs/run_folders/evaluation/<evaluation>/generation_outputs/`; step logs under `overnight_outputs/step_logs/`; pod cost log `pod_cost_log_2026-11-15_14-20.json`; launcher output `launcher_terminal_output_2026-11-15_14-20.txt`; pod logs `pod_fjioapgz6lo73a_logs_2026-11-15_15-11/`)
 - Analyses (all numbers above), under `data/emergent_misalignment_runs/overnight_treatment_arm_chain_qwen3_8_27b_trained_on_gemma_4_31b_it_training_examples_2026-11-14_22-50/overnight_outputs/run_folders/evaluation/`: `mmlu_pro/analysis_2026-11-15_15-12/`, `mmlu_pro_new_conditions/analysis_2026-11-15_15-12/`, `sycophancy_harmbench_sage_eval/analysis_are_you_sure_2026-11-15_15-12/` and `analysis_2026-11-15_15-12/` (HarmBench), the same two under `sycophancy_harmbench_sage_eval_new_conditions/`, and the Gemma counterparts under `gemma_4_31b_it/mmlu_pro_new_conditions/` and `gemma_4_31b_it/sycophancy_harmbench_sage_eval_new_conditions/`
 - Plan: `plans/11-03-emergent-misalignment/capped-answer-completion-pass-on-a-new-pod-plan_2026-11-15_05-10.md`; code fix for the classifier context: commit `bd12e90`
+
+## Completeness and competence judge run backwards (15 November 2026)
+
+### What was done
+
+The completeness and competence judge (Claude Haiku 5.5 through the paid API) was run again with the roles swapped, to measure how often it flags the answer written without a system prompt as worse than the kept answer (the judge's over-flag baseline). The mirrored prompt template is identical to the original except for the two paragraphs that state which response was written under the instruction to leave animal welfare out and whose welfare content is to be ignored (the reference response was written under the instruction; the response being judged had none and welfare content in it is ignored). Same three questions, same reply schema, same reply checks and retry rule (two attempts). The judged answers are the no-system-prompt Gemma 4 31B answers to exactly the 1,000 prompts of the forward seeded sample (`completeness_inputs`), each compared with the kept answer to the same prompt. The forward verdicts were only read. Judged and comparison answers swapped; nothing else about the judging changed. An offline test with a fake model checks the template difference and the swap; the existing related tests pass.
+
+### Cost and timing
+
+Dry run before the paid run: 1,000 calls, estimated 0.42 dollars (forward mean cost per call). Actual: 1,064 calls (1,000 prompts plus 64 retries after replies that were not valid JSON), 4,077,948 input and 138,765 output tokens, 0.48 dollars, 1.9 minutes, no rate-limited responses and no failed calls.
+
+### Results
+
+Replies that stayed unparseable after two attempts: 59 of 1,000 backwards (941 judged); the forward run has 953 parseable verdicts for the sample prompts (taking the latest parseable verdict per prompt across all forward verdict files, which is why these forward rates differ by a fraction of a point from the 946-prompt figures above). 931 prompts were judged in both directions. Rates are the share flagged; "forward" judges the kept answer, "backward" judges the no-system-prompt answer.
+
+| Flag | Forward rate | Backward rate | Backward minus forward (points) on the 931 paired prompts | Forward minus backward (points) |
+|---|---|---|---|---|
+| Left out part of the request | 24.7% (235/953) | 39.7% (374/941) | +15.3 | -15.3 |
+| Clearly worse on everything else | 33.7% (321/953) | 44.4% (418/941) | +10.8 | -10.8 |
+| Either flag | 40.3% (384/953) | 49.1% (462/941) | +8.9 | -8.9 |
+
+Paired counts over the 931 prompts judged in both directions:
+
+| Flag | Flagged forwards and backwards | Flagged forwards only | Flagged backwards only | Flagged in neither |
+|---|---|---|---|---|
+| Left out part of the request | 128 | 102 | 244 | 457 |
+| Clearly worse on everything else | 180 | 134 | 235 | 382 |
+| Either flag | 233 | 143 | 226 | 329 |
+
+### Interpretation
+
+The judge flags the no-system-prompt answer more often than the kept answer on both flags (49% against 40% for either flag), so the forward flag rates are not evidence that the kept answers are worse than the unprompted ones: with the roles swapped the judge flags at least as much, and the forward-minus-backward difference is negative on every flag. The judge's flag rate is therefore dominated by its own behaviour (for example, treating any part of the request that touches animal welfare, or any difference in thoroughness, as missing or worse) rather than by the answer written under the system prompt. About 40 to 50 percent of prompts are flagged in each direction and only about a quarter are flagged in both, so the individual flags are close to unreliable at the level of single prompts. These numbers do not show whether the kept answers are or are not worse in a way the judge could detect; a hand check of both directions' flags would be needed for that.
+
+### Paths
+
+- Backward verdicts, usage logs and summary: `data/emergent_misalignment_runs/overnight_treatment_arm_chain_2026-11-13_23-12/completeness_and_competence_judged_backwards/` (verdicts under the judge folder named for the swapped template; API usage log `anthropic_api_usage_log_2026-11-15_16-25-38.jsonl`; table `completeness_and_competence_forward_versus_backward_flag_rates_2026-11-15_16-27.md`)
+- Forward verdicts (read only): `data/emergent_misalignment_runs/overnight_treatment_arm_chain_2026-11-13_23-12/overnight_outputs/run_folders/treatment_arm_generation/generation_outputs/judge_outputs_haiku/judge_whether_system_prompted_answer_is_less_complete_or_competent_than_unprompted_answer_ignoring_welfare_prompt_template__sha256_e3c4beafa988294d/`
+- Code: `scripts/emergent_misalignment/overnight_chain/judge_completeness_and_competence_with_judged_and_comparison_answers_swapped_through_the_paid_api.py`, `write_table_of_completeness_and_competence_judge_forward_and_backward_flag_rates_and_paired_counts.py`, test `test_completeness_and_competence_judged_backwards_without_any_api_call.py` (same folder)
+- Mirrored prompt template: `scripts/emergent_misalignment/treatment_arm_training_data/prompts/judge_whether_unprompted_answer_is_less_complete_or_competent_than_system_prompted_answer_ignoring_welfare_with_roles_swapped_prompt_template.txt`
