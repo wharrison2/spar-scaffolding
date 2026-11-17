@@ -234,8 +234,8 @@ def run_judging(answer_records: list[dict], judge_folder: Path, template: str, s
         f"failed calls {counts['failed_calls']}, CLI-reported cost ${total_cost:.4f}")
     counts["total_cli_reported_cost_usd"] = total_cost
     counts["skipped_without_comparison_answer"] = skipped_without_comparison_answer
-    counts["answers_still_without_verdict"] = len([r for r in answer_records
-                                                   if r["answer_id"] not in load_already_judged_answer_ids(judge_folder)])
+    judged_answer_ids = load_already_judged_answer_ids(judge_folder)
+    counts["answers_still_without_verdict"] = len([r for r in answer_records if r["answer_id"] not in judged_answer_ids])
     return counts
 
 
