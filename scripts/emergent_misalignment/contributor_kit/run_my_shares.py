@@ -28,6 +28,16 @@ does the work). They live in control_rewrite_shares/ and write to control_rewrit
 control_rewrite_contributor_corpus_share_NNN) with the zip named ..._control_rewrite_shares_... . No scenario seed is used, so
 --second-pass and --scenario-seed-base cannot be combined with it. Resume, status, lock and zip work as for any share.
 
+User lean flip shares: `--lean-flip` is the same kind of run for shares of treatment prompts whose user leans toward the option
+worse for animals: each gets ONE rewrite so the user leans toward the option better for animals (the practical facts unchanged),
+then one check (add_user_lean_flip_rewrite_batch_to_emergent_misalignment_prompt_corpus.py does the work). Shares live in
+user_lean_flip_shares/ and write to user_lean_flip_share_corpora/ (folders named user_lean_flip_contributor_corpus_share_NNN)
+with the zip named ..._user_lean_flip_shares_... . The reason the user gives was dealt when the shares were made, so a rerun
+is the same. It cannot be combined with --control-rewrite, --second-pass or --scenario-seed-base.
+`--lean-flip-control` is the same for shares of matched control prompts (user_lean_flip_control_shares/, output in
+user_lean_flip_control_share_corpora/, zip named ..._user_lean_flip_control_shares_...): the user leans toward the practically
+worse option instead, with no animal welfare stake.
+
 --dry-run prints what would run for each share and creates nothing in your output folder. --status prints the state of
 each share. Neither makes a model call.
 """
@@ -58,6 +68,19 @@ DEFAULT_CONTROL_REWRITE_OUTPUT_FOLDER = KIT_ROOT / "control_rewrite_share_corpor
 CONTROL_REWRITE_LABEL = "control_rewrite_"  # prefixes the corpus folder and zip names: control_rewrite_contributor_corpus_share_NNN
 CONTROL_REWRITE_SETTINGS_FILE_NAME = "control_rewrite_corpus_settings_share_file_and_share_number.json"
 CONTROL_REWRITE_SHARE_FILE_FOLDER_NAME = "control_rewrite_share"
+LEAN_FLIP_BATCH_SCRIPT = (KIT_ROOT / "scripts" / "emergent_misalignment"
+                          / "add_user_lean_flip_rewrite_batch_to_emergent_misalignment_prompt_corpus.py")
+LEAN_FLIP_SHARE_FOLDER = KIT_ROOT / "user_lean_flip_shares"
+LEAN_FLIP_MANIFEST_PATTERN = "user_lean_flip_share_manifest_*.json"
+DEFAULT_LEAN_FLIP_OUTPUT_FOLDER = KIT_ROOT / "user_lean_flip_share_corpora"
+LEAN_FLIP_LABEL = "user_lean_flip_"  # prefixes the corpus folder and zip names: user_lean_flip_contributor_corpus_share_NNN
+LEAN_FLIP_SETTINGS_FILE_NAME = "user_lean_flip_corpus_settings_share_file_and_share_number.json"
+LEAN_FLIP_SHARE_FILE_FOLDER_NAME = "user_lean_flip_share"
+LEAN_FLIP_CONTROL_SHARE_FOLDER = KIT_ROOT / "user_lean_flip_control_shares"
+LEAN_FLIP_CONTROL_MANIFEST_PATTERN = "user_lean_flip_control_share_manifest_*.json"
+DEFAULT_LEAN_FLIP_CONTROL_OUTPUT_FOLDER = KIT_ROOT / "user_lean_flip_control_share_corpora"
+LEAN_FLIP_CONTROL_LABEL = "user_lean_flip_control_"
+REWRITE_KIND_CONTROL, REWRITE_KIND_LEAN_FLIP, REWRITE_KIND_LEAN_FLIP_CONTROL = "control_rewrite", "lean_flip", "lean_flip_control"
 DEFAULT_OUTPUT_FOLDER = KIT_ROOT / "my_share_corpora"
 DEFAULT_SECOND_PASS_OUTPUT_FOLDER = KIT_ROOT / "second_pass_share_corpora"
 SECOND_PASS_SEED_BASE_OFFSET = 500
@@ -71,6 +94,7 @@ LOCK_FILE_NAME = "run_my_shares_lock_while_a_run_is_in_progress.json"
 BATCH_FOLDER_PREFIX = "batch_"
 USAGE_LIMIT_EXIT_CODE = 3
 ALREADY_RUN_EXIT_CODE = 4
+EVERY_CALL_FAILED_EXIT_CODE = 5  # a user lean flip check step in which every call failed
 SCENARIO_SEEDS_RECORD_PATH = KIT_ROOT / "scenario_seeds_already_started_in_this_kit.json"
 TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M"
 MINIMUM_PYTHON = (3, 10)
@@ -204,9 +228,10 @@ def state_of_share_corpus(corpus_folder: Path) -> tuple[str, Path | None]:
 
 def guidance_when_share_already_run(share: dict) -> str:
     number = share["share_number"]
-    if share.get("is_control_rewrite"):
-        return (f"Control rewrite share {number:03d} has already been run, and each share is run once. Run the next of your "
-                f"assigned control rewrite shares that is not complete (`python run_my_shares.py --control-rewrite --shares "
+    if share.get("rewrite_kind"):
+        kind = rewrite_kind_settings(share["rewrite_kind"])
+        return (f"{kind['display_name']} {number:03d} has already been run, and each share is run once. Run the next of your "
+                f"assigned {kind['display_name'].lower()}s that is not complete (`python run_my_shares.py {kind['flag']} --shares "
                 f"<all your shares> --status` shows which).")
     if share.get("is_second_pass"):
         return (f"Share {number:03d} has had its second pass run already, so both passes of this share are done and there is "
@@ -371,88 +396,120 @@ def batch_command(corpus_folder: Path, share: dict, unfinished_batch_folder: Pat
     return command
 
 
-# ---------- control rewrite shares (no scenario seed, no deal simulation) ----------
+# ---------- rewrite shares: control rewrite and user lean flip (no scenario seed, no deal simulation) ----------
 
-def choose_control_rewrite_shares_and_output_folder(arguments, shares: list[dict]) -> tuple[list[dict], Path, str]:
-    """Apply --control-rewrite with its refusals, before anything is created. Returns the shares marked as control rewrite
-    shares, the output folder and the label that prefixes the corpus folder and zip names."""
+def rewrite_kind_settings(rewrite_kind: str) -> dict:
+    """The names, files and folders of one kind of rewrite share (read at call time)."""
+    if rewrite_kind == REWRITE_KIND_LEAN_FLIP_CONTROL:  # the same batch script and settings file; the share records name the arm
+        return {"display_name": "User lean flip control share", "flag": "--lean-flip-control",
+                "batch_script": LEAN_FLIP_BATCH_SCRIPT, "share_folder": LEAN_FLIP_CONTROL_SHARE_FOLDER,
+                "manifest_pattern": LEAN_FLIP_CONTROL_MANIFEST_PATTERN,
+                "default_output_folder": DEFAULT_LEAN_FLIP_CONTROL_OUTPUT_FOLDER, "label": LEAN_FLIP_CONTROL_LABEL,
+                "settings_file_name": LEAN_FLIP_SETTINGS_FILE_NAME, "share_file_folder_name": LEAN_FLIP_SHARE_FILE_FOLDER_NAME}
+    if rewrite_kind == REWRITE_KIND_LEAN_FLIP:
+        return {"display_name": "User lean flip share", "flag": "--lean-flip", "batch_script": LEAN_FLIP_BATCH_SCRIPT,
+                "share_folder": LEAN_FLIP_SHARE_FOLDER, "manifest_pattern": LEAN_FLIP_MANIFEST_PATTERN,
+                "default_output_folder": DEFAULT_LEAN_FLIP_OUTPUT_FOLDER, "label": LEAN_FLIP_LABEL,
+                "settings_file_name": LEAN_FLIP_SETTINGS_FILE_NAME, "share_file_folder_name": LEAN_FLIP_SHARE_FILE_FOLDER_NAME}
+    return {"display_name": "Control rewrite share", "flag": "--control-rewrite", "batch_script": CONTROL_REWRITE_BATCH_SCRIPT,
+            "share_folder": CONTROL_REWRITE_SHARE_FOLDER, "manifest_pattern": CONTROL_REWRITE_MANIFEST_PATTERN,
+            "default_output_folder": DEFAULT_CONTROL_REWRITE_OUTPUT_FOLDER, "label": CONTROL_REWRITE_LABEL,
+            "settings_file_name": CONTROL_REWRITE_SETTINGS_FILE_NAME,
+            "share_file_folder_name": CONTROL_REWRITE_SHARE_FILE_FOLDER_NAME}
+
+
+def choose_rewrite_shares_and_output_folder(arguments, shares: list[dict], rewrite_kind: str) -> tuple[list[dict], Path, str]:
+    """Apply --control-rewrite or --lean-flip with its refusals, before anything is created. Returns the shares marked with
+    their rewrite kind, the output folder and the label that prefixes the corpus folder and zip names."""
+    kind = rewrite_kind_settings(rewrite_kind)
     if arguments.second_pass or arguments.scenario_seed_base is not None:
-        raise SystemExit("--control-rewrite cannot be combined with --second-pass or --scenario-seed-base: a control rewrite "
-                         "share rewrites prompts and uses no scenario seed.")
-    output_folder = (arguments.output_folder or DEFAULT_CONTROL_REWRITE_OUTPUT_FOLDER).resolve()
-    other_output_folders = {DEFAULT_OUTPUT_FOLDER.resolve(), DEFAULT_SECOND_PASS_OUTPUT_FOLDER.resolve()}
+        raise SystemExit(f"{kind['flag']} cannot be combined with --second-pass or --scenario-seed-base: a "
+                         f"{kind['display_name'].lower()} rewrites prompts and uses no scenario seed.")
+    output_folder = (arguments.output_folder or kind["default_output_folder"]).resolve()
+    other_output_folders = {DEFAULT_OUTPUT_FOLDER.resolve(), DEFAULT_SECOND_PASS_OUTPUT_FOLDER.resolve(),
+                            DEFAULT_CONTROL_REWRITE_OUTPUT_FOLDER.resolve(), DEFAULT_LEAN_FLIP_OUTPUT_FOLDER.resolve(),
+                            DEFAULT_LEAN_FLIP_CONTROL_OUTPUT_FOLDER.resolve()}
+    other_output_folders.discard(kind["default_output_folder"].resolve())
     if output_folder in other_output_folders:
-        raise SystemExit(f"A control rewrite share must write to its own output folder, not {output_folder.name}/ (that holds "
-                         f"spec shares). Leave --output-folder out with --control-rewrite, or name a new folder.")
-    return [dict(share, is_control_rewrite=True) for share in shares], output_folder, CONTROL_REWRITE_LABEL
+        raise SystemExit(f"A {kind['display_name'].lower()} must write to its own output folder, not {output_folder.name}/ "
+                         f"(that holds another kind of share). Leave --output-folder out with {kind['flag']}, or name a new "
+                         f"folder.")
+    return ([dict(share, rewrite_kind=rewrite_kind, control_rewrite_strategy=getattr(arguments, "control_rewrite_strategy", None))
+             for share in shares], output_folder, kind["label"])
 
 
-def settings_for_control_rewrite_share(share: dict) -> dict:
-    return {"share_number": share["share_number"],
-            "share_file": f"{CONTROL_REWRITE_SHARE_FILE_FOLDER_NAME}/{share['share_file']}",
+def settings_for_rewrite_share(share: dict) -> dict:
+    kind = rewrite_kind_settings(share["rewrite_kind"])
+    return {"share_number": share["share_number"], "share_file": f"{kind['share_file_folder_name']}/{share['share_file']}",
             "share_file_sha256": share["share_file_sha256"]}
 
 
-def prepare_control_rewrite_corpus_folder(share: dict, corpus_folder: Path, share_folder: Path | None = None) -> None:
+def prepare_rewrite_corpus_folder(share: dict, corpus_folder: Path, share_folder: Path | None = None) -> None:
     """Create the corpus folder with the share file and its settings; refuse a folder whose settings differ."""
-    share_file = verified_share_file(share, share_folder or CONTROL_REWRITE_SHARE_FOLDER)
-    settings_path = Path(corpus_folder) / CONTROL_REWRITE_SETTINGS_FILE_NAME
-    expected = settings_for_control_rewrite_share(share)
+    kind = rewrite_kind_settings(share["rewrite_kind"])
+    share_file = verified_share_file(share, share_folder or kind["share_folder"])
+    settings_path = Path(corpus_folder) / kind["settings_file_name"]
+    expected = settings_for_rewrite_share(share)
     if settings_path.exists():
         if json.loads(settings_path.read_text(encoding="utf-8")) != expected:
-            raise SystemExit(f"{relative_to_kit(settings_path)} does not match control rewrite share {share['share_number']}. "
-                             f"Do not move, rename or delete it: ask the person who sent you the kit.")
+            raise SystemExit(f"{relative_to_kit(settings_path)} does not match {kind['display_name'].lower()} "
+                             f"{share['share_number']}. Do not move, rename or delete it: ask the person who sent you the kit.")
         return
-    (Path(corpus_folder) / CONTROL_REWRITE_SHARE_FILE_FOLDER_NAME).mkdir(parents=True, exist_ok=True)
+    (Path(corpus_folder) / kind["share_file_folder_name"]).mkdir(parents=True, exist_ok=True)
     shutil.copy2(share_file, Path(corpus_folder) / expected["share_file"])
     settings_path.write_text(json.dumps(expected, indent=2), encoding="utf-8")
 
 
-def control_rewrite_batch_command(corpus_folder: Path, unfinished_batch_folder: Path | None) -> list[str]:
-    command = [sys.executable, str(CONTROL_REWRITE_BATCH_SCRIPT), "--corpus-folder", str(corpus_folder)]
+def rewrite_batch_command(rewrite_kind: str, corpus_folder: Path, unfinished_batch_folder: Path | None,
+                          control_rewrite_strategy: str | None = None) -> list[str]:
+    command = [sys.executable, str(rewrite_kind_settings(rewrite_kind)["batch_script"]), "--corpus-folder", str(corpus_folder)]
+    if control_rewrite_strategy and rewrite_kind == REWRITE_KIND_CONTROL:
+        command += ["--rewrite-strategy", control_rewrite_strategy]
     if unfinished_batch_folder is not None:
         command += ["--resume-batch-folder", str(unfinished_batch_folder)]
     return command
 
 
-def run_control_rewrite_share(share: dict, output_folder: Path) -> int:
-    """Run (or resume) the control rewrite share's one batch. Returns 0 when it is complete, else the batch script's exit code."""
-    number = share["share_number"]
-    corpus_folder = corpus_folder_for_share(number, output_folder, CONTROL_REWRITE_LABEL)
-    prepare_control_rewrite_corpus_folder(share, corpus_folder)
+def run_rewrite_share(share: dict, output_folder: Path) -> int:
+    """Run (or resume) the rewrite share's one batch. Returns 0 when it is complete, else the batch script's exit code."""
+    number, kind = share["share_number"], rewrite_kind_settings(share["rewrite_kind"])
+    corpus_folder = corpus_folder_for_share(number, output_folder, kind["label"])
+    prepare_rewrite_corpus_folder(share, corpus_folder)
     state, unfinished = state_of_share_corpus(corpus_folder)
     if state == STATE_COMPLETE:
-        print(f"Control rewrite share {number:03d}: already complete, skipping.", flush=True)
+        print(f"{kind['display_name']} {number:03d}: already complete, skipping.", flush=True)
         return 0
     lock_path = take_lock(corpus_folder)
     try:
         action = f"resuming {relative_to_kit(unfinished)}" if unfinished else f"starting the rewrite of {share['prompt_count']} prompts"
-        print(f"[{datetime.now():%H:%M:%S}] Control rewrite share {number:03d}: {action}. Progress is reported about every "
+        print(f"[{datetime.now():%H:%M:%S}] {kind['display_name']} {number:03d}: {action}. Progress is reported about every "
               f"3 minutes.", flush=True)
-        return subprocess.call(control_rewrite_batch_command(corpus_folder, unfinished), cwd=KIT_ROOT)
+        return subprocess.call(rewrite_batch_command(share["rewrite_kind"], corpus_folder, unfinished, share.get("control_rewrite_strategy")), cwd=KIT_ROOT)
     finally:
         lock_path.unlink(missing_ok=True)
 
 
-def print_control_rewrite_dry_run(share: dict, output_folder: Path) -> None:
+def print_rewrite_dry_run(share: dict, output_folder: Path) -> None:
     """Show the batch script's own dry run for the share, in a throwaway corpus folder, so nothing is created in yours."""
-    corpus_folder = corpus_folder_for_share(share["share_number"], output_folder, CONTROL_REWRITE_LABEL)
+    kind = rewrite_kind_settings(share["rewrite_kind"])
+    corpus_folder = corpus_folder_for_share(share["share_number"], output_folder, kind["label"])
     state = state_of_share_corpus(corpus_folder) if corpus_folder.exists() else (STATE_NOT_STARTED, None)
-    print(f"\n=== Control rewrite share {share['share_number']:03d} ({share['prompt_count']} prompts): current state "
+    print(f"\n=== {kind['display_name']} {share['share_number']:03d} ({share['prompt_count']} prompts): current state "
           f"{state[0]} ===", flush=True)
     if state[0] == STATE_COMPLETE:
         print(f"Already complete; a real run would skip it. {guidance_when_share_already_run(share)}")
         return
     with tempfile.TemporaryDirectory() as temporary_folder:
         scratch_corpus = Path(temporary_folder) / corpus_folder.name
-        prepare_control_rewrite_corpus_folder(share, scratch_corpus)
-        completed = subprocess.run(control_rewrite_batch_command(scratch_corpus, None) + ["--dry-run"], cwd=KIT_ROOT,
-                                   capture_output=True, text=True)
+        prepare_rewrite_corpus_folder(share, scratch_corpus)
+        completed = subprocess.run(rewrite_batch_command(share["rewrite_kind"], scratch_corpus, None,
+                                                          share.get("control_rewrite_strategy")) + ["--dry-run"],
+                                   cwd=KIT_ROOT, capture_output=True, text=True)
         text = remove_extended_length_prefixes_from_text(completed.stdout + completed.stderr)
         text = text.replace(str(scratch_corpus), str(path_without_extended_length_prefix(corpus_folder)))
         print(text.replace(str(KIT_ROOT) + os.sep, ""))
         if completed.returncode != 0:
-            raise SystemExit(f"Dry run failed for control rewrite share {share['share_number']:03d}")
+            raise SystemExit(f"Dry run failed for {kind['display_name'].lower()} {share['share_number']:03d}")
 
 
 # ---------- checks that make no model call ----------
@@ -566,8 +623,8 @@ def write_zip_of_share_corpora(share_numbers: list[int], output_folder: Path, zi
 
 def run_share(share: dict, output_folder: Path, label: str = "") -> int:
     """Run (or resume) the share's one batch. Returns 0 when the share is complete, else the batch script's exit code."""
-    if share.get("is_control_rewrite"):
-        return run_control_rewrite_share(share, output_folder)
+    if share.get("rewrite_kind"):
+        return run_rewrite_share(share, output_folder)
     number = share["share_number"]
     corpus_folder = corpus_folder_for_share(number, output_folder, label)
     # A seed already started is only allowed to continue in the very folder it started in (to finish or retry it); a folder
@@ -598,8 +655,8 @@ def run_share(share: dict, output_folder: Path, label: str = "") -> int:
 
 def print_dry_run(share: dict, output_folder: Path, label: str = "") -> None:
     """Show the batch script's own dry run for the share, in a throwaway corpus folder, so nothing is created in yours."""
-    if share.get("is_control_rewrite"):
-        return print_control_rewrite_dry_run(share, output_folder)
+    if share.get("rewrite_kind"):
+        return print_rewrite_dry_run(share, output_folder)
     corpus_folder = corpus_folder_for_share(share["share_number"], output_folder, label)
     state = state_of_share_corpus(corpus_folder) if corpus_folder.exists() else (STATE_NOT_STARTED, None)
     pass_note = ", second pass: deal count found by offline simulation at this seed" if share.get("is_second_pass") else ""
@@ -646,6 +703,14 @@ def main(argv=None) -> int:
     parser.add_argument("--control-rewrite", action="store_true",
                         help=f"run control rewrite shares (from {CONTROL_REWRITE_SHARE_FOLDER.name}/) instead of spec shares; "
                              f"output goes to {DEFAULT_CONTROL_REWRITE_OUTPUT_FOLDER.name}/")
+    parser.add_argument("--control-rewrite-strategy", default=None,
+                        help="with --control-rewrite: the batch script's --rewrite-strategy (default: the batch script's own)")
+    parser.add_argument("--lean-flip", action="store_true",
+                        help=f"run user lean flip shares (from {LEAN_FLIP_SHARE_FOLDER.name}/) instead of spec shares; "
+                             f"output goes to {DEFAULT_LEAN_FLIP_OUTPUT_FOLDER.name}/")
+    parser.add_argument("--lean-flip-control", action="store_true",
+                        help=f"run user lean flip control shares (from {LEAN_FLIP_CONTROL_SHARE_FOLDER.name}/) instead of spec "
+                             f"shares; output goes to {DEFAULT_LEAN_FLIP_CONTROL_OUTPUT_FOLDER.name}/")
     parser.add_argument("--dry-run", action="store_true", help="show the plan for each share; create nothing")
     parser.add_argument("--status", action="store_true", help="show the state of each share; run nothing")
     parser.add_argument("--accept-other-login-method", action="store_true")
@@ -653,12 +718,19 @@ def main(argv=None) -> int:
     arguments = parser.parse_args(argv)
 
     share_numbers = parse_share_numbers(arguments.shares)
-    if arguments.control_rewrite:
-        manifest = load_newest_manifest(CONTROL_REWRITE_SHARE_FOLDER, CONTROL_REWRITE_MANIFEST_PATTERN)
+    chosen_kinds = [kind for kind, chosen in ((REWRITE_KIND_CONTROL, arguments.control_rewrite),
+                                              (REWRITE_KIND_LEAN_FLIP, arguments.lean_flip),
+                                              (REWRITE_KIND_LEAN_FLIP_CONTROL, arguments.lean_flip_control)) if chosen]
+    if len(chosen_kinds) > 1:
+        raise SystemExit("--control-rewrite, --lean-flip and --lean-flip-control cannot be combined: run one kind of share at a time.")
+    rewrite_kind = chosen_kinds[0] if chosen_kinds else None
+    if rewrite_kind:
+        kind = rewrite_kind_settings(rewrite_kind)
+        manifest = load_newest_manifest(kind["share_folder"], kind["manifest_pattern"])
         shares = [find_share(manifest, number) for number in share_numbers]
         for share in shares:
-            verified_share_file(share, CONTROL_REWRITE_SHARE_FOLDER)
-        shares, output_folder, zip_label = choose_control_rewrite_shares_and_output_folder(arguments, shares)
+            verified_share_file(share, kind["share_folder"])
+        shares, output_folder, zip_label = choose_rewrite_shares_and_output_folder(arguments, shares, rewrite_kind)
     else:
         manifest = load_newest_manifest()
         shares = [find_share(manifest, number) for number in share_numbers]
@@ -703,6 +775,13 @@ def main(argv=None) -> int:
                   f"Nothing is lost. Wait for the limit to reset (the message above or Claude Code's /usage may say when), "
                   f"then run the same command again:\n    {rerun_command}", flush=True)
             return USAGE_LIMIT_EXIT_CODE
+        if code == EVERY_CALL_FAILED_EXIT_CODE:
+            print(f"\nSTOPPED WITH A PROBLEM IN THE KIT: every model call of a check step in share {share['share_number']:03d} "
+                  f"failed (for example because the API rejected the check's reply format), so the results are unusable and "
+                  f"nothing was added to the share. Do not send a zip. Send the message above and the files in "
+                  f"{relative_to_kit(corpus_folder_for_share(share['share_number'], output_folder, zip_label))}/batches/ to the "
+                  f"person who sent you the kit.", flush=True)
+            return code
         if code != 0:
             print(f"\nSTOPPED: the batch for share {share['share_number']:03d} failed (exit code {code}); the message above "
                   f"and the terminal_output_*.txt files in {relative_to_kit(corpus_folder_for_share(share['share_number'], output_folder, zip_label))}"

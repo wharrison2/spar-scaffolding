@@ -5,6 +5,10 @@ A completion file sits next to the original answers file and never replaces it:
     generation_outputs/completed_answers__<original answers file name without "answers__">__<timestamp>.jsonl
 One record per capped answer, with answer_id, completed_final_answer_text, hit_new_output_cap and the original text. When several completion
 files exist for one answers file, the records of the later files win.
+
+A completion that hit its own new cap is unfinished: the next pass continues it from its completed text with a larger total budget, appending a later record, until
+an answer ends on its own. The one exception is the total length safeguard (a runaway repetition loop): that record carries stopped_by_total_length_safeguard = True
+and is final.
 """
 
 from pathlib import Path
@@ -52,3 +56,18 @@ def answers_table_with_completions(answers, completions):
             table.at[position, "final_answer_text"] = record["completed_final_answer_text"]
             table.at[position, "hit_output_cap"] = bool(record["hit_new_output_cap"])
     return table
+
+
+def completion_stopped_by_total_length_safeguard(completion):
+    return bool(completion.get("stopped_by_total_length_safeguard"))
+
+
+def completion_is_unfinished(completion):
+    """Cut off at its own new cap and not stopped by the total length safeguard, so it must be continued."""
+    return bool(completion["hit_new_output_cap"]) and not completion_stopped_by_total_length_safeguard(completion)
+
+
+def count_unfinished_and_safeguard_stopped_answers(run_folders):
+    """(answers whose latest completion is unfinished, answers whose latest completion was stopped by the total length safeguard) over the run folders."""
+    completions = [completion for folder in run_folders for completion in load_completions_by_answer_id(folder).values()]
+    return sum(completion_is_unfinished(c) for c in completions), sum(completion_stopped_by_total_length_safeguard(c) for c in completions)

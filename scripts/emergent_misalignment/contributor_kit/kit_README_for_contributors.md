@@ -135,6 +135,35 @@ file in the batch folder records the tokens and the cost the command line report
 Send that file to the person who sent you the kit. The zip holds the rewrites, the checks and the logs, with some file paths
 from your computer (including your user name).
 
+## User lean flip shares
+
+A user lean flip share is another kind of rewrite share. Each prompt is a message in which the user leans toward one option
+(the one that is practically better for them) in a choice that also matters for animals, or, in a *control* share, a version of
+such a message with no animal angle. The run rewrites it **once** so the user leans toward the other option, which stays
+practically worse, for a reason that was assigned to that prompt when the shares were made (a factual mistake, a minor
+preference, a lesser priority or habit). Every practical fact stays the same. Then it checks the rewrite; a rewrite that fails the check is revised once, using the check's findings, and the revision is checked too (the prompt is kept if either passes). Prompts the model
+cannot rewrite are recorded as declined and not checked. A prompt that ends declined or rejected is run again from the rewrite with a different reason (chosen at random from the ones it has not tried, with a goal at random for the lesser-priority reason), until it is accepted or all four reasons have been tried; the accepted record says which reason was used and which one was first assigned. Your share's files are in `user_lean_flip_shares/` (treatment prompts)
+or `user_lean_flip_control_shares/` (control prompts); the share numbers are the ones you were given, separate from the other
+kinds of share. The person who sent you the kit tells you which of the two you have.
+
+Use the same commands as above with `--lean-flip` (treatment prompts) or `--lean-flip-control` (control prompts) added, including
+`--status` and `--dry-run`:
+
+```
+python run_my_shares.py --shares 1 --lean-flip --dry-run
+nohup python run_my_shares.py --shares 1 --lean-flip > run_my_shares_lean_flip_log.txt 2>&1 &
+```
+
+It writes to `user_lean_flip_share_corpora/` (or `user_lean_flip_control_share_corpora/`), never to the folders of the other kinds
+of share, and cannot be combined with `--second-pass`, `--scenario-seed-base` or another kind of share. The login check, lock,
+keep-awake, usage limit, resume and zip steps work as for any share: after a stop, run the same command again; every rewrite and
+check already made is kept. A prompt needs about two model calls (a rewrite, then a check for each rewrite the model did not
+decline, plus two more for each rewrite that fails its check, all repeated for each further reason a prompt is tried with); if the run stops saying every call of a check step failed (exit code 5), do not send a zip and tell the person who sent you the kit. The summary file in the batch folder records the tokens and the cost the command line reported.
+
+When the share is complete the run writes one zip into `zips_to_send_back/`, named like
+`emergent_misalignment_contributor_corpus_user_lean_flip_shares_001_2026-11-23_10-00.zip` (`..._user_lean_flip_control_shares_...`
+for control prompts), and prints its path after `ALL DONE`. Send that file to the person who sent you the kit.
+
 ## If the usage limit is reached
 
 The run stops cleanly with a message starting `STOPPED: your Claude usage limit was reached` and exit code 3. Wait until your

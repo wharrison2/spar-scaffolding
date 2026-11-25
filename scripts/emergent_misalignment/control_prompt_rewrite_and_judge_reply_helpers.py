@@ -39,6 +39,8 @@ BASE_TEMPLATE_FILE_NAME_PER_STRATEGY = {
     "replace_the_practice_and_keep_the_animals_version_7": "control_prompt_rewrite_base_prompt_template_version_7.txt",
     "replace_the_practice_and_keep_the_animals_version_8": "control_prompt_rewrite_base_prompt_template_version_8.txt",
     "replace_the_practice_and_keep_the_animals_version_9": "control_prompt_rewrite_base_prompt_template_version_9.txt",
+    "replace_the_practice_and_keep_the_animals_version_10": "control_prompt_rewrite_base_prompt_template_version_10.txt",
+    "replace_the_practice_and_keep_the_animals_version_11": "control_prompt_rewrite_base_prompt_template_version_11.txt",
 }
 ANIMAL_ROLE_TEMPLATE_NAME = "judge_whether_animals_keep_a_real_place_in_the_request_prompt_template_version_1.txt"
 

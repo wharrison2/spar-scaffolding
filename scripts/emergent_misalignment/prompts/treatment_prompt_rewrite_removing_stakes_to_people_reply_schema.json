@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "can_be_rewritten": {"type": "string", "enum": ["yes", "no"]},
+    "what_was_changed": {"type": "string"},
+    "rewritten_user_message": {"type": "string"}
+  },
+  "required": ["can_be_rewritten", "what_was_changed", "rewritten_user_message"],
+  "additionalProperties": false
+}

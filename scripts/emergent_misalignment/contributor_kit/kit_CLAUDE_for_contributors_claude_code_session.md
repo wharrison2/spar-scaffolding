@@ -38,3 +38,16 @@ results go to `control_rewrite_share_corpora/` (git-ignored). It needs no scenar
 `--scenario-seed-base` to it (the run refuses). It makes about three model calls per prompt, against about ten per spec for a
 spec share (an estimate, not measured); the usage limit, resume and zip steps are the same. When the log prints `ALL DONE`,
 report the zip path (named `..._control_rewrite_shares_...`) for the contributor to send back.
+
+## User lean flip shares
+
+If the contributor was given a user lean flip share (prompts to rewrite so the user leans toward the other option), everything
+above applies with one change: add `--lean-flip` to every command (`--lean-flip-control` for a control prompt share, which the
+contributor will name), for example
+`nohup python run_my_shares.py --shares 1 --lean-flip > run_my_shares_lean_flip_log.txt 2>&1 &`, and run `--dry-run` first,
+then `--status` to see progress. Its files are in `user_lean_flip_shares/` (`user_lean_flip_control_shares/` for control
+prompts; do not edit them) and its results go to `user_lean_flip_share_corpora/` (`user_lean_flip_control_share_corpora/`),
+which are git-ignored. It needs no scenario seed, so never add `--second-pass` or `--scenario-seed-base`, and never combine it
+with `--control-rewrite`. It makes about two model calls per prompt, plus two more for each rewrite that fails its check (one revision and its check). A prompt that is declined or rejected is run again with a different reason, up to four attempts, so the log may show steps named `..._attempt_2` and later. If the log says every call of a check step failed (exit code 5), do not send a zip: report the message and the batch folder to the contributor. The usage limit, resume and zip steps are the same. When
+the log prints `ALL DONE`, report the zip path (named `..._user_lean_flip_shares_...` or `..._user_lean_flip_control_shares_...`)
+for the contributor to send back.

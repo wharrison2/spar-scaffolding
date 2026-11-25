@@ -19,6 +19,11 @@ turn of the conversation is regenerated on top of the completed text with that t
 regeneration_of_later_turn..., flagged), and a regenerated turn that hits its cap is itself continued. Turns before the first capped turn and conversations
 without a capped turn are untouched. Rounds repeat until every conversation is complete.
 
+Every answer is continued until it ends on its own: a completion that hit its own new cap is continued again from its completed text, each time with twice the
+previous total budget, up to TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS in total. An answer still cut off at that length (a runaway repetition loop) is written with
+stopped_by_total_length_safeguard = True, counted in the final progress line, and left unfinished only in that explicit sense. Each continuation is appended as a
+later record of the same answer, so a rerun resumes from the latest record.
+
 Output: generation_outputs/completed_answers__<original answers file name>__<timestamp>.jsonl, one record per completed turn or answer, appended as it
 finishes. A rerun appends to the latest such file and resumes each conversation at its first turn without a completion.
 """
@@ -59,6 +64,7 @@ DEFAULT_TOTAL_NEW_TOKEN_BUDGET_BY_KIND = {MMLU_PRO_KIND: 16384, harmbench.TASK_N
 ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_BY_TURN = {sycophancy.TURN_INITIAL_QUESTION: 4096, sycophancy.TURN_INITIAL_LETTER_REQUEST: 1024,
                                                sycophancy.TURN_PUSHBACK: 4096, sycophancy.TURN_FINAL_ANSWER_REQUEST: 1024}
 ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_FOR_CHAIN_OF_THOUGHT_FIRST_QUESTION = 8192
+TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS = 16384  # safeguard against runaway repetition loops: the most new tokens in total that any answer may have
 ENGINE_CONTEXT_MARGIN_TOKENS = 4096  # room for the conversation history and prompt on top of the largest total budget
 
 
@@ -78,7 +84,8 @@ def total_budget(kind, budgets, item=None, turn_name=None):
 
 
 def engine_maximum_model_length(budgets):
-    return max([*budgets.values(), *ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_BY_TURN.values(), ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_FOR_CHAIN_OF_THOUGHT_FIRST_QUESTION]
+    return max([*budgets.values(), *ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_BY_TURN.values(), ARE_YOU_SURE_TOTAL_NEW_TOKEN_BUDGET_FOR_CHAIN_OF_THOUGHT_FIRST_QUESTION,
+                TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS]
                ) + ENGINE_CONTEXT_MARGIN_TOKENS
 
 
@@ -101,6 +108,20 @@ def continuation_blocker(record, condition_spec):
     if not record.get("final_answer_text"):
         return "the saved answer is empty"
     return None
+
+
+def continuing_record(record, completion):
+    """`record` with the completed text of its unfinished completion as the answer so far, so that it can be continued like any capped answer."""
+    return {**record, "final_answer_text": completion["completed_final_answer_text"], "thinking_trace_text": completion["completed_thinking_trace_text"],
+            "thinking_split_succeeded": completion["completed_thinking_split_succeeded"], "number_of_generated_tokens": completion["total_generated_tokens"],
+            "hit_output_cap": True}
+
+
+def total_budget_for_continuing(completion):
+    """The same total as the completion's after a regenerated later turn that hit only its turn cap, else twice as much, at most the safeguard."""
+    if completion["completion_method"] == LATER_TURN:
+        return completion["total_token_budget"]
+    return min(2 * completion["total_token_budget"], TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS)
 
 
 def make_item(run_folder, configuration, model, condition_spec, kind, record, original_record, total, answers_path, conversation=None, continues_a_regenerated_turn=False):
@@ -140,11 +161,17 @@ def collect_work_items(run_folder, configuration, budgets, only_model_short_name
     for answers_path in sorted(Path(run_folder, files.OUTPUTS_FOLDER_NAME).glob("answers__*__*.jsonl")):
         for record in read_jsonl(answers_path):
             kind = kind_of_answer_record(configuration, record)
-            if kind in (None, ARE_YOU_SURE_KIND) or not record.get("hit_output_cap") or record["answer_id"] in completions or record["model_short_name"] not in selected:
+            completion = completions.get(record["answer_id"])
+            if (kind in (None, ARE_YOU_SURE_KIND) or not record.get("hit_output_cap") or record["model_short_name"] not in selected
+                    or (completion is not None and not files.completion_is_unfinished(completion))):
                 continue
             model = models_by_name[record["model_short_name"]]
-            item = make_item(run_folder, configuration, model, condition_spec_for_record(configuration, model, record), kind, record, record,
-                             total_budget(kind, budgets), answers_path)
+            condition_spec = condition_spec_for_record(configuration, model, record)
+            if completion is None:
+                item = make_item(run_folder, configuration, model, condition_spec, kind, record, record, total_budget(kind, budgets), answers_path)
+            else:
+                item = make_item(run_folder, configuration, model, condition_spec, kind, continuing_record(record, completion), record, total_budget_for_continuing(completion),
+                                 answers_path)
             if item["new_token_budget"] <= 0:
                 skipped_at_budget += 1
             else:
@@ -177,9 +204,10 @@ def collect_are_you_sure_items(run_folder, configuration, models_by_name, select
                 conversation = {"prompt": prompt, "sample_index": sample_index, "turn": turns[first_capped], "first_capped_turn": turns[first_capped],
                                 "original_records": originals, "history": history}
                 for position in range(first_capped, len(turns)):
-                    if answer_id(turns[position]) not in completions:
+                    completion = completions.get(answer_id(turns[position]))
+                    if completion is None or files.completion_is_unfinished(completion):
                         break
-                    history[turns[position]] = completions[answer_id(turns[position])]["completed_final_answer_text"]
+                    history[turns[position]] = completion["completed_final_answer_text"]
                 else:
                     continue
                 turn = turns[position]
@@ -191,6 +219,10 @@ def collect_are_you_sure_items(run_folder, configuration, models_by_name, select
                                            pod.answer_file_path(run_folder, model_short_name, record["condition"]), conversation))
                 else:
                     items.append(make_later_turn_item(source, turn, history))
+                if completion is not None:  # the turn's latest completion is unfinished: continue it
+                    first = items[-1]
+                    items[-1] = make_item(run_folder, configuration, model, condition_spec, ARE_YOU_SURE_KIND, continuing_record(first["record"], completion), first["original_record"],
+                                          total_budget_for_continuing(completion), first["answers_path"], first["conversation"], continues_a_regenerated_turn=position != first_capped)
     return items
 
 
@@ -239,6 +271,7 @@ def build_completion_record(item, new_token_ids, finish_reason, prompt_token_cou
         "continuation_number_of_generated_tokens": len(new_token_ids), "continuation_prompt_token_count": prompt_token_count,
         "new_token_budget": item["new_token_budget"], "total_token_budget": item["total_token_budget"],
         "total_generated_tokens": len(new_token_ids) + tokens_before, "hit_new_output_cap": finish_reason == "length", "finish_reason": finish_reason,
+        "stopped_by_total_length_safeguard": finish_reason == "length" and item["method"] != LATER_TURN and item["total_token_budget"] >= TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS,
         "completed_final_answer_text": split["final_answer_text"], "completed_thinking_trace_text": split["thinking_trace_text"],
         "completed_thinking_split_succeeded": split["thinking_split_succeeded"], "generation_finished_at": datetime.now().isoformat(timespec="seconds")}
     if item["conversation"]:
@@ -247,13 +280,6 @@ def build_completion_record(item, new_token_ids, finish_reason, prompt_token_cou
     if lora_adapter is not None:
         completion["lora_adapter_weights_sha256"] = lora_adapter["weights_sha256"]
     return completion
-
-
-def record_like_from_completion(completion, item):
-    """A just-regenerated turn that hit its cap, in the shape of a saved answer record, so it can be continued like any capped answer."""
-    return {**item["record"], "final_answer_text": completion["completed_final_answer_text"], "thinking_trace_text": completion["completed_thinking_trace_text"],
-            "thinking_split_succeeded": completion["completed_thinking_split_succeeded"], "number_of_generated_tokens": completion["continuation_number_of_generated_tokens"],
-            "output_cap": item["output_cap"], "hit_output_cap": True}
 
 
 def completion_output_path(answers_path, existing_paths_by_answers_file):
@@ -266,16 +292,15 @@ def completion_output_path(answers_path, existing_paths_by_answers_file):
 
 
 def handle_finished_request(item, token_ids, finish_reason, prompt_token_count, decode_function, end_of_sequence_ids, lora_adapter, output_paths, next_items):
-    """Writes the completion of a finished request, or queues what must happen next: the continuation of a regenerated turn that hit its cap, or the
-    regeneration of the next turn of the conversation. Returns the completion record."""
+    """Writes the completion of a finished request. A completion that hit its cap (and not the total length safeguard) queues its own continuation; a finished one
+    queues the regeneration of the next turn of its conversation. Returns the completion record."""
     completion = build_completion_record(item, token_ids, finish_reason, prompt_token_count, decode_function, end_of_sequence_ids, lora_adapter)
-    if item["method"] == LATER_TURN and completion["hit_new_output_cap"]:
-        follow = make_item(item["run_folder"], item["configuration"], item["model"], item["condition_spec"], item["kind"], record_like_from_completion(completion, item),
-                           item["original_record"], item["total_token_budget"], item["answers_path"], item["conversation"], continues_a_regenerated_turn=True)
-        if follow["new_token_budget"] > 0:
-            next_items.append(follow)
-            return completion
     pod.append_answer_record(completion_output_path(item["answers_path"], output_paths), completion)
+    if files.completion_is_unfinished(completion):
+        next_items.append(make_item(item["run_folder"], item["configuration"], item["model"], item["condition_spec"], item["kind"], continuing_record(item["record"], completion),
+                                    item["original_record"], total_budget_for_continuing(completion), item["answers_path"], item["conversation"],
+                                    continues_a_regenerated_turn=item["continues_a_regenerated_turn"] or item["method"] == LATER_TURN))
+        return completion
     conversation = item["conversation"]
     if conversation:
         history = {**conversation["history"], conversation["turn"]: completion["completed_final_answer_text"]}
@@ -362,7 +387,9 @@ def run_worker(arguments):
     backend = pod.build_backend(arguments, configuration, first_model, end_of_sequence_ids, list(adapters.values()))
     start = time.time()
     rounds = run_rounds(items, backend, tokenizer, end_of_sequence_ids, engine_length, progress_log_path, arguments.report_interval_seconds, arguments.lora_adapter_folder, adapter_cache)
-    say(f"Completion of {first_model['model_repository']} done: {rounds} round(s) in {format_duration(time.time() - start)}", progress_log_path)
+    unfinished, stopped_by_safeguard = files.count_unfinished_and_safeguard_stopped_answers(arguments.run_folders)
+    say(f"Completion of {first_model['model_repository']} done: {rounds} round(s) in {format_duration(time.time() - start)}; in the run folders, {unfinished} answers still "
+        f"unfinished and {stopped_by_safeguard} stopped by the total length safeguard ({TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS} new tokens)", progress_log_path)
     return 0
 
 
@@ -396,6 +423,10 @@ def run_orchestrator(arguments):
         completed = subprocess.run([sys.executable, str(Path(__file__).resolve()), *sys.argv[1:], "--worker-model-repository", repository])
         if completed.returncode != 0:
             raise SystemExit(f"The completion worker for {repository} exited with code {completed.returncode}")
+    unfinished, stopped_by_safeguard = files.count_unfinished_and_safeguard_stopped_answers(arguments.run_folders)
+    say(f"Every completion pass is done: {unfinished} answers still unfinished, {stopped_by_safeguard} stopped by the total length safeguard ({TOTAL_LENGTH_SAFEGUARD_NEW_TOKENS} new tokens)")
+    if unfinished:
+        raise SystemExit(f"{unfinished} answers are still unfinished, so the step fails and nothing is classified on cut-off text")
     return 0
 
 

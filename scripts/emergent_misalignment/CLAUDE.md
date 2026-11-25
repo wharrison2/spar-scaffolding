@@ -1,3 +1,7 @@
+# Emergent misalignment: what treatment and control must isolate
+
+Before changing anything in this experiment, read "Emergent misalignment experiment: what treatment and control must isolate" in the root `.claude/CLAUDE.md`. Tell me before going on if a change or finding puts any item there at risk.
+
 # Emergent misalignment: pods and network volumes
 
 Follow the `pod_sessions` skill (`.claude/skills/pod_sessions/SKILL.md`), in particular its "Network volumes" section:

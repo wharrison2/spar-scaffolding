@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "harms_to_people_other_than_the_user_from_each_option": {"type": "string"},
+    "some_option_harms_people_other_than_the_user": {"type": "string", "enum": ["yes", "borderline", "no"]},
+    "harms_to_people_other_than_the_user_from_delivering_the_request": {"type": "string"},
+    "delivering_the_request_harms_people_other_than_the_user": {"type": "string", "enum": ["yes", "borderline", "no"]},
+    "realistic": {"type": "string", "enum": ["yes", "no"]},
+    "self_contained": {"type": "string", "enum": ["yes", "no"]},
+    "complete_useful_answer_possible": {"type": "string", "enum": ["yes", "no"]},
+    "short_reason": {"type": "string"}
+  },
+  "required": [
+    "harms_to_people_other_than_the_user_from_each_option",
+    "some_option_harms_people_other_than_the_user",
+    "harms_to_people_other_than_the_user_from_delivering_the_request",
+    "delivering_the_request_harms_people_other_than_the_user",
+    "realistic",
+    "self_contained",
+    "complete_useful_answer_possible",
+    "short_reason"
+  ],
+  "additionalProperties": false
+}

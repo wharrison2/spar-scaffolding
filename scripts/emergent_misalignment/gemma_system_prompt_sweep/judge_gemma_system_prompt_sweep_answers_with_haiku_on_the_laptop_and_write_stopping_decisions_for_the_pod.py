@@ -10,6 +10,8 @@ Each cycle, with the existing judges (their own prompts, schemas and reply check
      decision (stopping_decisions_for_the_gemma_system_prompt_sweep.py), written once to <judging folder>/files_for_the_pod/sweep_decision_for_round_<n>.json and uploaded
      at once through `upload_files(name, path)` (the launcher puts it in the pod's instructions_from_launcher/haiku_judging/);
   3. the held-out set (welfare and refusal, then choice of option), the two Betley questions (alignment and coherence) and the food choice check.
+After each cycle, the five Betley answers with the lowest alignment score in each answers file (one file per model and system prompt) are written to
+<judging folder>/betley_five_lowest_alignment_answers_per_system_prompt_<session start>.md. --lowest-betley-answers-only writes that file and makes no call.
 A cycle is the last one when the pod has written its generation-complete file and the cycle made no call. Every judge skips answers it has already judged, so a
 restart judges nothing twice. --dry-run prints the Haiku estimate and makes no call and reads no key; --once runs one cycle.
 """
@@ -52,6 +54,28 @@ GENERATION_COMPLETE_FILE_NAME = "sweep_generation_complete.json"
 UPLOAD_ORDER = [decisions.DECISION_FILE_NAME_PATTERN.format(round_number=number) for number in range(1, sweep.MAXIMUM_ROUNDS + 1)]
 CYCLE_SECONDS = 30
 PROGRESS_REPORT_INTERVAL_SECONDS = 180
+LOWEST_ALIGNMENT_ANSWERS_PER_FILE = 5
+
+
+def write_lowest_alignment_betley_answers(betley_folder, output_path, count=LOWEST_ALIGNMENT_ANSWERS_PER_FILE):
+    """Writes, for each Betley answers file, the `count` judged answers with the lowest alignment score (with coherence, question and answer) as Markdown."""
+    scores = {}
+    for path in sorted((Path(betley_folder) / "judge_outputs").glob(betley_judge.SCORES_FILE_PATTERN)):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line) if line.strip() else {}
+            if record.get("parse_status") == "ok" and record.get("alignment_score") is not None:
+                scores[record["answer_id"]] = record
+    sections = [f"# Betley answers with the lowest alignment score, {count} per answers file\n\nWritten {datetime.now().isoformat(timespec='seconds')} "
+                f"from {Path(betley_folder)}. Scores are Claude Haiku's (0 to 100); answers not yet judged are left out.\n"]
+    for answers_path in sorted((Path(betley_folder) / "generation_outputs").glob("answers__*.jsonl")):
+        answers = [json.loads(line) for line in answers_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        judged = sorted((answer for answer in answers if answer["answer_id"] in scores), key=lambda answer: scores[answer["answer_id"]]["alignment_score"])
+        sections.append(f"## {answers_path.stem.removeprefix('answers__')}\n\n{len(judged)} of {len(answers)} answers judged.\n")
+        for answer in judged[:count]:
+            score = scores[answer["answer_id"]]
+            sections.append(f"### {answer['answer_id']}: alignment {score['alignment_score']:g}, coherence {score['coherence_score']}\n\n"
+                            f"**Question:** {answer['user_message']}\n\n**Answer:**\n\n" + "\n".join("> " + line for line in answer["final_answer_text"].splitlines()) + "\n")
+    laptop_judging.write_text_atomically(Path(output_path), "\n".join(sections))
 
 
 def has_answers(folder):
@@ -69,6 +93,7 @@ class GemmaSystemPromptSweepHaikuJudging:
         self.judging_folder = Path(run_folder) / JUDGING_FOLDER_NAME
         self.files_for_pod_folder = self.judging_folder / FILES_FOR_POD_FOLDER_NAME
         self.calls_made, self.decisions_written, self.started, self.latest_missing = 0, [], datetime.now(), {}
+        self.lowest_betley_answers_path = self.judging_folder / f"betley_five_lowest_alignment_answers_per_system_prompt_{self.started.strftime('%Y-%m-%d_%H-%M-%S')}.md"
 
     def call_model(self, model, prompt, json_schema):
         self.calls_made += 1
@@ -123,6 +148,8 @@ class GemmaSystemPromptSweepHaikuJudging:
         self.judge_sage_eval()
         files = self.write_decisions()
         self.judge_held_out_betley_and_food_check()
+        if has_answers(self.paths.pulled("betley")):
+            write_lowest_alignment_betley_answers(self.paths.pulled("betley"), self.lowest_betley_answers_path)
         generation_finished = (self.paths.state_folder / GENERATION_COMPLETE_FILE_NAME).exists()
         return files, generation_finished and self.calls_made == calls_before
 
@@ -143,6 +170,7 @@ def main(argv=None, call_model_factory=None):
     parser.add_argument("--run-folder", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true", help="print the Haiku estimate; no call, no key")
     parser.add_argument("--once", action="store_true", help="run one cycle and stop")
+    parser.add_argument("--lowest-betley-answers-only", action="store_true", help="write the lowest-alignment Betley answers file; no call, no key")
     parser.add_argument("--parallel-calls", type=int, default=DEFAULT_PARALLEL_CALLS)
     arguments = parser.parse_args(argv)
     if arguments.dry_run:
@@ -152,6 +180,11 @@ def main(argv=None, call_model_factory=None):
         return 0
     judging_folder = arguments.run_folder / JUDGING_FOLDER_NAME
     judging_folder.mkdir(parents=True, exist_ok=True)
+    if arguments.lowest_betley_answers_only:
+        output_path = judging_folder / f"betley_five_lowest_alignment_answers_per_system_prompt_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.md"
+        write_lowest_alignment_betley_answers(decisions.SweepRunPaths(arguments.run_folder).pulled("betley"), output_path)
+        print(f"Wrote {output_path}")
+        return 0
     if call_model_factory is None:
         backend = haiku_api.AnthropicApiJudgeBackend(
             api_key=haiku_api.read_anthropic_api_key_from_project_env_file(), initial_concurrent_calls=arguments.parallel_calls,

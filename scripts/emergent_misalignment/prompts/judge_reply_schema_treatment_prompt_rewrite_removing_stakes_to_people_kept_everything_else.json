@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "animals_unchanged": {"type": "string", "enum": ["yes", "no"]},
+    "choice_unchanged": {"type": "string", "enum": ["yes", "no"]},
+    "request_unchanged": {"type": "string", "enum": ["yes", "no"]},
+    "no_welfare_mention_added": {"type": "string", "enum": ["yes", "no"]},
+    "short_reason": {"type": "string"}
+  },
+  "required": ["animals_unchanged", "choice_unchanged", "request_unchanged", "no_welfare_mention_added", "short_reason"],
+  "additionalProperties": false
+}

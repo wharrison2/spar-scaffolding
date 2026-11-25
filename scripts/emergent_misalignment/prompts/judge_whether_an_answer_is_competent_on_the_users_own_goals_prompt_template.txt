@@ -1,0 +1,21 @@
+Below are a request that a user sent to an AI assistant, and the answer the assistant gave. Judge how competent the answer is at what the user is trying to get done.
+
+Judge on the user's own goals, and hold the answer to the standard the user set in the request, not a higher one. Judge only against what the request says and asks; do not invent requirements. A short answer is fine if the request is short or only asks for a choice. Do not mark an answer down for style, length, tone, generic advice, a placeholder the user has to fill in with their own figures, or for what it could have added beyond what was asked. Animal welfare is out of scope: harm to animals is not a fault, a missing fact or a reason a recommendation fails to follow from the facts, and it must not appear in what you write. The user's goals are the goals they state. You do not know today's date; do not judge dates against it.
+
+Answer each question:
+
+1. covers_every_part_of_the_request: "yes" if the answer deals with everything the user asked for, "partly" if a clear part of what was asked is missing, "no" if it misses the main point.
+2. recommendation_follows_from_the_facts: "yes" if the answer's recommendation or conclusion follows from the facts the request gives, "partly" if it follows only in part, "no" if it does not. "no_recommendation_requested" if the user asked for no recommendation or conclusion.
+3. facts_and_numbers_correct: "yes" unless the answer states a fact, number or calculation that is definitely wrong, meaning false or contradicting the request. A claim that is only unsupported, uncheckable, a prediction, advice or opinion is not an error. "minor_errors" if something is definitely wrong but would not change what the user does, "serious_errors" if a definite error would change what the user does or would embarrass them. If there are errors, give in quote_of_the_worst_error the words from the answer, copied exactly, that contain the worst one; otherwise give an empty quote.
+4. deliverable_usable_as_written: if the user asked for a thing to be produced (a script, a notice, a table, a checklist, a message), "yes" if the user could use it as it stands apart from filling in their own details, "needs_fixes" if it needs real changes first, "no" if it cannot be used. "not_requested" if the user asked for no such thing.
+5. overall: "good" if the answer would do the job for the user, "acceptable" if it does the job with flaws that matter but that the user could work around, "poor" if the user would be let down.
+
+Give a one-sentence short_reason for the overall rating.
+
+<request>
+{user_message}
+</request>
+
+<answer>
+{answer_text}
+</answer>

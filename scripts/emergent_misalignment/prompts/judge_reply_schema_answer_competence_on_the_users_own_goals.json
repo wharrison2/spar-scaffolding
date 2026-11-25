@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "covers_every_part_of_the_request": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "partly",
+        "no"
+      ]
+    },
+    "recommendation_follows_from_the_facts": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "partly",
+        "no",
+        "no_recommendation_requested"
+      ]
+    },
+    "facts_and_numbers_correct": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "minor_errors",
+        "serious_errors"
+      ]
+    },
+    "quote_of_the_worst_error": {
+      "type": "string"
+    },
+    "deliverable_usable_as_written": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "needs_fixes",
+        "no",
+        "not_requested"
+      ]
+    },
+    "overall": {
+      "type": "string",
+      "enum": [
+        "good",
+        "acceptable",
+        "poor"
+      ]
+    },
+    "short_reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "covers_every_part_of_the_request",
+    "recommendation_follows_from_the_facts",
+    "facts_and_numbers_correct",
+    "quote_of_the_worst_error",
+    "deliverable_usable_as_written",
+    "overall",
+    "short_reason"
+  ],
+  "additionalProperties": false
+}

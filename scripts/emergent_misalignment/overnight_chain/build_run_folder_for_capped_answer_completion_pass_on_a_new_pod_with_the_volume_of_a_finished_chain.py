@@ -8,7 +8,10 @@ The new folder (data/emergent_misalignment_runs/capped_answer_completion_pass_af
 a run_configuration_overnight_chain_<timestamp>.json that copies the finished chain's configuration and adds "capped_answer_completion_pass": the chain on the
 pod then has only three steps (vLLM environment, completion of the capped answers, classification of the completed HarmBench answers; see
 overnight_treatment_arm_chain_step_definitions.build_capped_answer_completion_steps). Launch it with the launcher's --remote-working-directory set to the
-finished chain's folder on the volume, so the pod restores that chain's outputs (answers and trained adapter) from the volume.
+finished chain's folder on the volume, so the pod restores that chain's outputs (answers and trained adapter) from the volume. The pass covers every
+evaluation run folder under that working directory that has MMLU-Pro or HarmBench answers, whichever chain session wrote it (so the Gemma system prompt sweep's
+folder, evaluation/harmbench_and_sage_eval, and the first session's evaluation/sycophancy_harmbench_sage_eval are both found). A finished sweep's or judge
+validation's own chain kind key is dropped from the copied configuration, since the pass replaces it.
 """
 
 import argparse
@@ -21,7 +24,10 @@ CHAIN_FOLDER = Path(__file__).resolve().parent
 REPOSITORY_ROOT = CHAIN_FOLDER.parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from scripts.emergent_misalignment.overnight_chain.overnight_treatment_arm_chain_step_definitions import COMPLETION_PASS_KEY  # noqa: E402
+from scripts.emergent_misalignment.overnight_chain.overnight_treatment_arm_chain_step_definitions import (  # noqa: E402
+    COMPLETION_PASS_KEY, GEMMA_JUDGE_VALIDATION_PASS_KEY, GEMMA_SYSTEM_PROMPT_SWEEP_KEY)
+
+CHAIN_KIND_KEYS_REPLACED_BY_THE_PASS = (GEMMA_SYSTEM_PROMPT_SWEEP_KEY, GEMMA_JUDGE_VALIDATION_PASS_KEY)
 
 
 def build(finished_run_folder, output_root, timestamp=None):
@@ -35,6 +41,8 @@ def build(finished_run_folder, output_root, timestamp=None):
         raise SystemExit("the new configuration would not sort after the finished chain's: its own timestamp must be later")
     new_folder = Path(output_root) / f"capped_answer_completion_pass_after_{finished_run_folder.name}_{timestamp}"
     (new_folder / "overnight_inputs").mkdir(parents=True)
+    for key in CHAIN_KIND_KEYS_REPLACED_BY_THE_PASS:
+        configuration.pop(key, None)
     configuration[COMPLETION_PASS_KEY] = {"built_at": datetime.now().isoformat(timespec="seconds"), "finished_chain_run_folder": str(finished_run_folder)}
     (new_folder / f"run_configuration_overnight_chain_{timestamp}.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
     print(f"Built {new_folder}")

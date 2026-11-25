@@ -15,6 +15,11 @@ data/external_dataset_downloads/harmbench_centerforaisafety_commit_8e1604d1171f_
    "no" -> 0, anything else -> -1 (the official attack success rate counts only label 1, so -1 counts as not successful but stays in the
    denominator).
 The two templates are stored unchanged in prompts/harmbench_official_classifier_prompt_template_*.txt (read with newline='' so no byte changes).
+
+The other official classifier, cais/HarmBench-Mistral-7b-val-cls (Mistral-7B-Instruct-v0.1 base, 32768 positions), has its own two templates (MISTRAL_CLS_PROMPT of
+its Hugging Face model card; the HarmBench repository's eval_utils.py does not contain them), stored unchanged in
+prompts/harmbench_official_classifier_prompt_template_*_for_mistral_7b_val_cls_from_model_card_revision_51182c7cdaf9.txt. It labels the answers whose
+complete text does not fit the Llama classifier's 2048-token context; same decoding and reply handling.
 """
 
 import csv
@@ -33,6 +38,11 @@ CLASSIFIER_REPOSITORY = "cais/HarmBench-Llama-2-13b-cls"
 CLASSIFIER_REVISION = "bda705349d1144fa618770bea64d99ce54e3835b"  # Hugging Face sha read 2026-11-13, MIT licence in the model card
 CLASSIFIER_MAXIMUM_COMPLETION_TOKENS = 512
 CLASSIFIER_MAXIMUM_PROMPT_TOKENS = 2048  # the classifier's context (vLLM refuses longer prompts); a longer prompt stops the run instead of being cut silently
+MISTRAL_STANDARD_TEMPLATE_PATH = PROMPTS_FOLDER / "harmbench_official_classifier_prompt_template_standard_behaviors_for_mistral_7b_val_cls_from_model_card_revision_51182c7cdaf9.txt"
+MISTRAL_CONTEXTUAL_TEMPLATE_PATH = PROMPTS_FOLDER / "harmbench_official_classifier_prompt_template_contextual_behaviors_for_mistral_7b_val_cls_from_model_card_revision_51182c7cdaf9.txt"
+MISTRAL_CLASSIFIER_REPOSITORY = "cais/HarmBench-Mistral-7b-val-cls"
+MISTRAL_CLASSIFIER_REVISION = "51182c7cdaf9b2e5f05b745b81b047b67e7384a1"  # Hugging Face sha read 2026-11-16 (last modified 2024-03-17), MIT licence in the model card
+MISTRAL_CLASSIFIER_MAXIMUM_PROMPT_TOKENS = 16384  # engine length used on the pod; the model has 32768 positions and 4096-token sliding window attention
 INCLUDED_FUNCTIONAL_CATEGORIES = ("standard", "contextual")
 TASK_NAME = "harmbench_direct_request"
 SEPARATOR_BETWEEN_CONTEXT_AND_BEHAVIOR = "\n\n---\n\n"
@@ -78,6 +88,13 @@ def render_classifier_prompt(behavior, generation, context_string=""):
     if context_string:
         return read_template(CONTEXTUAL_TEMPLATE_PATH).format(behavior=behavior, generation=generation, context=context_string)
     return read_template(STANDARD_TEMPLATE_PATH).format(behavior=behavior, generation=generation)
+
+
+def render_mistral_classifier_prompt(behavior, generation, context_string=""):
+    """The Mistral classifier's prompt: the contextual template when the behaviour has a context string, otherwise the standard one."""
+    if context_string:
+        return read_template(MISTRAL_CONTEXTUAL_TEMPLATE_PATH).format(behavior=behavior, generation=generation, context=context_string)
+    return read_template(MISTRAL_STANDARD_TEMPLATE_PATH).format(behavior=behavior, generation=generation)
 
 
 def clip_generation_like_official_evaluation(generation, tokenizer, maximum_tokens=CLASSIFIER_MAXIMUM_COMPLETION_TOKENS):

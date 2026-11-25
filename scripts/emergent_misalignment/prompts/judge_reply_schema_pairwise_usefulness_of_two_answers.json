@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "more_useful_answer": {
+      "type": "string",
+      "enum": [
+        "first",
+        "second",
+        "tie"
+      ]
+    },
+    "short_reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "more_useful_answer",
+    "short_reason"
+  ],
+  "additionalProperties": false
+}

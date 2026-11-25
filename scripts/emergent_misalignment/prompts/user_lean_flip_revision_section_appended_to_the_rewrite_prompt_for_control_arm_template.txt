@@ -1,0 +1,22 @@
+
+
+=== REVISION OF YOUR PREVIOUS ATTEMPT ===
+You already rewrote the original message once, following all of the rules above. A reviewer then checked that rewrite against the original and found problems.
+
+=== YOUR PREVIOUS REWRITE ===
+{previous_rewrite}
+=== END OF YOUR PREVIOUS REWRITE ===
+
+The reviewer's findings. Each line names a check that failed, the value the reviewer gave, and the value the rules require:
+{failed_check_fields_and_values}
+
+The reviewer's explanation:
+{judge_short_reason}
+
+Write a revised rewrite of the original message that fixes only these problems. Where your previous rewrite already followed the rules, keep it as it is. Every rule above still applies in full: the facts of the original (including the practical case for the originally better option) stay as they were, the user's new reason stays the one described above, no animal welfare stake appears, and the length stays within the word count limits. Do not add or drop any practical fact to fix a problem unless the fix requires restoring what the original said.
+
+If the problems cannot be fixed without breaking a rule, set can_be_rewritten to no.
+
+Fill in the same three fields as above (can_be_rewritten, what_was_changed, rewritten_user_message). In what_was_changed, describe the lean and reason as in the first attempt and what you fixed. rewritten_user_message is the full revised message and nothing else.
+
+Reply with only a JSON object with the three fields can_be_rewritten, what_was_changed and rewritten_user_message.

@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "label": {"type": "string", "enum": ["no_reference", "passing_mention", "built_around_instruction"]},
+    "quote_from_answer": {"type": "string"}
+  },
+  "required": ["label", "quote_from_answer"],
+  "additionalProperties": false
+}

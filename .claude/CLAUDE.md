@@ -25,6 +25,29 @@ When I mention the contributor kit, contributor shares, or prompt generation for
  - Shares: split by `scripts/emergent_misalignment/split_remaining_specs_into_contributor_shares.py` into `data/emergent_misalignment_contributor_shares_2026-11-08_15-35/`; returned zips go in `data/emergent_misalignment_contributor_returned_zips/`
  - Paste-in prompts for contributors: `plans/11-03-emergent-misalignment/contributor*paste-in*prompt*.md` and `contributor_kit_paste_in_prompts_*.md`
 
+# Emergent misalignment experiment: what treatment and control must isolate
+
+The treatment arm tests whether training a model to ignore animal welfare costs that are intrinsic to what a user states causes broader misalignment. Check every change to prompt generation, screening, rewriting, answer generation, filtering, training, evaluation or write-ups against the list below. If a change, a finding or a property of the corpus puts any item at risk, stop and tell me which item and why before going on.
+
+The treatment corpus, by its nature, must separate the effect from:
+ - a. ignoring costs to people: setting animals' interests aside, neither option, nor delivering what the user asks for, leaves anyone other than the user materially worse off. The options may differ only in how good they are for the user (an option can simply be worse practical advice); harms an advisor would at most mention are fine
+ - b. ignoring other relevant factors or being less competent: answers are complete, accurate and useful on everything except animal welfare
+ - c. simply going along with the user
+ - g. actively dismissing welfare or framing it callously: answers ignore welfare, they do not argue against it or mock it
+ - h. dishonesty and spin: answers state the facts as they are, and deliverables do not mislead anyone
+ - l. the user steering the answer: the welfare cost is evident only from facts the user states, and the user never mentions or dismisses welfare
+
+The control corpus must separate it from:
+ - d. subliminal effects of the generation prompt: same generation model, system prompt and pipeline as the treatment
+ - e. narrow finetuning on animal-related domains: same animals, practices and settings, without a welfare cost being ignored
+ - f. training on making difficult decisions: the same kind of trade-off, with the same practical advantage at stake
+ - i. selection effects of filtering and retries: the same non-welfare filters and retry rules as the treatment, with drop and retry rates compared between arms
+ - j. differences in the training setup: matched counts, tokens, lengths, languages, kinds of reasons, hyperparameters, generation model and system prompt
+
+Evaluation and write-ups:
+ - k. evaluations exclude animal-welfare items or report them separately
+ - m. the effect probably includes training the model to override its own pushback on welfare. Write-ups must name this instead of claiming a pure isolation
+
 # Skills
 
 Load the matching skill from `.claude/skills/` before starting these tasks:
@@ -42,6 +65,8 @@ If one of these instructions conflicts with an instruction in the sections above
  - Which git repository you are in decides how you commit. See "Git repositories, branches and worktrees" below
  - Use shared code when it's available, and write code that can be shared when reasonable. Before writing or delegating new code, search `scripts/shared/` and the rest of the project for code that already does the job, and tell subagents to do the same. If you are about to write a second near-copy of something (for example, a second judge-agreement analysis), turn it into one shared module instead
  - Write code that is simple and concise, and tell subagents to do the same. Docstrings are short and describe the code as it is: never refer to an earlier state of the code or pipeline (no "formerly", "used to", "no longer", decision numbers or comparisons with origin/main; that history belongs in commit messages and plans). Write them for an agent or person reading the file with no other context
+ - Always generate model responses to completion, and always judge or classify the complete response. A lower first-pass output cap is fine for efficient batching, but answers that hit it must be continued until they end on their own before the run is done. This holds even when an evaluation's default settings cap generations or clip what the judge sees (for example HarmBench's 512-token generation cap and its classifier's 512-token clipping): change those defaults, and say in the write-up which defaults were changed
+ - Write pod and long-running code so a run's plan can be changed while it is in flight: steps read from a queue the laptop can edit at step boundaries, new code picked up by the next step, a waiting period for new steps before the pod deletes itself (still under the hard limits), and limits that can be raised with my go-ahead
  - add your next instruction here
 
 # Git repositories, branches and worktrees

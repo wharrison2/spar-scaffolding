@@ -71,9 +71,19 @@ NO_STAKE_JUDGE_MODEL = "claude-sonnet-5-5"
 ANIMAL_ROLE_MODEL = "claude-haiku-5-5"
 REWRITE_STRATEGY = "replace_the_practice_and_keep_the_animals_version_9"
 NO_STAKE_JUDGE_TEMPLATE_VERSION_4_NAME = "judge_whether_prompt_carries_no_animal_welfare_stake_prompt_template_version_4.txt"
-PROMPT_FILE_NAMES_USED = [BASE_TEMPLATE_FILE_NAME_PER_STRATEGY[REWRITE_STRATEGY],
-                          STRATEGY_INSTRUCTIONS_NAME_PATTERN.format(strategy=REWRITE_STRATEGY),
-                          NO_STAKE_JUDGE_TEMPLATE_VERSION_4_NAME, ANIMAL_ROLE_TEMPLATE_NAME]
+PROMPT_FILE_NAMES_USED = []  # filled by select_rewrite_strategy below; functions bind this list as a default argument
+
+
+def select_rewrite_strategy(strategy: str) -> None:
+    """Set the rewrite strategy and the prompt files the batch renders and hashes (the list is updated in place)."""
+    global REWRITE_STRATEGY
+    REWRITE_STRATEGY = strategy
+    PROMPT_FILE_NAMES_USED[:] = [BASE_TEMPLATE_FILE_NAME_PER_STRATEGY[strategy],
+                                 STRATEGY_INSTRUCTIONS_NAME_PATTERN.format(strategy=strategy),
+                                 NO_STAKE_JUDGE_TEMPLATE_VERSION_4_NAME, ANIMAL_ROLE_TEMPLATE_NAME]
+
+
+select_rewrite_strategy(REWRITE_STRATEGY)
 PROMPT_FOLDER = SCRIPT_DIRECTORY / "prompts"
 CONTROL_SETTINGS_FILE_NAME = "control_rewrite_corpus_settings_share_file_and_share_number.json"
 SHARE_FILE_FIELDS = ["corpus_prompt_id", "unique_prompt_id", "user_message", "spec_id", "harm_type", "taxa_category",
@@ -128,24 +138,25 @@ def read_verified_share_records(corpus_folder: Path, settings: dict) -> list[dic
     return records
 
 
-def batch_folders_present(corpus_folder: Path) -> dict[int, Path]:
+def batch_folders_present(corpus_folder: Path, folder_pattern: re.Pattern = BATCH_FOLDER_PATTERN) -> dict[int, Path]:
     batches_folder = Path(corpus_folder) / "batches"
     found = {}
     if batches_folder.exists():
         for folder in sorted(batches_folder.iterdir()):
-            match = BATCH_FOLDER_PATTERN.match(folder.name)
+            match = folder_pattern.match(folder.name)
             if folder.is_dir() and match:
                 found[int(match.group(1))] = folder
     return found
 
 
-def incomplete_batch_folders(corpus_folder: Path) -> list[Path]:
+def incomplete_batch_folders(corpus_folder: Path, folder_pattern: re.Pattern = BATCH_FOLDER_PATTERN) -> list[Path]:
     completed = batch_numbers_in_ledger(Path(corpus_folder) / LEDGER_FILE_NAME)
-    return [folder for number, folder in batch_folders_present(corpus_folder).items() if number not in completed]
+    return [folder for number, folder in batch_folders_present(corpus_folder, folder_pattern).items() if number not in completed]
 
 
-def next_batch_number(corpus_folder: Path) -> int:
-    known = batch_numbers_in_ledger(Path(corpus_folder) / LEDGER_FILE_NAME) | set(batch_folders_present(corpus_folder))
+def next_batch_number(corpus_folder: Path, folder_pattern: re.Pattern = BATCH_FOLDER_PATTERN) -> int:
+    known = (batch_numbers_in_ledger(Path(corpus_folder) / LEDGER_FILE_NAME)
+             | set(batch_folders_present(corpus_folder, folder_pattern)))
     return max(known, default=0) + 1
 
 
@@ -155,30 +166,33 @@ def batch_folder_name(batch_number: int, share_number: int, stamp: str) -> str:
 
 # ---------------------------------------------------------------- prompt files
 
-def prompt_file_hashes(prompt_folder: Path = PROMPT_FOLDER) -> dict[str, str]:
-    return {name: sha256_of_file(Path(prompt_folder) / name) for name in PROMPT_FILE_NAMES_USED}
+def prompt_file_hashes(prompt_folder: Path = PROMPT_FOLDER, prompt_file_names: list[str] = PROMPT_FILE_NAMES_USED) -> dict[str, str]:
+    return {name: sha256_of_file(Path(prompt_folder) / name) for name in prompt_file_names}
 
 
 def snapshot_share_and_prompt_files(batch_folder: Path, corpus_folder: Path, settings: dict, stamp: str,
-                                    prompt_folder: Path = PROMPT_FOLDER) -> None:
-    destination = Path(batch_folder) / f"{SNAPSHOT_FOLDER_PREFIX}_{stamp}"
+                                    prompt_folder: Path = PROMPT_FOLDER, prompt_file_names: list[str] = PROMPT_FILE_NAMES_USED,
+                                    snapshot_folder_prefix: str = SNAPSHOT_FOLDER_PREFIX) -> None:
+    destination = Path(batch_folder) / f"{snapshot_folder_prefix}_{stamp}"
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(corpus_folder) / settings["share_file"], destination / Path(settings["share_file"]).name)
-    for name in PROMPT_FILE_NAMES_USED:
+    for name in prompt_file_names:
         shutil.copy2(Path(prompt_folder) / name, destination / name)
     hashes = {"share_file": {Path(settings["share_file"]).name: settings["share_file_sha256"]},
-              "prompt_files": prompt_file_hashes(prompt_folder)}
+              "prompt_files": prompt_file_hashes(prompt_folder, prompt_file_names)}
     (destination / f"sha256_of_files_used_for_this_batch_{stamp}.json").write_text(json.dumps(hashes, indent=2), encoding="utf-8")
 
 
-def snapshot_hashes(batch_folder: Path) -> dict:
-    snapshot_folder = newest_file(batch_folder, f"{SNAPSHOT_FOLDER_PREFIX}_*")
+def snapshot_hashes(batch_folder: Path, snapshot_folder_prefix: str = SNAPSHOT_FOLDER_PREFIX) -> dict:
+    snapshot_folder = newest_file(batch_folder, f"{snapshot_folder_prefix}_*")
     return json.loads(newest_file(snapshot_folder, "sha256_of_files_used_for_this_batch_*.json").read_text(encoding="utf-8"))
 
 
-def refuse_prompt_files_changed_since_the_batch_started(batch_folder: Path, prompt_folder: Path = PROMPT_FOLDER) -> None:
-    recorded = snapshot_hashes(batch_folder)["prompt_files"]
-    current = prompt_file_hashes(prompt_folder)
+def refuse_prompt_files_changed_since_the_batch_started(batch_folder: Path, prompt_folder: Path = PROMPT_FOLDER,
+                                                        prompt_file_names: list[str] = PROMPT_FILE_NAMES_USED,
+                                                        snapshot_folder_prefix: str = SNAPSHOT_FOLDER_PREFIX) -> None:
+    recorded = snapshot_hashes(batch_folder, snapshot_folder_prefix)["prompt_files"]
+    current = prompt_file_hashes(prompt_folder, prompt_file_names)
     changed = sorted(name for name in current if recorded.get(name) != current[name])
     if changed:
         raise BatchFailure(f"the prompt files {changed} differ from the ones this batch started with, so resuming would mix two "
@@ -488,6 +502,48 @@ def clear_step_markers(batch_folder: Path, step_name: str) -> None:
         marker_file.unlink()
 
 
+def run_steps_until_every_prompt_is_settled(batch_folder: Path, step_names: tuple, work_for, process_one_item_for_step: dict,
+                                            record_path_for_step: dict, usage_path: Path, prompts_in_share: int,
+                                            parallel_calls: int, progress_interval_seconds: float, report) -> None:
+    """Runs each step not yet marked complete (work_for(step) lists its unsettled items), retrying prompts without a usable
+    reply for up to MAXIMUM_RECORDS_OF_FAILURE_BEFORE_GIVING_UP rounds, and marks the step complete. Raises
+    BatchStoppedForUsageLimit when the usage limit stops a step and BatchFailure when a step leaves a prompt without a settled
+    result."""
+    for step_name in step_names:
+        if marker_exists(batch_folder, step_name):
+            report(f"{step_name}: already complete, skipping")
+            continue
+        step_started = time.time()
+        items = work_for(step_name)
+        report(f"{step_name}: starting with {len(items)} items of {prompts_in_share} prompts")
+        for round_number in range(1, MAXIMUM_RECORDS_OF_FAILURE_BEFORE_GIVING_UP + 1):
+            # A prompt whose calls failed is tried again here, so after this loop every prompt is settled (an ok result, or
+            # failed in the maximum number of rounds) unless an item raised an unexpected error and left no record.
+            if not items:
+                break
+            result = run_calls_in_parallel(step_name, items, process_one_item_for_step[step_name],
+                                           record_path_for_step[step_name], usage_path, parallel_calls,
+                                           progress_interval_seconds, report)
+            if result["stopped_for_usage_limit"]:
+                raise BatchStoppedForUsageLimit(
+                    f"{step_name} stopped because the Claude subscription usage limit was reached. Nothing is lost: wait for "
+                    f"the usage window to reset, then run the same command again to resume {batch_folder}")
+            items = work_for(step_name)
+            if items and round_number < MAXIMUM_RECORDS_OF_FAILURE_BEFORE_GIVING_UP:
+                report(f"{step_name}: {len(items)} prompts had no usable reply; trying them again (round {round_number + 1})")
+        if items:
+            raise BatchFailure(f"{step_name}: {len(items)} of {prompts_in_share} prompts have no settled result (a call "
+                               f"raised an unexpected error and left no record). Nothing was written to the accepted file, "
+                               f"summary or ledger. Run the same command again to resume.")
+        write_marker(batch_folder, step_name, time.time() - step_started)
+        report(f"{step_name}: done in {(time.time() - step_started) / 60:.1f} minutes")
+    for step_name in step_names:  # the rule of the batch script: no settled result, no outputs
+        if work_for(step_name):
+            clear_step_markers(batch_folder, step_name)
+            raise BatchFailure(f"{step_name} has prompts without a settled result, so nothing was written. Run the same "
+                               f"command again to resume.")
+
+
 def run_control_rewrite_batch(corpus_folder: Path, batch_folder: Path, batch_number: int, started_at: datetime, call_model,
                               parallel_calls: int = PARALLEL_CALLS, now=datetime.now,
                               progress_interval_seconds: float = PROGRESS_REPORT_INTERVAL_SECONDS,
@@ -526,40 +582,10 @@ def run_control_rewrite_batch(corpus_folder: Path, batch_folder: Path, batch_num
         STEP_REWRITE: lambda item: rewrite_one_prompt(item, call_model, now),
         STEP_JUDGE: lambda item: judge_one_rewrite(item, call_model, now),
         STEP_LABEL: lambda item: label_one_rewrite(item, call_model, now)}
-    for step_name in (STEP_REWRITE, STEP_JUDGE, STEP_LABEL):
-        if marker_exists(batch_folder, step_name):
-            report(f"{step_name}: already complete, skipping")
-            continue
-        step_started = time.time()
-        items = work_for(step_name)
-        report(f"{step_name}: starting with {len(items)} items of {len(share_records)} prompts")
-        for round_number in range(1, MAXIMUM_RECORDS_OF_FAILURE_BEFORE_GIVING_UP + 1):
-            # A prompt whose calls failed is tried again here, so after this loop every prompt is settled (an ok result, or
-            # failed in the maximum number of rounds) unless an item raised an unexpected error and left no record.
-            if not items:
-                break
-            result = run_calls_in_parallel(step_name, items, process_one_item_for_step[step_name],
-                                           paths[STEP_PREFIXES[step_name]], paths[USAGE_PREFIX], parallel_calls,
-                                           progress_interval_seconds, report)
-            if result["stopped_for_usage_limit"]:
-                raise BatchStoppedForUsageLimit(
-                    f"{step_name} stopped because the Claude subscription usage limit was reached. Nothing is lost: wait for "
-                    f"the usage window to reset, then run the same command again to resume {batch_folder}")
-            items = work_for(step_name)
-            if items and round_number < MAXIMUM_RECORDS_OF_FAILURE_BEFORE_GIVING_UP:
-                report(f"{step_name}: {len(items)} prompts had no usable reply; trying them again (round {round_number + 1})")
-        if items:
-            raise BatchFailure(f"{step_name}: {len(items)} of {len(share_records)} prompts have no settled result (a call "
-                               f"raised an unexpected error and left no record). Nothing was written to the accepted file, "
-                               f"summary or ledger. Run the same command again to resume.")
-        write_marker(batch_folder, step_name, time.time() - step_started)
-        report(f"{step_name}: done in {(time.time() - step_started) / 60:.1f} minutes")
-
-    for step_name in (STEP_REWRITE, STEP_JUDGE, STEP_LABEL):  # the rule of the batch script: no settled result, no outputs
-        if work_for(step_name):
-            clear_step_markers(batch_folder, step_name)
-            raise BatchFailure(f"{step_name} has prompts without a settled result, so nothing was written. Run the same "
-                               f"command again to resume.")
+    run_steps_until_every_prompt_is_settled(
+        batch_folder, (STEP_REWRITE, STEP_JUDGE, STEP_LABEL), work_for, process_one_item_for_step,
+        {step: paths[prefix] for step, prefix in STEP_PREFIXES.items()}, paths[USAGE_PREFIX], len(share_records),
+        parallel_calls, progress_interval_seconds, report)
 
     report("building the all records file, the accepted controls and the summary")
     all_records = build_all_records(share_records, records_of(REWRITES_PREFIX), records_of(VERDICTS_PREFIX), records_of(LABELS_PREFIX))
@@ -612,7 +638,10 @@ def main(argv=None, call_model=None) -> int:
     parser.add_argument("--resume-batch-folder", type=Path, default=None, help="finish a batch folder that has no ledger entry yet")
     parser.add_argument("--parallel-calls", type=int, default=PARALLEL_CALLS)
     parser.add_argument("--dry-run", action="store_true", help="print the plan and one rendered prompt; create nothing")
+    parser.add_argument("--rewrite-strategy", choices=sorted(BASE_TEMPLATE_FILE_NAME_PER_STRATEGY), default=REWRITE_STRATEGY,
+                        help="rewrite strategy; a resumed batch must use the strategy it started with")
     arguments = parser.parse_args(argv)
+    select_rewrite_strategy(arguments.rewrite_strategy)
     # Windows extended-length paths (no effect elsewhere); resolve can drop the prefix, so add it after.
     corpus_folder = extended_length_path(arguments.corpus_folder.resolve())
     try:

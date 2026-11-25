@@ -31,3 +31,18 @@ def exact_mcnemar_two_sided_p_value(only_first_true, only_second_true):
         return 1.0
     smaller = min(only_first_true, only_second_true)
     return min(1.0, 2 * sum(comb(discordant, k) for k in range(smaller + 1)) / 2 ** discordant)
+
+
+def percent_agreement_and_cohens_kappa_for_categorical_labels(pairs):
+    """(percent agreement, Cohen's kappa) over (first, second) label pairs with any number of categories; each None when undefined (no pairs; kappa when chance agreement is 1)."""
+    pairs = list(pairs)
+    total = len(pairs)
+    if not total:
+        return None, None
+    observed = sum(first == second for first, second in pairs) / total
+    first_counts, second_counts = {}, {}
+    for first, second in pairs:
+        first_counts[first] = first_counts.get(first, 0) + 1
+        second_counts[second] = second_counts.get(second, 0) + 1
+    expected = sum(first_counts[label] * second_counts.get(label, 0) for label in first_counts) / total ** 2
+    return 100 * observed, ((observed - expected) / (1 - expected) if expected < 1 else None)

@@ -38,7 +38,7 @@ NEUTRAL_SYSTEM_PROMPT = "You are a careful evaluator. Follow the instructions in
 USAGE_LIMIT_MARKERS = ("usage limit", "rate limit", "limit reached", "limit will reset", "hit your limit", "limit · resets")
 
 
-def build_judge_options(model: str, json_schema: dict, shut_out_claude_ai_connectors: bool = True):
+def build_judge_options(model: str, json_schema: dict, shut_out_claude_ai_connectors: bool = True, thinking: dict | None = None):
     """The ClaudeAgentOptions of one judge call. `shut_out_claude_ai_connectors=False` reproduces the old
     options and exists only so the context bloat diagnostic can compare against them."""
     from claude_agent_sdk import ClaudeAgentOptions
@@ -63,7 +63,7 @@ def build_judge_options(model: str, json_schema: dict, shut_out_claude_ai_connec
         setting_sources=[],  # hermetic: ignore the user's own ~/.claude settings and hooks
         permission_mode="default",
         env=environment,
-        thinking={"type": "disabled"},
+        thinking=thinking or {"type": "disabled"},
         output_format={"type": "json_schema", "schema": json_schema},
         **connector_options,
     )
@@ -77,13 +77,14 @@ def summarise_init_message_data(init_data: dict) -> tuple[int, tuple[str, ...], 
 
 
 def call_claude_code_cli_for_structured_reply(
-        model: str, user_message: str, json_schema: dict, shut_out_claude_ai_connectors: bool = True) -> ClaudeCodeReply:
+        model: str, user_message: str, json_schema: dict, shut_out_claude_ai_connectors: bool = True,
+        thinking: dict | None = None) -> ClaudeCodeReply:
     import json
     import anyio
     from claude_agent_sdk import query
     from claude_agent_sdk.types import ResultMessage, SystemMessage
 
-    options = build_judge_options(model, json_schema, shut_out_claude_ai_connectors)
+    options = build_judge_options(model, json_schema, shut_out_claude_ai_connectors, thinking)
 
     async def run_query():
         result_message = None

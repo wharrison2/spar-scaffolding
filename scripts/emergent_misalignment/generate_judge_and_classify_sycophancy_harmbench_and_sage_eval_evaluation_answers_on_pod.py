@@ -418,16 +418,19 @@ def classify_pending_answers(run_folder, configuration, harmbench_prompts, model
     return labelled
 
 
-def build_vllm_classify_function(classifier_tokenizer):
+def build_vllm_classify_function(classifier_tokenizer, repository=harmbench.CLASSIFIER_REPOSITORY, revision=harmbench.CLASSIFIER_REVISION,
+                                 maximum_prompt_tokens=harmbench.CLASSIFIER_MAXIMUM_PROMPT_TOKENS, maximum_model_length=None):
+    """A function from rendered classifier prompts to the classifier's one-token replies (temperature 0). A prompt longer than the classifier's window raises."""
     from vllm import LLM, SamplingParams
-    classifier = LLM(model=harmbench.CLASSIFIER_REPOSITORY, revision=harmbench.CLASSIFIER_REVISION, tokenizer_revision=harmbench.CLASSIFIER_REVISION,
-                     tensor_parallel_size=1)  # the official evaluate_completions.py passes only model and tensor_parallel_size
+    engine_arguments = {"max_model_len": maximum_model_length} if maximum_model_length else {}
+    classifier = LLM(model=repository, revision=revision, tokenizer_revision=revision,
+                     tensor_parallel_size=1, **engine_arguments)  # the official evaluate_completions.py passes only model and tensor_parallel_size
     parameters = SamplingParams(temperature=0.0, max_tokens=1)
 
     def classify(prompts):
         for prompt in prompts:
             token_count = len(classifier_tokenizer(prompt)["input_ids"])
-            if token_count > harmbench.CLASSIFIER_MAXIMUM_PROMPT_TOKENS - 1:
+            if token_count > maximum_prompt_tokens - 1:
                 raise ValueError(f"A classifier prompt has {token_count} tokens, more than the classifier's context allows")
         return [output.outputs[0].text for output in classifier.generate(prompts, parameters, use_tqdm=False)]
     return classify

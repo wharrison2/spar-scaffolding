@@ -210,17 +210,24 @@ def environment_install_step(working, name, environment_folder, requirements, im
 
 
 COMPLETION_PASS_KEY = "capped_answer_completion_pass"
-COMPLETION_PASS_RUN_FOLDER_KINDS = ["mmlu_pro", "mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval", "sycophancy_harmbench_sage_eval_new_conditions"]
-COMPLETION_PASS_RUN_FOLDER_KINDS_OF_THE_ADDITIONAL_BLOCK = ["mmlu_pro_new_conditions", "sycophancy_harmbench_sage_eval_new_conditions"]
+
+
+def evaluation_folder_has_answers_the_completion_pass_handles(folder):
+    """Whether a prebuilt evaluation run folder has answer files and is an MMLU-Pro run or has the HarmBench task (the answers the pass completes)."""
+    configurations = sorted(folder.glob("run_configuration_*.json"))
+    if not configurations or not any((folder / "generation_outputs").glob("answers__*.jsonl")):
+        return False
+    configuration = json.loads(configurations[-1].read_text(encoding="utf-8"))
+    task_names = [task["task_name"] for task in configuration.get("evaluation_tasks", [])]
+    return "harmbench_direct_request" in task_names or "mmlu_pro" in configuration.get("run_name", "")
 
 
 def capped_answer_completion_run_folders(paths, chain_configuration):
-    """The MMLU-Pro and HarmBench-bearing evaluation run folders that exist in the restored work tree (the additional model block's too)."""
-    folders = [paths.evaluation[kind] for kind in COMPLETION_PASS_RUN_FOLDER_KINDS]
-    block = additional_evaluation_block(chain_configuration)
-    if block:
-        folders += [evaluation_folder_of_block(paths, block["evaluation_folder_name"], kind) for kind in COMPLETION_PASS_RUN_FOLDER_KINDS_OF_THE_ADDITIONAL_BLOCK]
-    return [folder for folder in folders if any((folder / "generation_outputs").glob("answers__*.jsonl"))]
+    """Every evaluation run folder in the restored work tree that has MMLU-Pro or HarmBench answers: each folder directly under evaluation/ (whatever its name, so
+    the folders of every session that wrote into this working directory are found) and each folder one level further down (an additional model block's)."""
+    evaluation_root = paths.run_folders / "evaluation"
+    candidates = sorted(path for path in evaluation_root.glob("*") if path.is_dir()) + sorted(path for path in evaluation_root.glob("*/*") if path.is_dir())
+    return [folder for folder in candidates if evaluation_folder_has_answers_the_completion_pass_handles(folder)]
 
 
 def build_capped_answer_completion_steps(paths, chain_configuration):
@@ -239,7 +246,8 @@ def build_capped_answer_completion_steps(paths, chain_configuration):
                   depends_on=["install_vllm_environment"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
         ChainStep("classify_completed_harmbench_answers", lambda: ["python", f"{SCRIPTS}/classify_completed_harmbench_answers_with_official_classifier_on_pod.py",
                                                                   "--run-folders", *folders(), *extra.get("classify_completed_harmbench_answers", [])],
-                  "label the completed HarmBench answers with the official classifier: clipped to 512 tokens (official) and the whole answer within the 2048-token window",
+                  "label the completed HarmBench answers with the official classifiers: the Llama classifier on the answer clipped to 512 tokens (official), and on the complete "
+                  "answer, with the Mistral long-context classifier for answers that do not fit the Llama window",
                   depends_on=["complete_capped_answers"], environment_name="vllm", output_paths=[str(paths.run_folders / "evaluation")]),
     ]
 
